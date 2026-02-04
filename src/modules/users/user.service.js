@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import db from "../../config/db.js";
-import redisClient from "../../config/redis.js";
+import redis from "../../config/redis.js";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import generateUserCode from "../../utils/usercode.js";

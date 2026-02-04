@@ -1,4 +1,3 @@
-
 import Joi from "joi";
 
 export const signupSchema = Joi.object({
@@ -8,27 +7,55 @@ export const signupSchema = Joi.object({
   region: Joi.string().required(),
   address: Joi.string().allow("", null),
   dob: Joi.date().less("now").required(),
-  referalid: Joi.string().allow("", null),
+
+  // accept WRONG key
+  referalid: Joi.string().empty("").default("AAAAA1111").optional(),
+
+  // accept CORRECT key
+  referralid: Joi.string().empty("").default("AAAAA1111").optional(),
+
   password: Joi.string()
     .min(8)
     .pattern(/^(?=.*[A-Z])(?=.*\d).+$/)
     .required(),
-}).options({ allowUnknown: true });
+});
 
 
+export const verifyOtpSchema = Joi.object({
+  mobile: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .required(),
 
-  export const sendOtpSchema = Joi.object({
+  otp: Joi.alternatives()
+  .try(
+    Joi.string().length(6),
+    Joi.number().integer().min(100000).max(999999)
+  )
+  .required()
+});
+
+
+export const sendOtpSchema = Joi.object({
   email: Joi.string().email().optional(),
-  mobile: Joi.string().pattern(/^[0-9]{10}$/).optional(),
+
+  mobile: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .optional(),
 })
   .or("email", "mobile")
   .required();
 
-  export const loginSchema = Joi.object({
+
+export const loginSchema = Joi.object({
   email: Joi.string().email().optional(),
-  mobile: Joi.string().pattern(/^[0-9]{10}$/).optional(),
-  otp: Joi.string().length(6).required(),
+
+  mobile: Joi.string()
+    .pattern(/^[0-9]{10,15}$/)
+    .optional(),
+
+  otp: Joi.string()
+    .length(6)
+    .required(),
 })
   .or("email", "mobile")
   .required();
-

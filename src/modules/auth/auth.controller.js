@@ -1,20 +1,52 @@
 
 import jwt from "jsonwebtoken";
-import { signupSchema, loginSchema,sendOtpSchema } from "../auth/auth.validation.js";
-import { signupService,sendLoginOtpService, loginService } from "../auth/auth.service.js";
+import { signupSchema, loginSchema,sendOtpSchema, verifyOtpSchema } from "../auth/auth.validation.js";
+import { signupService,sendLoginOtpService, loginService,requestSignupOtpService } from "../auth/auth.service.js";
+
 
 
 export const signup = async (req, res) => {
   try {
-    console.log("Signup hit:", req.body);
+    if (!req.body) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body is missing"
+      });
+    }
+
+    console.log("Request Signup OTP:", req.body);
+
     await signupSchema.validateAsync(req.body);
-    const user = await signupService(req.body);
-    res.json({ success: true, message: "Signup successful", data: user });
+    await requestSignupOtpService(req.body);
+
+    res.json({
+      success: true,
+      message: "OTP sent to mobile number"
+    });
   } catch (err) {
-     const message =
-      err.details?.[0]?.message || err.message || "Signup failed";
-    console.log("Error:", err.message);
-    res.status(400).json({ success: false, message: err.message });
+    res.status(400).json({
+      success: false,
+      message: err.details?.[0]?.message || err.message
+    });
+  }
+};
+
+export const verifySignupOtp = async (req, res) => {
+  try {
+    console.log("Verify Signup OTP:", req.body);
+
+    await verifyOtpSchema.validateAsync(req.body);
+
+    const result = await signupService(req.body);
+
+    res.json(result);
+  } catch (err) {
+    console.error("Verify OTP Error:", err.message);
+
+    res.status(400).json({
+      success: false,
+      message: err.details?.[0]?.message || err.message || "OTP verification failed"
+    });
   }
 };
 
@@ -41,6 +73,35 @@ export const sendLoginOtp = async (req, res) => {
 };
 
 
+export const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.query;
+    if (!token) throw new Error("Token missing");
+
+    const [[user]] = await db.query(
+      "SELECT id, emailverify FROM users WHERE email_token = ?",
+      [token]
+    );
+
+    if (!user) throw new Error("Invalid or expired token");
+
+    if (user.emailverify === 1) {
+      return res.redirect(`${process.env.FRONTEND_URL}/email-verified?status=already`);
+    }
+
+    await db.query(
+      "UPDATE users SET emailverify = 1, email_token = NULL WHERE id = ?",
+      [user.id]
+    );
+
+    // Redirect to frontend success page
+    res.redirect(`${process.env.FRONTEND_URL}/email-verified?status=success`);
+  } catch (err) {
+    console.error("Email verification error:", err.message);
+    // Redirect to frontend error page
+    res.redirect(`${process.env.FRONTEND_URL}/email-verified?status=failed`);
+  }
+};
 
 
 export const login = async (req, res) => {
@@ -49,10 +110,8 @@ export const login = async (req, res) => {
 
     await loginSchema.validateAsync(req.body);
 
-    // loginService returns user details
     const user = await loginService(req.body);
 
-    // create JWT
     const token = jwt.sign(
       {
         userId: user.usercode, // or user.id
