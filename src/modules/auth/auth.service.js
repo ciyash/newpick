@@ -149,17 +149,17 @@ export const signupService = async ({ mobile, otp }) => {
   await redis.del(`SIGNUP:${normalizedMobile}`);
   await redis.del(`SIGNUP_OTP:${normalizedMobile}`);
   
- const verificationUrl = `${process.env.FRONTEND_URL}/email-verified?token=${emailToken}`;
+ //const verificationUrl = `${process.env.FRONTEND_URL}/email-verified?token=${emailToken}`;
 
-await transporter.sendMail({
-  from: process.env.SMTP_USER,
-  to: email,
-  subject: "Verify your email",
-  html: `<p>Hi ${name},</p>
-         <p>Click the button below to verify your email:</p>
-         <a href="${verificationUrl}" style="padding:10px 20px; background-color:#4CAF50; color:white; text-decoration:none; border-radius:5px;">Verify Email</a>
-         <p>If you did not signup, ignore this email.</p>`,
-});
+// await transporter.sendMail({
+//   from: process.env.SMTP_USER,
+//   to: email,
+//   subject: "Verify your email",
+//   html: `<p>Hi ${name},</p>
+//          <p>Click the button below to verify your email:</p>
+//          <a href="${verificationUrl}" style="padding:10px 20px; background-color:#4CAF50; color:white; text-decoration:none; border-radius:5px;">Verify Email</a>
+//          <p>If you did not signup, ignore this email.</p>`,
+// });
 
   return {
     success: true,
@@ -184,6 +184,7 @@ export const sendLoginOtpService = async (data) => {
 
   const user = users[0];
   const otp = crypto.randomInt(100000, 999999).toString();
+   console.log("Send OTP :",otp);
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
   await db.query(
     `UPDATE users 
@@ -234,3 +235,86 @@ export const loginService = async (data) => {
   };
 };
 
+
+//Admin service
+const MAX_FAILED_ATTEMPTS = 5;
+
+export const adminLoginService = async ({ email, password }, ipAddress) => {
+  console.log("Admin Eamil:", email);
+  console.log("Admin pasword:", password);
+
+  const [rows] = await db.query(
+    'SELECT * FROM admin WHERE email = ?',
+    [email]
+);
+
+const admin = rows[0] || null;
+
+ console.log("Admin :", admin);
+  if (!admin || !admin.password_hash) {
+    throw new Error("Admin not found or password missing");
+  }
+
+  if (!admin) {
+    await db.query(
+      `INSERT INTO admin_logs (email, action, reason, ip_address)
+       VALUES (?, 'LOGIN_FAILED', 'EMAIL_NOT_FOUND', ?)`,
+      [email, ipAddress]
+    );
+    throw new Error("Invalid credentials");
+  }
+
+  if (admin.status !== "active") {
+    await db.query(
+      `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
+       VALUES (?, ?, 'LOGIN_FAILED', 'ACCOUNT_INACTIVE', ?)`,
+      [admin.id, admin.email, ipAddress]
+    );
+    throw new Error("Account is inactive");
+  }
+
+  const hash = await bcrypt.hash(password, 12);
+
+console.log(hash);
+
+  const isMatch = await bcrypt.compare(password, admin.password_hash);
+  console.log("Password match?", isMatch);
+  if (!isMatch) {
+    await db.query(
+      `UPDATE admin SET failed_attempts = failed_attempts + 1 WHERE id = ?`,
+      [admin.id]
+    );
+
+    await db.query(
+      `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
+       VALUES (?, ?, 'LOGIN_FAILED', 'INVALID_PASSWORD', ?)`,
+      [admin.id, admin.email, ipAddress]
+    );
+
+    if (admin.failed_attempts + 1 >= MAX_FAILED_ATTEMPTS) {
+      await db.query(
+        `UPDATE admin SET status = 'inactive' WHERE id = ?`,
+        [admin.id]
+      );
+    }
+
+    throw new Error("Invalid credentials");
+  }
+
+  await db.query(
+    `UPDATE admin
+     SET failed_attempts = 0, last_login = NOW()
+     WHERE id = ?`,
+    [admin.id]
+  );
+
+  await db.query(
+    `INSERT INTO admin_logs (admin_id, email, action, ip_address)
+     VALUES (?, ?, 'LOGIN_SUCCESS', ?)`,
+    [admin.id, admin.email, ipAddress]
+  );
+
+  delete admin.password_hash;
+  delete admin.email;
+  return admin;
+};

@@ -1,8 +1,8 @@
 
 import jwt from "jsonwebtoken";
 import { signupSchema, loginSchema,sendOtpSchema, verifyOtpSchema } from "../auth/auth.validation.js";
-import { signupService,sendLoginOtpService, loginService,requestSignupOtpService } from "../auth/auth.service.js";
-
+import { signupService,sendLoginOtpService, loginService,requestSignupOtpService,adminLoginService } from "../auth/auth.service.js";
+import { getClientIp } from "../../utils/ip.js";
 
 
 export const signup = async (req, res) => {
@@ -133,6 +133,43 @@ export const login = async (req, res) => {
     res.status(400).json({
       success: false,
       message: err.message,
+    });
+  }
+};
+
+//admin login
+
+export const adminLogin = async (req, res) => {
+  try {
+
+     console.log("Admin Login:", req.body);
+     
+    const ipAddress = getClientIp(req);
+
+    const admin = await adminLoginService(req.body, ipAddress);
+
+    
+
+    const token = jwt.sign(
+      {
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
+        type: "admin"
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      data: admin
+    });
+  } catch (err) {
+    res.status(401).json({
+      success: false,
+      message: err.message
     });
   }
 };
