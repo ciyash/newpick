@@ -6,8 +6,13 @@ import nodemailer from "nodemailer";
 import generateUserCode from "../../utils/usercode.js";
 
 export const createAdminService = async (creator, data) => {
+  
+  if (!data.name || !data.email || !data.password || !data.role) {
+    throw new Error("Missing required admin fields");
+  }
 
-    const [existing] = await db.query(
+  
+  const [existing] = await db.query(
     "SELECT id FROM admin WHERE email = ?",
     [data.email]
   );
@@ -15,19 +20,37 @@ export const createAdminService = async (creator, data) => {
   if (existing.length > 0) {
     throw new Error("Admin with this email already exists");
   }
+
+  
   const hashed = await bcrypt.hash(data.password, 12);
 
-  const [result] = await db.query(
-    `INSERT INTO admin (name,email,password_hash,role,created_at)
-     VALUES (?,?,?,?,NOW())`,
-    [data.name, data.email, hashed, data.role]
-  );
+  console.log("Preparing admin insert with values:", {
+    name: data.name,
+    email: data.email,
+    password_hash: hashed,
+    role: data.role
+  });
 
+  let result; 
+  try {
+    [result] = await db.query(
+      `INSERT INTO admin (name,email,password_hash,role,created_at)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [data.name, data.email, hashed, data.role]
+    );
+    console.log("Insert successful, new admin id:", result.insertId);
+  } catch (err) {
+    console.error("Admin insert failed:", err);
+    throw err;
+  }
+
+  
   await db.query(
     `INSERT INTO admin_logs (admin_id, action)
      VALUES (?, 'CREATE_ADMIN')`,
-    [creator.adminId]
+    [result.insertId]
   );
+
 
   return { id: result.insertId };
 };
