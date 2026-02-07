@@ -4,7 +4,7 @@ import redis from "../../config/redis.js";
 import crypto from "crypto";
 import nodemailer from "nodemailer";
 import generateUserCode from "../../utils/usercode.js";
-
+  //
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST,
   port: process.env.SMTP_PORT,
