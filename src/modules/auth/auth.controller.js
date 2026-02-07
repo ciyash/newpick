@@ -14,14 +14,15 @@ export const signup = async (req, res) => {
       });
     }
 
-    console.log("Request Signup OTP:", req.body);
-
     await signupSchema.validateAsync(req.body);
-    await requestSignupOtpService(req.body);
+
+    // 👇 RECEIVE RESULT FROM SERVICE
+    const result = await requestSignupOtpService(req.body);
 
     res.json({
       success: true,
-      message: "OTP sent to mobile number"
+      message: "OTP sent to mobile number",
+      otp: result.otp   // 👈 NOW IT WORKS
     });
   } catch (err) {
     res.status(400).json({
@@ -30,6 +31,7 @@ export const signup = async (req, res) => {
     });
   }
 };
+
 
 export const verifySignupOtp = async (req, res) => {
   try {
@@ -52,7 +54,8 @@ export const verifySignupOtp = async (req, res) => {
 
 export const sendLoginOtp = async (req, res) => {
   try {
-    console.log("Send OTP hit:", req.body);
+  
+      const result = await sendLoginOtpService(req.body);
 
     await sendOtpSchema.validateAsync(req.body);
 
@@ -61,6 +64,7 @@ export const sendLoginOtp = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "OTP sent successfully",
+      otp: result.otp
     });
   } catch (err) {
     console.error("Send OTP error:", err.message);
@@ -104,18 +108,51 @@ export const verifyEmail = async (req, res) => {
 };
 
 
+// export const login = async (req, res) => {
+//   try {
+//     console.log("Login hit:", req.body);
+
+//     await loginSchema.validateAsync(req.body);
+
+//     const user = await loginService(req.body);
+
+//     const token = jwt.sign(
+//       {
+//         userId: user.usercode, // or user.id
+//         email: user.email,
+//       },
+//       process.env.JWT_SECRET,
+//       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+//     );
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Login successful",
+//       token,
+//       data: user,
+//     });
+//   } catch (err) {
+//     console.error("Login error:", err.message);
+
+//     res.status(400).json({
+//       success: false,
+//       message: err.message,
+//     });
+//   }
+// };
+
+
+
 export const login = async (req, res) => {
   try {
-    console.log("Login hit:", req.body);
-
     await loginSchema.validateAsync(req.body);
 
     const user = await loginService(req.body);
 
     const token = jwt.sign(
       {
-        userId: user.usercode, // or user.id
-        email: user.email,
+        id: user.id,              // ✅ DB PRIMARY KEY
+        usercode: user.usercode,  // optional
       },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
@@ -125,14 +162,17 @@ export const login = async (req, res) => {
       success: true,
       message: "Login successful",
       token,
-      data: user,
+      data: {
+        usercode: user.usercode,
+        email: user.email,
+        name: user.name
+      }
     });
   } catch (err) {
-    console.error("Login error:", err.message);
-
     res.status(400).json({
       success: false,
       message: err.message,
     });
   }
 };
+

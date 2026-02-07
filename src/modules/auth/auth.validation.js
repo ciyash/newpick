@@ -43,7 +43,7 @@ export const sendOtpSchema = Joi.object({
     .optional(),
 })
   .or("email", "mobile")
-  .required();
+  .required();  
 
 
 export const loginSchema = Joi.object({
