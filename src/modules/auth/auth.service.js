@@ -1,23 +1,18 @@
-import bcrypt from "bcrypt";
 import db from "../../config/db.js";
 import redis from "../../config/redis.js";
 import crypto from "crypto";
-import nodemailer from "nodemailer";
 import generateUserCode from "../../utils/usercode.js";
-  //
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
+
+/* =====================================================
+   1️⃣ REQUEST SIGNUP OTP
+===================================================== */
 
 export const requestSignupOtpService = async (data) => {
-  const { name, email, mobile, region, address, dob, referralid, password } = data;
+  const { name, email, mobile, region, address, dob, referralid } = data;
 
+  const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+  // age check
   const birthDate = new Date(dob);
   const age =
     new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
@@ -31,64 +26,74 @@ export const requestSignupOtpService = async (data) => {
 
   const [[mobileExists]] = await db.query(
     "SELECT id FROM users WHERE mobile = ?",
-    [mobile]
+    [normalizedMobile]
   );
   if (mobileExists) throw new Error("Mobile already registered");
 
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const otp = crypto.randomInt(100000, 999999).toString();
 
+  // 🔑 ALWAYS USE normalizedMobile
   await redis.set(
-    `SIGNUP:${mobile}`,
+    `SIGNUP:${normalizedMobile}`,
     JSON.stringify({
       name,
       email,
-      mobile,
+      mobile: normalizedMobile,
       region,
       address,
       dob,
-      referralid,
-      password
+      referralid: referralid || "AAAAA1111"
     }),
     { ex: 300 }
   );
 
-  await redis.set(`SIGNUP_OTP:${mobile}`, otp, { ex: 3000 });
+  await redis.set(
+    `SIGNUP_OTP:${normalizedMobile}`,
+    otp,
+    { ex: 300 }
+  );
 
-  console.log(`SIGNUP OTP for ${mobile}: ${otp}`);
+  console.log(`SIGNUP OTP for ${normalizedMobile}: ${otp}`);
 
   return {
-    otp // 👈 IMPORTANT
+    success: true,
+    message: "OTP sent to mobile number",
+    otp
   };
 };
 
 
 
 export const signupService = async ({ mobile, otp }) => {
+  // ✅ Normalize mobile EXACTLY same as signup OTP service
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-  // 1️⃣ OTP from Redis
-  const savedOtpRaw = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
-  if (!savedOtpRaw) throw new Error("OTP expired");
+  /* --------------------------------
+     1️⃣ OTP CHECK
+  -------------------------------- */
+  const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
+  if (!savedOtp) {
+    throw new Error("OTP expired");
+  }
 
-  if (String(savedOtpRaw).trim() !== String(otp).trim()) {
+  if (String(savedOtp).trim() !== String(otp).trim()) {
     throw new Error("Invalid OTP");
   }
 
-  // 2️⃣ Signup data from Redis
-  const signupDataRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
-  if (!signupDataRaw) throw new Error("Signup session expired");
+  /* --------------------------------
+     2️⃣ SIGNUP DATA FROM REDIS
+  -------------------------------- */
+  const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
+  if (!signupRaw) {
+    throw new Error("Signup session expired");
+  }
 
-  const signupData =
-    typeof signupDataRaw === "string"
-      ? JSON.parse(signupDataRaw)
-      : signupDataRaw;
+  const signupData = JSON.parse(signupRaw);
+  const { name, email, region, address, dob, referralid } = signupData;
 
-  const { name, email, region, address, dob, referralid, password } = signupData;
-
-  // 3️⃣ Hash password
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  // 4️⃣ Generate unique usercode
+  /* --------------------------------
+     3️⃣ GENERATE UNIQUE USERCODE
+  -------------------------------- */
   let usercode;
   while (true) {
     usercode = generateUserCode();
@@ -99,38 +104,47 @@ export const signupService = async ({ mobile, otp }) => {
     if (!exists) break;
   }
 
-  // 5️⃣ Generate sequential userid
+  /* --------------------------------
+     4️⃣ GENERATE SEQUENTIAL USERID
+  -------------------------------- */
   const [[lastUser]] = await db.query(
     "SELECT userid FROM users ORDER BY id DESC LIMIT 1"
   );
 
-  let newUserId;
-  if (!lastUser || !lastUser.userid) {
-    newUserId = "PTW000001";
-  } else {
-    const lastNumber = parseInt(lastUser.userid.replace("PTW", ""), 10);
-    newUserId = "PTW" + String(lastNumber + 1).padStart(6, "0");
-  }
+  const nextNumber = lastUser && lastUser.userid
+    ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
+    : 1;
 
-  // 6️⃣ Referral validation
+  const userid = "PTW" + String(nextNumber).padStart(6, "0");
+
+  /* --------------------------------
+     5️⃣ REFERRAL VALIDATION
+  -------------------------------- */
   let referralUserCode = null;
+
   if (referralid && referralid !== "AAAAA1111") {
     const [[refUser]] = await db.query(
       "SELECT id FROM users WHERE usercode = ?",
       [referralid]
     );
-    if (!refUser) throw new Error("Invalid referral code");
+
+    if (!refUser) {
+      throw new Error("Invalid referral code");
+    }
+
     referralUserCode = referralid;
   }
 
-  // 7️⃣ Insert user
-  const [userInsertResult] = await db.query(
+  /* --------------------------------
+     6️⃣ INSERT USER
+  -------------------------------- */
+  const [result] = await db.query(
     `INSERT INTO users
      (userid, usercode, name, email, mobile, region, address, dob,
-      referalid, password, email_token, emailverify, phoneverify, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, 1, NOW())`,
+      referalid, emailverify, phoneverify, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
     [
-      newUserId,
+      userid,
       usercode,
       name,
       email,
@@ -138,51 +152,56 @@ export const signupService = async ({ mobile, otp }) => {
       region,
       address,
       dob,
-      referralUserCode,
-      hashedPassword
+      referralUserCode
     ]
   );
 
-  const userDbId = userInsertResult.insertId;
+  const userId = result.insertId;
 
-  // 8️⃣ CREATE WALLET
+  /* --------------------------------
+     7️⃣ CREATE WALLET
+  -------------------------------- */
   await db.query(
     `INSERT INTO wallets
      (user_id, depositwallet, earnwallet, bonusamount, total_deposits, total_withdrawals)
      VALUES (?, 0, 0, 0, 0, 0)`,
-    [userDbId]
+    [userId]
   );
 
-  // 🎁 9️⃣ JOINING BONUS (5 pounds)
+  /* --------------------------------
+     8️⃣ JOINING BONUS
+  -------------------------------- */
   await db.query(
     `UPDATE wallets
      SET bonusamount = bonusamount + 5
      WHERE user_id = ?`,
-    [userDbId]
+    [userId]
   );
 
-  // 🔟 Clear Redis
+  /* --------------------------------
+     9️⃣ CLEAR REDIS
+  -------------------------------- */
   await redis.del(`SIGNUP:${normalizedMobile}`);
   await redis.del(`SIGNUP_OTP:${normalizedMobile}`);
 
-  // 11️⃣ Return response
+  /* --------------------------------
+     🔟 RESPONSE
+  -------------------------------- */
   return {
     success: true,
     message: "Signup completed successfully",
     data: {
-      userid: newUserId,
+      userid,
       usercode
     }
   };
 };
 
 
-export const sendLoginOtpService = async (data) => {
-  const { email, mobile } = data;
-
+export const sendLoginOtpService = async ({ email, mobile }) => {
   const [users] = await db.query(
     `SELECT id, email, mobile, loginotp, loginotpexpires
-     FROM users 
+     FROM users
      WHERE email = ? OR mobile = ?`,
     [email || null, mobile || null]
   );
@@ -191,45 +210,40 @@ export const sendLoginOtpService = async (data) => {
 
   const user = users[0];
 
-  // 🛑 If OTP already exists & not expired
+  // 🔁 Reuse OTP if not expired
   if (
     user.loginotp &&
     user.loginotpexpires &&
     new Date(user.loginotpexpires) > new Date()
   ) {
-    console.log(
-      `LOGIN OTP (REUSED) for ${user.email || user.mobile}: ${user.loginotp}`
-    );
-
+    console.log(`LOGIN OTP (REUSED): ${user.loginotp}`);
     return {
-      message: "OTP already sent",
-      otp: user.loginotp // reuse same OTP
+      otp: user.loginotp
     };
   }
 
-  // Generate new OTP
+  // 🔐 Generate new OTP
   const otp = crypto.randomInt(100000, 999999).toString();
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
   await db.query(
-    `UPDATE users 
-     SET loginotp = ?, loginotpexpires = ? 
+    `UPDATE users
+     SET loginotp = ?, loginotpexpires = ?
      WHERE id = ?`,
     [otp, expiresAt, user.id]
   );
 
-  console.log(`LOGIN OTP (NEW) for ${user.email || user.mobile}: ${otp}`);
+  console.log(`LOGIN OTP (NEW): ${otp}`);
 
   return {
-    message: "OTP sent successfully",
     otp
   };
 };
 
 
-export const loginService = async (data) => {
-  const { email, mobile, otp } = data;
 
+
+export const loginService = async ({ email, mobile, otp }) => {
   const [users] = await db.query(
     `SELECT id, usercode, email, mobile, name, loginotp, loginotpexpires
      FROM users
@@ -237,22 +251,15 @@ export const loginService = async (data) => {
     [email || null, mobile || null]
   );
 
-  if (!users.length) {
-    throw new Error("User not found");
-  }
+  if (!users.length) throw new Error("User not found");
 
   const user = users[0];
 
-  // OTP validation
-  if (user.loginotp !== otp) {
-    throw new Error("Invalid OTP");
-  }
-
+  if (user.loginotp !== otp) throw new Error("Invalid OTP");
   if (new Date(user.loginotpexpires) < new Date()) {
     throw new Error("OTP expired");
   }
 
-  // Clear OTP after successful login
   await db.query(
     `UPDATE users
      SET loginotp = NULL, loginotpexpires = NULL
@@ -260,12 +267,11 @@ export const loginService = async (data) => {
     [user.id]
   );
 
-  // 🔑 IMPORTANT: id must be returned
   return {
-    id: user.id,              // ✅ REQUIRED for JWT & wallet
+    id: user.id,
     usercode: user.usercode,
     email: user.email,
     mobile: user.mobile,
-    name: user.name,
+    name: user.name
   };
 };

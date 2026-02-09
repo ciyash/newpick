@@ -7,7 +7,7 @@ import subscriptionRoutes from "./subscription.routes.js";
 
 const app = express.Router();
 
-app.get("/userprofile", authenticate, getProfile);
+app.use("/userprofile", authenticate, getProfile);
 app.use("/wallet", authenticate,walletRoutes)
 app.use("/subscription", authenticate,subscriptionRoutes )
 

@@ -14,10 +14,7 @@ export const signupSchema = Joi.object({
   // accept CORRECT key
   referralid: Joi.string().empty("").default("AAAAA1111").optional(),
 
-  password: Joi.string()
-    .min(8)
-    .pattern(/^(?=.*[A-Z])(?=.*\d).+$/)
-    .required(),
+
 });
 
 
