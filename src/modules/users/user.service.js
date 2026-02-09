@@ -1,9 +1,7 @@
 import db from "../../config/db.js";
 
 export const getUserProfileService = async (userId) => {
-  /* --------------------------------
-     1️⃣ GET USER BASIC DETAILS
-  -------------------------------- */
+
   const [[user]] = await db.query(
     `SELECT
         userid,
