@@ -12,7 +12,7 @@ export const adminAuth = (roles = []) => {
         throw new Error("Unauthorized");
 
       if (roles.length && !roles.includes(decoded.role))
-        throw new Error("Forbidden");
+        throw new Error("NOT ACCESS");
 
       req.admin = decoded;
       next();

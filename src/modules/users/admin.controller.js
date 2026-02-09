@@ -1,53 +1,80 @@
-import {
-  createAdminService,
-  getAdminsService,
-  getAdminByIdService,
-  updateAdminService,
-  updateProfileService
-} from "./admin.service.js";
+import * as s from "./admin.service.js";
 
-import {
-  createAdminSchema,
-  updateAdminSchema,
-  updateProfileSchema
-} from "./admin.validation.js";
+export const createAdmin = async (req,res) =>
+  res.status(201).json({ success:true, data: await s.createAdmin(req.body,req.admin,req.ip) });
 
-export const createAdmin = async (req, res) => {
-  try {
-    await createAdminSchema.validateAsync(req.body);
-    const result = await createAdminService(req.admin, req.body);
-    res.json({ success: true, message: "Admin created", data: result });
-  } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
-  }
+export const getAdmins = async (req,res) =>
+  res.json({ success:true, data: await s.getAdmins() });
+
+export const getAdminById = async (req,res) =>
+  res.json({ success:true, data: await s.getAdminById(req.params.id) });
+
+export const updateAdmin = async (req,res) => {
+  await s.updateAdmin(req.params.id,req.body,req.admin,req.ip);
+  res.json({ success:true });
 };
 
-export const getAdmins = async (req, res) => {
-  const data = await getAdminsService();
-  res.json({ success: true, data });
+/* SERIES */
+export const createSeries = async (req,res) =>
+  res.status(201).json({ success:true, data: await s.createSeries(req.body,req.admin,req.ip) });
+
+export const getSeries = async (req,res) =>
+  res.json({ success:true, data: await s.getSeries() });
+
+export const getSeriesById = async (req,res) =>
+  res.json({ success:true, data: await s.getSeriesById(req.params.id) });
+
+export const updateSeries = async (req,res) => {
+  await s.updateSeries(req.params.id,req.body,req.admin,req.ip);
+  res.json({ success:true });
 };
 
-export const getAdminById = async (req, res) => {
-  const data = await getAdminByIdService(req.params.id);
-  res.json({ success: true, data });
+/* MATCH */
+export const createMatch = async (req,res) =>
+  res.status(201).json({ success:true, data: await s.createMatch(req.body,req.admin,req.ip) });
+
+export const getMatches = async (req,res) =>
+  res.json({ success:true, data: await s.getMatches() });
+
+export const getMatchById = async (req,res) =>
+  res.json({ success:true, data: await s.getMatchById(req.params.id) });
+export const getMatchBySeries = async (req,res) =>
+  res.json({ success:true, data: await s.getMatchBySeries(req.params.id) });
+
+export const updateMatch = async (req,res) => {
+  await s.updateMatch(req.params.id,req.body,req.admin,req.ip);
+  res.json({ success:true });
 };
 
-export const updateAdmin = async (req, res) => {
-  try {
-    await updateAdminSchema.validateAsync(req.body);
-    await updateAdminService(req.admin, req.params.id, req.body);
-    res.json({ success: true, message: "Admin updated" });
-  } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
-  }
+/* TEAM */
+export const createTeam = async (req,res) =>
+  res.status(201).json({ success:true, data: await s.createTeam(req.body,req.admin,req.ip) });
+
+export const getTeams = async (req,res) =>
+  res.json({ success:true, data: await s.getTeams() });
+
+export const getTeamById = async (req,res) =>
+  res.json({ success:true, data: await s.getTeamById(req.params.id) });
+
+export const updateTeam = async (req,res) => {
+  await s.updateTeam(req.params.id,req.body,req.admin,req.ip);
+  res.json({ success:true });
 };
 
-export const updateMyProfile = async (req, res) => {
-  try {
-    await updateProfileSchema.validateAsync(req.body);
-    await updateProfileService(req.admin, req.body);
-    res.json({ success: true, message: "Profile updated" });
-  } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
-  }
+/* PLAYER */
+export const createPlayer = async (req,res) =>
+  res.status(201).json({ success:true, data: await s.createPlayer(req.body,req.admin,req.ip) });
+
+export const getPlayers = async (req,res) =>
+  res.json({ success:true, data: await s.getPlayers() });
+
+export const getPlayerById = async (req,res) =>
+  res.json({ success:true, data: await s.getPlayerById(req.params.id) });
+
+export const getPlayerByTeam = async (req,res) =>
+  res.json({ success:true, data: await s.getPlayerByTeam(req.params.id) });
+
+export const updatePlayer = async (req,res) => {
+  await s.updatePlayer(req.params.id,req.body,req.admin,req.ip);
+  res.json({ success:true });
 };

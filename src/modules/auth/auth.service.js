@@ -240,20 +240,13 @@ export const loginService = async (data) => {
 const MAX_FAILED_ATTEMPTS = 5;
 
 export const adminLoginService = async ({ email, password }, ipAddress) => {
-  console.log("Admin Eamil:", email);
-  console.log("Admin pasword:", password);
 
   const [rows] = await db.query(
     'SELECT * FROM admin WHERE email = ?',
     [email]
-);
+  );
 
-const admin = rows[0] || null;
-
- console.log("Admin :", admin);
-  if (!admin || !admin.password_hash) {
-    throw new Error("Admin not found or password missing");
-  }
+  const admin = rows[0];
 
   if (!admin) {
     await db.query(
@@ -264,7 +257,8 @@ const admin = rows[0] || null;
     throw new Error("Invalid credentials");
   }
 
-  if (admin.status !== "active") {
+  
+  if (admin.status !== 'active') {
     await db.query(
       `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
        VALUES (?, ?, 'LOGIN_FAILED', 'ACCOUNT_INACTIVE', ?)`,
@@ -273,15 +267,13 @@ const admin = rows[0] || null;
     throw new Error("Account is inactive");
   }
 
-  const hash = await bcrypt.hash(password, 12);
-
-console.log(hash);
-
   const isMatch = await bcrypt.compare(password, admin.password_hash);
-  console.log("Password match?", isMatch);
+
   if (!isMatch) {
     await db.query(
-      `UPDATE admin SET failed_attempts = failed_attempts + 1 WHERE id = ?`,
+      `UPDATE admin
+       SET failed_attempts = failed_attempts + 1
+       WHERE id = ?`,
       [admin.id]
     );
 
@@ -315,6 +307,5 @@ console.log(hash);
   );
 
   delete admin.password_hash;
-  delete admin.email;
   return admin;
 };

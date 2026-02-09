@@ -5,11 +5,9 @@ import path from "path";
 import { fileURLToPath } from "url";
 import "dotenv/config";
 
-// Proper __dirname for Windows + ESM
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// CA file must be in the SAME folder as db.js
 const caPath = path.join(__dirname, "tidb-ca.pem");
 
 const pool = mysql.createPool({
@@ -20,7 +18,10 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME,
 
   waitForConnections: true,
-  connectionLimit: 10000 ,
+  connectionLimit: 20,          // ✅ SAFE (10–30 is ideal)
+  queueLimit: 0,                // unlimited queue
+  enableKeepAlive: true,        // ✅ VERY IMPORTANT
+  keepAliveInitialDelay: 0,
 
   ssl: {
     ca: fs.readFileSync(caPath),
@@ -28,5 +29,4 @@ const pool = mysql.createPool({
   }
 });
 
-console.log("Connected DB:", process.env.DB_NAME);
 export default pool;
