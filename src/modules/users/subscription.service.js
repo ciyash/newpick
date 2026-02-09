@@ -1,16 +1,10 @@
 import db from "../../config/db.js";
 
-/* =====================================================
-   SUBSCRIPTION CONFIG
-===================================================== */
 const PACK_CONFIG = {
   "1M": { months: 1, price: 35, bonus: 5 },
   "3M": { months: 3, price: 100, bonus: 15 }
 };
 
-/* =====================================================
-   BUY SUBSCRIPTION
-===================================================== */
 export const buySubscriptionService = async (userId, pack, meta = {}) => {
   let conn;
 
@@ -19,7 +13,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     await conn.beginTransaction();
 
     /* --------------------------------
-       1️⃣ LOCK USER
+       1️⃣ LOCK USER ROW
     -------------------------------- */
     const [[user]] = await conn.query(
       `SELECT
@@ -28,6 +22,8 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
         subscribestartdate,
         subscribeenddate,
         nextsubscribe,
+        nextsubscribestartdate,
+        nextsubscribeenddate,
         subscription_bonus_given
        FROM users
        WHERE id = ?
@@ -35,30 +31,15 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       [userId]
     );
 
-    if (!user) throw new Error("User not found");
-
-    const now = new Date();
-
-    /* --------------------------------
-       🚫 MAX 2 SUBSCRIPTIONS RULE
-       (current + next only)
-    -------------------------------- */
-    if (
-      user.subscribe === 1 &&
-      user.subscribeenddate &&
-      new Date(user.subscribeenddate).getTime() >= now.getTime() &&
-      user.nextsubscribe === 1
-    ) {
-      throw new Error(
-        "You already have an active subscription and one scheduled plan. Please wait until your current plan expires."
-      );
+    if (!user) {
+      throw new Error("User not found");
     }
 
     /* --------------------------------
-       2️⃣ LOCK WALLET
+       2️⃣ LOCK WALLET ROW
     -------------------------------- */
     const [[wallet]] = await conn.query(
-      `SELECT depositwallet, bonusamount, is_frozen
+      `SELECT depositwallet, is_frozen
        FROM wallets
        WHERE user_id = ?
        FOR UPDATE`,
@@ -72,65 +53,73 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
        3️⃣ VALIDATE PACK
     -------------------------------- */
     const config = PACK_CONFIG[pack];
-    if (!config) throw new Error("Invalid subscription pack");
+    if (!config) {
+      throw new Error("Invalid subscription pack");
+    }
 
     /* --------------------------------
-       4️⃣ BALANCE CHECK
+       4️⃣ HARD BLOCK: ONLY 2 PLANS ALLOWED
+       (current + next)
+    -------------------------------- */
+    if (user.subscribe === 1 && user.nextsubscribe === 1) {
+      throw new Error(
+        "You already have an active subscription and one upcoming plan. Please wait until your current plan expires."
+      );
+    }
+
+    /* --------------------------------
+       5️⃣ CHECK DEPOSIT BALANCE
     -------------------------------- */
     if (wallet.depositwallet < config.price) {
       throw new Error("Insufficient deposit wallet balance");
     }
 
-    const openingBalance = wallet.depositwallet;
-    const closingBalance = openingBalance - config.price;
+    const now = new Date();
 
-    /* --------------------------------
-       5️⃣ DEBIT WALLET
-    -------------------------------- */
-    await conn.query(
-      `UPDATE wallets
-       SET depositwallet = depositwallet - ?
-       WHERE user_id = ?`,
-      [config.price, userId]
-    );
+  
+    const isActive =
+  Number(user.subscribe) === 1 &&
+  user.subscribeenddate !== null &&
+  new Date(user.subscribeenddate).getTime() > now.getTime();
 
-    /* --------------------------------
-       6️⃣ WALLET TRANSACTION
-    -------------------------------- */
-    await conn.query(
-      `INSERT INTO wallet_transactions
-       (user_id, wallettype, transtype, remark, amount,
-        opening_balance, closing_balance,
-        reference_id, transaction_hash,
-        ip_address, device)
-       VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        userId,
-        `Subscription purchase (${pack})`,
-        config.price,
-        openingBalance,
-        closingBalance,
-        `SUB-${userId}-${Date.now()}`,
-        meta.txnHash || null,
-        meta.ip || null,
-        meta.device || null
-      ]
-    );
-
-    /* --------------------------------
-       7️⃣ ACTIVE → SCHEDULE NEXT
-    -------------------------------- */
-    if (
-      user.subscribe === 1 &&
-      user.subscribeenddate &&
-      new Date(user.subscribeenddate).getTime() >= now.getTime()
-    ) {
+    /* =====================================================
+       CASE 1️⃣ ACTIVE SUBSCRIPTION → SCHEDULE NEXT
+    ===================================================== */
+    if (isActive) {
       const start = new Date(user.subscribeenddate);
-      start.setSeconds(start.getSeconds() + 1);
+      start.setSeconds(start.getSeconds() + 1); // avoid overlap
 
       const end = new Date(start);
       end.setMonth(end.getMonth() + config.months);
 
+      // 💰 Debit wallet
+      await conn.query(
+        `UPDATE wallets
+         SET depositwallet = depositwallet - ?
+         WHERE user_id = ?`,
+        [config.price, userId]
+      );
+
+      // 🧾 Wallet transaction
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount,
+          opening_balance, closing_balance,
+          reference_id, ip_address, device)
+         VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          `Subscription queued (${pack})`,
+          config.price,
+          wallet.depositwallet,
+          wallet.depositwallet - config.price,
+          `SUB-NEXT-${userId}-${Date.now()}`,
+          meta.ip || null,
+          meta.device || null
+        ]
+      );
+
+      // 📅 Schedule next
       await conn.query(
         `UPDATE users SET
           nextsubscribe = 1,
@@ -144,19 +133,48 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
 
       return {
         success: true,
-        message: "Subscription purchased & scheduled",
-        amountDebited: config.price,
-        next: { startDate: start, endDate: end }
+        message: "Subscription scheduled after current plan",
+        type: "NEXT",
+        startDate: start,
+        endDate: end
       };
     }
 
-    /* --------------------------------
-       8️⃣ NO ACTIVE → ACTIVATE NOW
-    -------------------------------- */
+    /* =====================================================
+       CASE 2️⃣ NO ACTIVE SUBSCRIPTION → ACTIVATE NOW
+    ===================================================== */
     const startDate = now;
     const endDate = new Date(now);
     endDate.setMonth(endDate.getMonth() + config.months);
 
+    // 💰 Debit wallet
+    await conn.query(
+      `UPDATE wallets
+       SET depositwallet = depositwallet - ?
+       WHERE user_id = ?`,
+      [config.price, userId]
+    );
+
+    // 🧾 Wallet transaction
+    await conn.query(
+      `INSERT INTO wallet_transactions
+       (user_id, wallettype, transtype, remark, amount,
+        opening_balance, closing_balance,
+        reference_id, ip_address, device)
+       VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        `Subscription activated (${pack})`,
+        config.price,
+        wallet.depositwallet,
+        wallet.depositwallet - config.price,
+        `SUB-CUR-${userId}-${Date.now()}`,
+        meta.ip || null,
+        meta.device || null
+      ]
+    );
+
+    // 📅 Activate subscription
     await conn.query(
       `UPDATE users SET
         subscribe = 1,
@@ -171,10 +189,8 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     );
 
     /* --------------------------------
-       9️⃣ FIRST SUBSCRIPTION BONUS
+       🎁 BONUS (FIRST SUBSCRIPTION ONLY)
     -------------------------------- */
-    let bonusApplied = false;
-
     if (user.subscription_bonus_given === 0) {
       await conn.query(
         `UPDATE wallets
@@ -189,19 +205,16 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
          WHERE id = ?`,
         [userId]
       );
-
-      bonusApplied = true;
     }
 
     await conn.commit();
 
     return {
       success: true,
-      message: "Subscription purchased & activated",
-      amountDebited: config.price,
-      bonusApplied,
-      bonusAmount: bonusApplied ? config.bonus : 0,
-      validTill: endDate
+      message: "Subscription activated",
+      type: "CURRENT",
+      startDate,
+      endDate
     };
 
   } catch (err) {
@@ -212,9 +225,6 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
   }
 };
 
-/* =====================================================
-   GET SUBSCRIPTION STATUS
-===================================================== */
 export const getSubscriptionStatusService = async (userId) => {
   const [[user]] = await db.query(
     `SELECT
