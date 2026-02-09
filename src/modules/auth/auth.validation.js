@@ -7,7 +7,7 @@ export const signupSchema = Joi.object({
   region: Joi.string().required(),
   address: Joi.string().allow("", null),
   dob: Joi.date().less("now").required(),
-   category: Joi.string().valid("students", "others").required(),
+  category: Joi.string().valid("students", "others").required(),
 
   // accept WRONG key
   referalid: Joi.string().empty("").default("AAAAA1111").optional(),

@@ -143,24 +143,37 @@ export const signupService = async ({ mobile, otp }) => {
   /* --------------------------------
      6️⃣ INSERT USER
   -------------------------------- */
-  const [result] = await db.query(
-    `INSERT INTO users
-     (userid, usercode, name, email, mobile, region, address, dob,
-      referalid, emailverify, phoneverify, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
-    [
-      userid,
-      usercode,
-      name,
-      email,
-      normalizedMobile,
-      region,
-      address,
-      dob,
-      category,
-      referralUserCode
-    ]
-  );
+ const [result] = await db.query(
+  `INSERT INTO users
+   (
+     userid,
+     usercode,
+     name,
+     email,
+     mobile,
+     region,
+     address,
+     dob,
+     referalid,
+     category,
+     emailverify,
+     phoneverify,
+     created_at
+   )
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
+  [
+    userid,
+    usercode,
+    name,
+    email,
+    normalizedMobile,
+    region,
+    address || null,
+    dob,
+    referralUserCode,
+    category   // ✅ CORRECT PLACE
+  ]
+);
 
   const userId = result.insertId;
 
