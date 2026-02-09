@@ -168,10 +168,11 @@ export const getMyWalletService = async (userId) => {
   }
 
   return {
-    depositWallet: Number(wallet.depositwallet),
-    withdrawWallet: Number(wallet.earnwallet),
-    bonusWallet: Number(wallet.bonusamount)
-  };
+  depositWallet: Number(wallet.depositwallet),
+  withdrawWallet: Number(wallet.earnwallet),
+  bonusWallet: Number(wallet.bonusamount)
+};
+
 };
 
 

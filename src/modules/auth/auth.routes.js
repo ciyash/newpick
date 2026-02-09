@@ -5,8 +5,11 @@ import { signup, login,sendLoginOtp,verifySignupOtp} from "../auth/auth.controll
 const router = express.Router();
 
 router.post("/signup", signup);
+
 router.post("/verify-signup", verifySignupOtp);
+
 router.post("/login/send-otp", sendLoginOtp);
+
 router.post("/login", login);
 
 

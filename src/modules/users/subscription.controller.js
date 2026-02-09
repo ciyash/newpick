@@ -3,25 +3,17 @@ import {
   getSubscriptionStatusService
 } from "./subscription.service.js";
 
-/**
- * BUY SUBSCRIPTION
- * POST /api/user/subscription/buy
- */
 export const buySubscription = async (req, res) => {
   try {
-    const userId = req.user.id;     // 🔐 from JWT
-    const { pack } = req.body;      // "1M" | "3M"
+    const userId = req.user.id;
+    const { pack } = req.body;
 
-    if (!pack) {
-      return res.status(400).json({
-        success: false,
-        message: "Subscription pack is required"
-      });
-    }
+    const result = await buySubscriptionService(userId, pack, {
+      ip: req.ip,
+      device: req.headers["user-agent"]
+    });
 
-    const result = await buySubscriptionService(userId, pack);
-
-    res.json({
+    res.status(200).json({
       success: true,
       ...result
     });
@@ -33,10 +25,7 @@ export const buySubscription = async (req, res) => {
   }
 };
 
-/**
- * GET SUBSCRIPTION STATUS
- * GET /api/user/subscription/status
- */
+
 export const getSubscriptionStatus = async (req, res) => {
   try {
     const userId = req.user.id;
