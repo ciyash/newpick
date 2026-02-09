@@ -2,6 +2,9 @@ import db from "../../config/db.js";
 
 export const getUserProfileService = async (userId) => {
 
+  /* --------------------------------
+     1️⃣ USER BASIC DETAILS
+  -------------------------------- */
   const [[user]] = await db.query(
     `SELECT
         userid,
@@ -12,7 +15,16 @@ export const getUserProfileService = async (userId) => {
         region,
         category,
         dob,
-        created_at
+        created_at,
+
+        -- subscription fields
+        subscribe,
+        subscribepack,
+        subscribestartdate,
+        subscribeenddate,
+        nextsubscribe,
+        nextsubscribestartdate,
+        nextsubscribeenddate
      FROM users
      WHERE id = ?`,
     [userId]
@@ -61,7 +73,35 @@ export const getUserProfileService = async (userId) => {
   );
 
   /* --------------------------------
-     4️⃣ FINAL PROFILE RESPONSE
+     4️⃣ SUBSCRIPTION STATUS (INLINE)
+  -------------------------------- */
+  let subscription = { active: false };
+
+  const now = new Date();
+
+  if (
+    user.subscribe === 1 &&
+    user.subscribeenddate &&
+    new Date(user.subscribeenddate).getTime() >= now.getTime()
+  ) {
+    subscription = {
+      active: true,
+      current: {
+        plan: user.subscribepack,
+        startDate: user.subscribestartdate,
+        endDate: user.subscribeenddate
+      },
+      next: user.nextsubscribe === 1
+        ? {
+            startDate: user.nextsubscribestartdate,
+            endDate: user.nextsubscribeenddate
+          }
+        : null
+    };
+  }
+
+  /* --------------------------------
+     5️⃣ FINAL PROFILE RESPONSE
   -------------------------------- */
   return {
     userid: user.userid,
@@ -70,7 +110,7 @@ export const getUserProfileService = async (userId) => {
     email: user.email,
     mobile: user.mobile,
     region: user.region,
-    category: user.category,              // 👈 students / others
+    category: user.category,
     dob: user.dob,
     joinedAt: user.created_at,
 
@@ -84,6 +124,8 @@ export const getUserProfileService = async (userId) => {
       monthlyLimit: MONTHLY_LIMIT,
       addedThisMonth: alreadyAdded,
       remainingThisMonth: remainingLimit
-    }
+    },
+
+    subscription   // 👈 HERE (current + next)
   };
 };
