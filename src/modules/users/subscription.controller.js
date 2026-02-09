@@ -8,23 +8,27 @@ export const buySubscription = async (req, res) => {
     const userId = req.user.id;
     const { pack } = req.body;
 
+    if (!pack) {
+      return res.status(400).json({
+        success: false,
+        message: "Subscription pack is required"
+      });
+    }
+
     const result = await buySubscriptionService(userId, pack, {
       ip: req.ip,
       device: req.headers["user-agent"]
     });
 
-    res.status(200).json({
-      success: true,
-      ...result
-    });
+    return res.status(200).json(result);
+
   } catch (err) {
-    res.status(400).json({
+    return res.status(400).json({
       success: false,
       message: err.message
     });
   }
 };
-
 
 export const getSubscriptionStatus = async (req, res) => {
   try {
@@ -32,12 +36,13 @@ export const getSubscriptionStatus = async (req, res) => {
 
     const result = await getSubscriptionStatusService(userId);
 
-    res.json({
+    return res.status(200).json({
       success: true,
       ...result
     });
+
   } catch (err) {
-    res.status(400).json({
+    return res.status(400).json({
       success: false,
       message: err.message
     });

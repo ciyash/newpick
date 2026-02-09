@@ -1,10 +1,16 @@
 import db from "../../config/db.js";
 
+/* =====================================================
+   SUBSCRIPTION CONFIG
+===================================================== */
 const PACK_CONFIG = {
   "1M": { months: 1, price: 35, bonus: 5 },
   "3M": { months: 3, price: 100, bonus: 15 }
 };
 
+/* =====================================================
+   BUY SUBSCRIPTION
+===================================================== */
 export const buySubscriptionService = async (userId, pack, meta = {}) => {
   let conn;
 
@@ -12,12 +18,14 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    /* --------------------------------------------------
-       1️⃣ Lock user row
-    -------------------------------------------------- */
+    /* --------------------------------
+       1️⃣ LOCK USER
+    -------------------------------- */
     const [[user]] = await conn.query(
       `SELECT
         subscribe,
+        subscribepack,
+        subscribestartdate,
         subscribeenddate,
         nextsubscribe,
         subscription_bonus_given
@@ -27,43 +35,48 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       [userId]
     );
 
-    if (!user) {
-      throw new Error("User not found");
+    if (!user) throw new Error("User not found");
+
+    const now = new Date();
+
+    /* --------------------------------
+       🚫 MAX 2 SUBSCRIPTIONS RULE
+       (current + next only)
+    -------------------------------- */
+    if (
+      user.subscribe === 1 &&
+      user.subscribeenddate &&
+      new Date(user.subscribeenddate).getTime() >= now.getTime() &&
+      user.nextsubscribe === 1
+    ) {
+      throw new Error(
+        "You already have an active subscription and one scheduled plan. Please wait until your current plan expires."
+      );
     }
 
-    /* --------------------------------------------------
-       2️⃣ Lock wallet row
-    -------------------------------------------------- */
+    /* --------------------------------
+       2️⃣ LOCK WALLET
+    -------------------------------- */
     const [[wallet]] = await conn.query(
-      `SELECT
-        depositwallet,
-        bonusamount,
-        is_frozen
+      `SELECT depositwallet, bonusamount, is_frozen
        FROM wallets
        WHERE user_id = ?
        FOR UPDATE`,
       [userId]
     );
 
-    if (!wallet) {
-      throw new Error("Wallet not found");
-    }
+    if (!wallet) throw new Error("Wallet not found");
+    if (wallet.is_frozen === 1) throw new Error("Wallet is frozen");
 
-    if (wallet.is_frozen === 1) {
-      throw new Error("Wallet is frozen");
-    }
-
-    /* --------------------------------------------------
-       3️⃣ Validate pack
-    -------------------------------------------------- */
+    /* --------------------------------
+       3️⃣ VALIDATE PACK
+    -------------------------------- */
     const config = PACK_CONFIG[pack];
-    if (!config) {
-      throw new Error("Invalid subscription pack");
-    }
+    if (!config) throw new Error("Invalid subscription pack");
 
-    /* --------------------------------------------------
-       4️⃣ Deposit wallet balance check
-    -------------------------------------------------- */
+    /* --------------------------------
+       4️⃣ BALANCE CHECK
+    -------------------------------- */
     if (wallet.depositwallet < config.price) {
       throw new Error("Insufficient deposit wallet balance");
     }
@@ -71,9 +84,9 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     const openingBalance = wallet.depositwallet;
     const closingBalance = openingBalance - config.price;
 
-    /* --------------------------------------------------
-       5️⃣ Debit deposit wallet
-    -------------------------------------------------- */
+    /* --------------------------------
+       5️⃣ DEBIT WALLET
+    -------------------------------- */
     await conn.query(
       `UPDATE wallets
        SET depositwallet = depositwallet - ?
@@ -81,12 +94,9 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       [config.price, userId]
     );
 
-    /* --------------------------------------------------
-       6️⃣ Wallet transaction entry
-       ENUM-safe values:
-       wallettype = 'deposit'
-       transtype  = 'debit'
-    -------------------------------------------------- */
+    /* --------------------------------
+       6️⃣ WALLET TRANSACTION
+    -------------------------------- */
     await conn.query(
       `INSERT INTO wallet_transactions
        (user_id, wallettype, transtype, remark, amount,
@@ -107,22 +117,16 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       ]
     );
 
-    const now = new Date();
-
-    /* --------------------------------------------------
-       7️⃣ ACTIVE subscription → schedule next
-    -------------------------------------------------- */
+    /* --------------------------------
+       7️⃣ ACTIVE → SCHEDULE NEXT
+    -------------------------------- */
     if (
       user.subscribe === 1 &&
       user.subscribeenddate &&
-      new Date(user.subscribeenddate) >= now
+      new Date(user.subscribeenddate).getTime() >= now.getTime()
     ) {
-      if (user.nextsubscribe === 1) {
-        throw new Error("Next subscription already scheduled");
-      }
-
       const start = new Date(user.subscribeenddate);
-      start.setSeconds(start.getSeconds() + 1); // prevent overlap
+      start.setSeconds(start.getSeconds() + 1);
 
       const end = new Date(start);
       end.setMonth(end.getMonth() + config.months);
@@ -141,13 +145,14 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       return {
         success: true,
         message: "Subscription purchased & scheduled",
-        amountDebited: config.price
+        amountDebited: config.price,
+        next: { startDate: start, endDate: end }
       };
     }
 
-    /* --------------------------------------------------
-       8️⃣ NO ACTIVE subscription → activate now
-    -------------------------------------------------- */
+    /* --------------------------------
+       8️⃣ NO ACTIVE → ACTIVATE NOW
+    -------------------------------- */
     const startDate = now;
     const endDate = new Date(now);
     endDate.setMonth(endDate.getMonth() + config.months);
@@ -165,9 +170,9 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       [pack, startDate, endDate, userId]
     );
 
-    /* --------------------------------------------------
-       9️⃣ Subscription bonus (FIRST TIME ONLY)
-    -------------------------------------------------- */
+    /* --------------------------------
+       9️⃣ FIRST SUBSCRIPTION BONUS
+    -------------------------------- */
     let bonusApplied = false;
 
     if (user.subscription_bonus_given === 0) {
@@ -207,11 +212,9 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
   }
 };
 
-
-
-
-//get subscription status service
-
+/* =====================================================
+   GET SUBSCRIPTION STATUS
+===================================================== */
 export const getSubscriptionStatusService = async (userId) => {
   const [[user]] = await db.query(
     `SELECT
@@ -227,13 +230,13 @@ export const getSubscriptionStatusService = async (userId) => {
     [userId]
   );
 
-  if (!user || user.subscribe === 0) {
+  if (!user || user.subscribe !== 1 || !user.subscribeenddate) {
     return { active: false };
   }
 
   const now = new Date();
 
-  if (new Date(user.subscribeenddate) < now) {
+  if (new Date(user.subscribeenddate).getTime() < now.getTime()) {
     return { active: false, message: "Subscription expired" };
   }
 
@@ -252,4 +255,3 @@ export const getSubscriptionStatusService = async (userId) => {
       : null
   };
 };
-
