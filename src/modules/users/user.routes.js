@@ -13,4 +13,3 @@ app.use("/wallet", authenticate,walletRoutes)
 app.use("/subscription", authenticate,subscriptionRoutes )
 
 export default app;
-//
