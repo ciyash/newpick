@@ -8,7 +8,7 @@ import generateUserCode from "../../utils/usercode.js";
 ===================================================== */
 
 export const requestSignupOtpService = async (data) => {
-  const { name, email, mobile, region, address, dob, referralid } = data;
+  const { name, email, mobile, region, address, dob,category, referralid } = data;
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
@@ -42,6 +42,7 @@ export const requestSignupOtpService = async (data) => {
       region,
       address,
       dob,
+      category,
       referralid: referralid || "AAAAA1111"
     }),
     { ex: 300 }
@@ -93,7 +94,7 @@ export const signupService = async ({ mobile, otp }) => {
     ? JSON.parse(signupRaw)
     : signupRaw;
 
-  const { name, email, region, address, dob, referralid } = signupData;
+  const { name, email, region, address, dob,category, referralid } = signupData;
 
   /* --------------------------------
      3️⃣ GENERATE UNIQUE USERCODE
@@ -156,6 +157,7 @@ export const signupService = async ({ mobile, otp }) => {
       region,
       address,
       dob,
+      category,
       referralUserCode
     ]
   );
