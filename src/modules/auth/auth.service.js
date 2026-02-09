@@ -88,7 +88,11 @@ export const signupService = async ({ mobile, otp }) => {
     throw new Error("Signup session expired");
   }
 
-  const signupData = JSON.parse(signupRaw);
+ const signupData =
+  typeof signupRaw === "string"
+    ? JSON.parse(signupRaw)
+    : signupRaw;
+
   const { name, email, region, address, dob, referralid } = signupData;
 
   /* --------------------------------
