@@ -8,6 +8,7 @@ import db from "../../config/db.js";
  * - Wallet balance NEVER resets
  */
 
+
 export const addDepositService = async (userId, amount) => {
   if (amount < 10) {
     throw new Error("Minimum deposit is 10 pounds");
@@ -19,7 +20,27 @@ export const addDepositService = async (userId, amount) => {
   try {
     await conn.beginTransaction();
 
-    // 🔒 Lock monthly row
+    /* --------------------------------
+       1️⃣ GET USER CATEGORY
+    -------------------------------- */
+    const [[user]] = await conn.query(
+      `SELECT category FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    /* --------------------------------
+       2️⃣ MONTHLY LIMIT BASED ON CATEGORY
+    -------------------------------- */
+    const MONTHLY_LIMIT =
+      user.category === "students" ? 300 : 1500;
+
+    /* --------------------------------
+       3️⃣ LOCK MONTHLY DEPOSIT ROW
+    -------------------------------- */
     const [[row]] = await conn.query(
       `SELECT total_added
        FROM monthly_deposits
@@ -29,16 +50,23 @@ export const addDepositService = async (userId, amount) => {
     );
 
     const alreadyAdded = row ? Number(row.total_added) : 0;
-    const remaining = 1000 - alreadyAdded;
+    const remaining = MONTHLY_LIMIT - alreadyAdded;
 
     if (remaining <= 0) {
-      throw new Error("Monthly deposit limit reached");
+      throw new Error(
+        `Monthly deposit limit reached (£${MONTHLY_LIMIT})`
+      );
     }
 
     if (amount > remaining) {
-      throw new Error(`You can add only ${remaining} pounds this month`);
+      throw new Error(
+        `You can add only £${remaining} more this month`
+      );
     }
 
+    /* --------------------------------
+       4️⃣ UPDATE MONTHLY DEPOSITS
+    -------------------------------- */
     if (row) {
       await conn.query(
         `UPDATE monthly_deposits
@@ -54,6 +82,9 @@ export const addDepositService = async (userId, amount) => {
       );
     }
 
+    /* --------------------------------
+       5️⃣ UPDATE WALLET
+    -------------------------------- */
     await conn.query(
       `UPDATE wallets
        SET depositwallet = depositwallet + ?
@@ -64,9 +95,12 @@ export const addDepositService = async (userId, amount) => {
     await conn.commit();
 
     return {
+      success: true,
       added: amount,
+      monthlyLimit: MONTHLY_LIMIT,
       remainingMonthlyLimit: remaining - amount
     };
+
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -74,6 +108,7 @@ export const addDepositService = async (userId, amount) => {
     conn.release();
   }
 };
+
 
 
 /**
