@@ -1,8 +1,9 @@
+import bcrypt from "bcrypt";
 import db from "../../config/db.js";
 import redis from "../../config/redis.js";
 import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
-import bcrypt from "bcrypt";
+
 
 /* =====================================================
    1️⃣ REQUEST SIGNUP OTP
