@@ -12,9 +12,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    /* --------------------------------
-       1️⃣ LOCK USER ROW
-    -------------------------------- */
+
     const [[user]] = await conn.query(
       `SELECT
         subscribe,
@@ -35,9 +33,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       throw new Error("User not found");
     }
 
-    /* --------------------------------
-       2️⃣ LOCK WALLET ROW
-    -------------------------------- */
+
     const [[wallet]] = await conn.query(
       `SELECT depositwallet, is_frozen
        FROM wallets
@@ -57,19 +53,13 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       throw new Error("Invalid subscription pack");
     }
 
-    /* --------------------------------
-       4️⃣ HARD BLOCK: ONLY 2 PLANS ALLOWED
-       (current + next)
-    -------------------------------- */
+ 
     if (user.subscribe === 1 && user.nextsubscribe === 1) {
       throw new Error(
         "You already have an active subscription and one upcoming plan. Please wait until your current plan expires."
       );
     }
 
-    /* --------------------------------
-       5️⃣ CHECK DEPOSIT BALANCE
-    -------------------------------- */
     if (wallet.depositwallet < config.price) {
       throw new Error("Insufficient deposit wallet balance");
     }
@@ -82,9 +72,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
   user.subscribeenddate !== null &&
   new Date(user.subscribeenddate).getTime() > now.getTime();
 
-    /* =====================================================
-       CASE 1️⃣ ACTIVE SUBSCRIPTION → SCHEDULE NEXT
-    ===================================================== */
+ 
     if (isActive) {
       const start = new Date(user.subscribeenddate);
       start.setSeconds(start.getSeconds() + 1); // avoid overlap
@@ -140,9 +128,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       };
     }
 
-    /* =====================================================
-       CASE 2️⃣ NO ACTIVE SUBSCRIPTION → ACTIVATE NOW
-    ===================================================== */
+    
     const startDate = now;
     const endDate = new Date(now);
     endDate.setMonth(endDate.getMonth() + config.months);
@@ -188,9 +174,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       [pack, startDate, endDate, userId]
     );
 
-    /* --------------------------------
-       🎁 BONUS (FIRST SUBSCRIPTION ONLY)
-    -------------------------------- */
+
     if (user.subscription_bonus_given === 0) {
       await conn.query(
         `UPDATE wallets
