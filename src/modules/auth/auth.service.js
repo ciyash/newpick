@@ -3,9 +3,6 @@ import redis from "../../config/redis.js";
 import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
 
-/* =====================================================
-   1️⃣ REQUEST SIGNUP OTP
-===================================================== */
 
 export const requestSignupOtpService = async (data) => {
   const { name, email, mobile, region, address, dob,category, referralid } = data;
@@ -292,5 +289,29 @@ export const loginService = async ({ email, mobile, otp }) => {
     email: user.email,
     mobile: user.mobile,
     name: user.name
+  };
+};
+
+
+export const pauseAccountService = async (userId, durationKey) => {
+  const days = PAUSE_PLANS[durationKey];
+  if (!days) throw new Error("Invalid pause duration");
+
+  const now = new Date();
+  const end = new Date(now);
+  end.setDate(end.getDate() + days);
+
+  await db.query(
+    `UPDATE users SET
+      account_status = 'paused',
+      pause_start = ?,
+      pause_end = ?
+     WHERE id = ?`,
+    [now, end, userId]
+  );
+
+  return {
+    status: "paused",
+    pauseTill: end
   };
 };

@@ -1,82 +1,43 @@
 import db from "../../config/db.js";
 
-/* =====================================================
-   🔁 COMMON WALLET TRANSACTION (COMPANY LEDGER)
-===================================================== */
-export const createWalletTransaction = async ({
-  conn,
-  userId,
-  wallettype,       // deposit | withdraw | bonus
-  transtype,        // credit | debit
-  amount,
-  remark = null,
-  referenceId,
-  transactionHash = null,
-  ip = null,
-  device = null
-}) => {
-  // 🔐 lock last transaction row (safe for concurrency)
-  const [[last]] = await conn.query(
-    `SELECT closing_balance
-     FROM wallet_transactions
-     ORDER BY id DESC
-     LIMIT 1
-     FOR UPDATE`
-  );
-
-  const openingBalance = last ? Number(last.closing_balance) : 0;
-
-  const closingBalance =
-    transtype === "credit"
-      ? openingBalance + amount
-      : openingBalance - amount;
-
-  await conn.query(
-    `INSERT INTO wallet_transactions
-     (user_id, wallettype, transtype, remark, amount,
-      opening_balance, closing_balance,
-      reference_id, transaction_hash,
-      ip_address, device)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      userId,
-      wallettype,
-      transtype,
-      remark,
-      amount,
-      openingBalance,
-      closingBalance,
-      referenceId,
-      transactionHash,
-      ip,
-      device
-    ]
-  );
-};
-
-/* =====================================================
-   💰 ADD DEPOSIT MONEY
-===================================================== */
 export const addDepositService = async (userId, amount, meta = {}) => {
-  if (amount < 10) throw new Error("Minimum deposit is £10");
+  if (!amount || amount < 10) {
+    throw new Error("Minimum deposit is £10");
+  }
 
-  const yearMonth = new Date().toISOString().slice(0, 7);
+  const yearMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
   const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    /* 1️⃣ user category */
+    /* --------------------------------
+       1️⃣ FETCH USER (CATEGORY + LIMIT)
+    -------------------------------- */
     const [[user]] = await conn.query(
-      `SELECT category FROM users WHERE id = ?`,
+      `SELECT category, monthly_limit
+       FROM users
+       WHERE id = ?
+       FOR UPDATE`,
       [userId]
     );
+
     if (!user) throw new Error("User not found");
 
-    const MONTHLY_LIMIT =
+    /* --------------------------------
+       2️⃣ CALCULATE MONTHLY LIMIT
+    -------------------------------- */
+    const DEFAULT_LIMIT =
       user.category === "students" ? 300 : 1500;
 
-    /* 2️⃣ monthly deposit lock */
+    const MONTHLY_LIMIT =
+      user.monthly_limit !== null
+        ? Math.min(user.monthly_limit, DEFAULT_LIMIT)
+        : DEFAULT_LIMIT;
+
+    /* --------------------------------
+       3️⃣ LOCK MONTHLY DEPOSIT ROW
+    -------------------------------- */
     const [[row]] = await conn.query(
       `SELECT total_added
        FROM monthly_deposits
@@ -88,13 +49,19 @@ export const addDepositService = async (userId, amount, meta = {}) => {
     const alreadyAdded = row ? Number(row.total_added) : 0;
     const remaining = MONTHLY_LIMIT - alreadyAdded;
 
-    if (remaining <= 0)
+    if (remaining <= 0) {
       throw new Error(`Monthly limit £${MONTHLY_LIMIT} reached`);
+    }
 
-    if (amount > remaining)
-      throw new Error(`You can add only £${remaining} more this month`);
+    if (amount > remaining) {
+      throw new Error(
+        `You can add only £${remaining} more this month`
+      );
+    }
 
-    /* 3️⃣ update monthly table */
+    /* --------------------------------
+       4️⃣ UPDATE MONTHLY_DEPOSITS
+    -------------------------------- */
     if (row) {
       await conn.query(
         `UPDATE monthly_deposits
@@ -110,7 +77,9 @@ export const addDepositService = async (userId, amount, meta = {}) => {
       );
     }
 
-    /* 4️⃣ update wallet */
+    /* --------------------------------
+       5️⃣ UPDATE USER WALLET
+    -------------------------------- */
     await conn.query(
       `UPDATE wallets
        SET depositwallet = depositwallet + ?
@@ -118,7 +87,9 @@ export const addDepositService = async (userId, amount, meta = {}) => {
       [amount, userId]
     );
 
-    /* 5️⃣ ledger transaction (COMPANY) */
+    /* --------------------------------
+       6️⃣ COMPANY LEDGER TRANSACTION
+    -------------------------------- */
     await createWalletTransaction({
       conn,
       userId,
@@ -137,6 +108,7 @@ export const addDepositService = async (userId, amount, meta = {}) => {
       success: true,
       added: amount,
       monthlyLimit: MONTHLY_LIMIT,
+      addedThisMonth: alreadyAdded + amount,
       remainingMonthlyLimit: remaining - amount
     };
 
@@ -148,9 +120,7 @@ export const addDepositService = async (userId, amount, meta = {}) => {
   }
 };
 
-/* =====================================================
-   🏆 DEDUCT FOR CONTEST
-===================================================== */
+
 export const deductForContestService = async (userId, entryFee, meta = {}) => {
   const conn = await db.getConnection();
 
@@ -264,4 +234,55 @@ export const getMyTransactionsService = async (userId) => {
   }));
 };
 
+
+// 1️⃣ FIRST define helper
+export const createWalletTransaction = async ({
+  conn,
+  userId,
+  wallettype,
+  transtype,
+  amount,
+  remark = null,
+  referenceId,
+  transactionHash = null,
+  ip = null,
+  device = null
+}) => {
+  const [[last]] = await conn.query(
+    `SELECT closing_balance
+     FROM wallet_transactions
+     ORDER BY id DESC
+     LIMIT 1
+     FOR UPDATE`
+  );
+
+  const openingBalance = last ? Number(last.closing_balance) : 0;
+
+  const closingBalance =
+    transtype === "credit"
+      ? openingBalance + amount
+      : openingBalance - amount;
+
+  await conn.query(
+    `INSERT INTO wallet_transactions
+     (user_id, wallettype, transtype, remark, amount,
+      opening_balance, closing_balance,
+      reference_id, transaction_hash,
+      ip_address, device)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      userId,
+      wallettype,
+      transtype,
+      remark,
+      amount,
+      openingBalance,
+      closingBalance,
+      referenceId,
+      transactionHash,
+      ip,
+      device
+    ]
+  );
+};
 
