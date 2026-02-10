@@ -1,9 +1,9 @@
-const db = require("../../config/db");
-const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
-const { generateUserCode } = require("../../utils/usercode");
+import db from '../../config/db.js'
+import bcrypt from 'bcrypt'
+import jwt from 'jsonwebtoken'
+import generateUserCode from '../../utils/usercode';
 
-exports.signupService = async (data) => {
+export const signupService = async (data) => {
   const { name, email, mobile, region, address, dob, referralid, password } = data;
 
   const [existing] = await db.query("SELECT * FROM users WHERE email = ?", [email]);
@@ -36,7 +36,7 @@ while (!isUnique) {
   return { id: result.insertId, name, email, mobile };
 };
 
-exports.loginService = async (data) => {
+export const loginService = async (data) => {
   const { email, password } = data;
 
   const [rows] = await db.query("SELECT * FROM users WHERE email = ?", [email]);

@@ -7,6 +7,7 @@ export const signupSchema = Joi.object({
   region: Joi.string().required(),
   address: Joi.string().allow("", null),
   dob: Joi.date().less("now").required(),
+  category: Joi.string().valid("students", "others").required(),
 
   // accept WRONG key
   referalid: Joi.string().empty("").default("AAAAA1111").optional(),
@@ -14,10 +15,6 @@ export const signupSchema = Joi.object({
   // accept CORRECT key
   referralid: Joi.string().empty("").default("AAAAA1111").optional(),
 
-  password: Joi.string()
-    .min(8)
-    .pattern(/^(?=.*[A-Z])(?=.*\d).+$/)
-    .required(),
 });
 
 
@@ -43,7 +40,7 @@ export const sendOtpSchema = Joi.object({
     .optional(),
 })
   .or("email", "mobile")
-  .required();
+  .required();  
 
 
 export const loginSchema = Joi.object({

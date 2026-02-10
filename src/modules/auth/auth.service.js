@@ -1,25 +1,21 @@
-
-import bcrypt from "bcrypt";
 import db from "../../config/db.js";
 import redis from "../../config/redis.js";
 import crypto from "crypto";
-import nodemailer from "nodemailer";
 import generateUserCode from "../../utils/usercode.js";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
-export const requestSignupOtpService = async (data) => {
-  const { name, email, mobile, region, address, dob, referralid, password } = data;
+/* =====================================================
+   1️⃣ REQUEST SIGNUP OTP
+===================================================== */
 
+export const requestSignupOtpService = async (data) => {
+  const { name, email, mobile, region, address, dob,category, referralid } = data;
+
+  const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+  // age check
   const birthDate = new Date(dob);
-  const age = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
+  const age =
+    new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
   if (age < 18) throw new Error("You must be at least 18 years old");
 
   const [[emailExists]] = await db.query(
@@ -30,67 +26,79 @@ export const requestSignupOtpService = async (data) => {
 
   const [[mobileExists]] = await db.query(
     "SELECT id FROM users WHERE mobile = ?",
-    [mobile]
+    [normalizedMobile]
   );
   if (mobileExists) throw new Error("Mobile already registered");
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-  await redis.set(`SIGNUP:${mobile}`, JSON.stringify({
-    name,
-    email,
-    mobile,
-    region,
-    address,
-    dob,
-    referralid,
-    password
-  }), { ex: 300 });
+  const otp = crypto.randomInt(100000, 999999).toString();
 
-  await redis.set(`SIGNUP_OTP:${mobile}`, otp, { ex: 3000 });
-console.log(` SIGNUP OTP for ${mobile}: ${otp}`);
+  // 🔑 ALWAYS USE normalizedMobile
+  await redis.set(
+    `SIGNUP:${normalizedMobile}`,
+    JSON.stringify({
+      name,
+      email,
+      mobile: normalizedMobile,
+      region,
+      address,
+      dob,
+      category,
+      referralid: referralid || "AAAAA1111"
+    }),
+    { ex: 300 }
+  );
 
-  //  Send OTP (SMS gateway here)
-  // sendSms(mobile, otp);
+  await redis.set(
+    `SIGNUP_OTP:${normalizedMobile}`,
+    otp,
+    { ex: 300 }
+  );
+
+  console.log(`SIGNUP OTP for ${normalizedMobile}: ${otp}`);
 
   return {
     success: true,
-    message: "OTP sent to mobile number"
+    message: "OTP sent to mobile number",
+    otp
   };
 };
 
+
+
 export const signupService = async ({ mobile, otp }) => {
+  // ✅ Normalize mobile EXACTLY same as signup OTP service
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-  const savedOtpRaw = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
+  /* --------------------------------
+     1️⃣ OTP CHECK
+  -------------------------------- */
+  const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
+  if (!savedOtp) {
+    throw new Error("OTP expired");
+  }
 
-  console.log(" OTP DEBUG", {
-    inputOtp: otp,
-    inputType: typeof otp,
-    redisOtp: savedOtpRaw,
-    redisType: typeof savedOtpRaw,
-    mobile: normalizedMobile
-  });
+  if (String(savedOtp).trim() !== String(otp).trim()) {
+    throw new Error("Invalid OTP");
+  }
 
-  if (!savedOtpRaw) throw new Error("OTP expired");
+  /* --------------------------------
+     2️⃣ SIGNUP DATA FROM REDIS
+  -------------------------------- */
+  const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
+  if (!signupRaw) {
+    throw new Error("Signup session expired");
+  }
 
-  const inputOtp = String(otp).trim();
-  const savedOtp = String(savedOtpRaw).trim();
+ const signupData =
+  typeof signupRaw === "string"
+    ? JSON.parse(signupRaw)
+    : signupRaw;
 
-  if (savedOtp !== inputOtp) throw new Error("Invalid OTP");
+  const { name, email, region, address, dob,category, referralid } = signupData;
 
-  const signupDataRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
-  if (!signupDataRaw) throw new Error("Signup session expired");
-
-  const signupData =
-    typeof signupDataRaw === "string"
-      ? JSON.parse(signupDataRaw)
-      : signupDataRaw;
-
-  const { name, email, region, address, dob, referralid, password } = signupData;
-
-  const hashedPassword = await bcrypt.hash(password, 10);
-
-  
+  /* --------------------------------
+     3️⃣ GENERATE UNIQUE USERCODE
+  -------------------------------- */
   let usercode;
   while (true) {
     usercode = generateUserCode();
@@ -101,51 +109,97 @@ export const signupService = async ({ mobile, otp }) => {
     if (!exists) break;
   }
 
+  /* --------------------------------
+     4️⃣ GENERATE SEQUENTIAL USERID
+  -------------------------------- */
   const [[lastUser]] = await db.query(
     "SELECT userid FROM users ORDER BY id DESC LIMIT 1"
   );
 
-  let newUserId;
-  if (!lastUser || !lastUser.userid) {
-    newUserId = "PTW000001";
-  } else {
-    const lastNumber = parseInt(lastUser.userid.replace("PTW", ""), 10);
-    const nextNumber = lastNumber + 1;
-    newUserId = "PTW" + nextNumber.toString().padStart(6, "0");
-  }
+  const nextNumber = lastUser && lastUser.userid
+    ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
+    : 1;
 
-  let referralUserId = null;
+  const userid = "PTW" + String(nextNumber).padStart(6, "0");
+
+  /* --------------------------------
+     5️⃣ REFERRAL VALIDATION
+  -------------------------------- */
+  let referralUserCode = null;
+
   if (referralid && referralid !== "AAAAA1111") {
     const [[refUser]] = await db.query(
-      "SELECT usercode FROM users WHERE usercode = ?",
+      "SELECT id FROM users WHERE usercode = ?",
       [referralid]
     );
-    if (!refUser) throw new Error("Invalid referral code");
-    referralUserId = referralid;
+
+    if (!refUser) {
+      throw new Error("Invalid referral code");
+    }
+
+    referralUserCode = referralid;
   }
 
-  const emailToken = crypto.randomBytes(20).toString("hex");
+  /* --------------------------------
+     6️⃣ INSERT USER
+  -------------------------------- */
+ const [result] = await db.query(
+  `INSERT INTO users
+   (
+     userid,
+     usercode,
+     name,
+     email,
+     mobile,
+     region,
+     address,
+     dob,
+     referalid,
+     category,
+     emailverify,
+     phoneverify,
+     created_at
+   )
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
+  [
+    userid,
+    usercode,
+    name,
+    email,
+    normalizedMobile,
+    region,
+    address || null,
+    dob,
+    referralUserCode,
+    category   // ✅ CORRECT PLACE
+  ]
+);
 
+  const userId = result.insertId;
+
+  /* --------------------------------
+     7️⃣ CREATE WALLET
+  -------------------------------- */
   await db.query(
-    `INSERT INTO users
-     (userid, usercode, name, email, mobile, region, address, dob,
-      referalid, password, email_token, phoneverify, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NOW())`,
-    [
-      newUserId,
-      usercode,
-      name,
-      email,
-      normalizedMobile,
-      region,
-      address,
-      dob,
-      referralUserId,
-      hashedPassword,
-      emailToken
-    ]
+    `INSERT INTO wallets
+     (user_id, depositwallet, earnwallet, bonusamount, total_deposits, total_withdrawals)
+     VALUES (?, 0, 0, 0, 0, 0)`,
+    [userId]
   );
 
+  /* --------------------------------
+     8️⃣ JOINING BONUS
+  -------------------------------- */
+  await db.query(
+    `UPDATE wallets
+     SET bonusamount = bonusamount + 5
+     WHERE user_id = ?`,
+    [userId]
+  );
+
+  /* --------------------------------
+     9️⃣ CLEAR REDIS
+  -------------------------------- */
   await redis.del(`SIGNUP:${normalizedMobile}`);
   await redis.del(`SIGNUP_OTP:${normalizedMobile}`);
   
@@ -161,21 +215,24 @@ export const signupService = async ({ mobile, otp }) => {
 //          <p>If you did not signup, ignore this email.</p>`,
 // });
 
+  /* --------------------------------
+     🔟 RESPONSE
+  -------------------------------- */
   return {
     success: true,
     message: "Signup completed successfully",
     data: {
-      userid: newUserId,
+      userid,
       usercode
     }
   };
 };
 
 
-export const sendLoginOtpService = async (data) => {
-  const { email, mobile } = data;
+export const sendLoginOtpService = async ({ email, mobile }) => {
   const [users] = await db.query(
-    `SELECT id, email, mobile FROM users 
+    `SELECT id, email, mobile, loginotp, loginotpexpires
+     FROM users
      WHERE email = ? OR mobile = ?`,
     [email || null, mobile || null]
   );
@@ -183,30 +240,45 @@ export const sendLoginOtpService = async (data) => {
   if (!users.length) throw new Error("User not found");
 
   const user = users[0];
+
+  // 🔁 Reuse OTP if not expired
+  if (
+    user.loginotp &&
+    user.loginotpexpires &&
+    new Date(user.loginotpexpires) > new Date()
+  ) {
+    console.log(`LOGIN OTP (REUSED): ${user.loginotp}`);
+    return {
+      otp: user.loginotp
+    };
+  }
+
+  // 🔐 Generate new OTP
   const otp = crypto.randomInt(100000, 999999).toString();
    console.log("Send OTP :",otp);
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
   await db.query(
-    `UPDATE users 
-     SET loginotp = ?, loginotpexpires = ? 
+    `UPDATE users
+     SET loginotp = ?, loginotpexpires = ?
      WHERE id = ?`,
     [otp, expiresAt, user.id]
   );
 
-  // sendEmail(user.email, otp)
-  // sendSms(user.mobile, otp)
+  console.log(`LOGIN OTP (NEW): ${otp}`);
 
   return {
-    message: "OTP sent successfully",
+    otp
   };
 };
 
 
-export const loginService = async (data) => {
-  const { email, mobile, otp } = data;
 
+
+export const loginService = async ({ email, mobile, otp }) => {
   const [users] = await db.query(
-    `SELECT * FROM users 
+    `SELECT id, usercode, email, mobile, name, loginotp, loginotpexpires
+     FROM users
      WHERE email = ? OR mobile = ?`,
     [email || null, mobile || null]
   );
@@ -214,24 +286,25 @@ export const loginService = async (data) => {
   if (!users.length) throw new Error("User not found");
 
   const user = users[0];
-  if (user.loginotp !== otp) {
-    throw new Error("Invalid OTP");
-  }
+
+  if (user.loginotp !== otp) throw new Error("Invalid OTP");
   if (new Date(user.loginotpexpires) < new Date()) {
     throw new Error("OTP expired");
   }
+
   await db.query(
-    `UPDATE users 
-     SET loginotp = NULL, loginotpexpires = NULL 
+    `UPDATE users
+     SET loginotp = NULL, loginotpexpires = NULL
      WHERE id = ?`,
     [user.id]
   );
 
   return {
+    id: user.id,
     usercode: user.usercode,
     email: user.email,
     mobile: user.mobile,
-    name: user.name,
+    name: user.name
   };
 };
 

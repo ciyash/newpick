@@ -4,7 +4,7 @@ import helmet from "helmet";
 import cors from "cors";
 import morgan from "morgan";
 import routes from "./routes/index.js"; 
-import redisClient from "./config/redis.js";
+
 
 const app = express();
 
@@ -22,3 +22,4 @@ app.get("/test", (req, res) => {
 app.use("/api", routes);
 
 export default app;
+  

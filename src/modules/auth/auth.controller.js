@@ -7,22 +7,11 @@ import { getClientIp } from "../../utils/ip.js";
 
 export const signup = async (req, res) => {
   try {
-    if (!req.body) {
-      return res.status(400).json({
-        success: false,
-        message: "Request body is missing"
-      });
-    }
-
-    console.log("Request Signup OTP:", req.body);
-
     await signupSchema.validateAsync(req.body);
-    await requestSignupOtpService(req.body);
 
-    res.json({
-      success: true,
-      message: "OTP sent to mobile number"
-    });
+    const result = await requestSignupOtpService(req.body);
+
+    res.status(200).json(result);
   } catch (err) {
     res.status(400).json({
       success: false,
@@ -31,46 +20,44 @@ export const signup = async (req, res) => {
   }
 };
 
+
 export const verifySignupOtp = async (req, res) => {
   try {
-    console.log("Verify Signup OTP:", req.body);
-
     await verifyOtpSchema.validateAsync(req.body);
 
     const result = await signupService(req.body);
 
-    res.json(result);
+    return res.status(200).json(result);
   } catch (err) {
-    console.error("Verify OTP Error:", err.message);
-
-    res.status(400).json({
+    return res.status(400).json({
       success: false,
-      message: err.details?.[0]?.message || err.message || "OTP verification failed"
+      message: err.details?.[0]?.message || err.message,
     });
   }
 };
 
+
+
+
 export const sendLoginOtp = async (req, res) => {
   try {
-    console.log("Send OTP hit:", req.body);
-
     await sendOtpSchema.validateAsync(req.body);
 
-    await sendLoginOtpService(req.body);
+    const result = await sendLoginOtpService(req.body);
 
     res.status(200).json({
       success: true,
       message: "OTP sent successfully",
+      otp: result.otp   // 👈 OTP in response
     });
   } catch (err) {
-    console.error("Send OTP error:", err.message);
-
     res.status(400).json({
       success: false,
-      message: err.message,
+      message: err.message
     });
   }
 };
+
 
 
 export const verifyEmail = async (req, res) => {
@@ -104,18 +91,17 @@ export const verifyEmail = async (req, res) => {
 };
 
 
+
 export const login = async (req, res) => {
   try {
-    console.log("Login hit:", req.body);
-
     await loginSchema.validateAsync(req.body);
 
     const user = await loginService(req.body);
 
     const token = jwt.sign(
       {
-        userId: user.usercode, // or user.id
-        email: user.email,
+        id: user.id,        // DB primary key
+        usercode: user.usercode
       },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
@@ -125,14 +111,16 @@ export const login = async (req, res) => {
       success: true,
       message: "Login successful",
       token,
-      data: user,
+      data: {
+        usercode: user.usercode,
+        email: user.email,
+        name: user.name
+      }
     });
   } catch (err) {
-    console.error("Login error:", err.message);
-
     res.status(400).json({
       success: false,
-      message: err.message,
+      message: err.message
     });
   }
 };
@@ -173,3 +161,4 @@ export const adminLogin = async (req, res) => {
     });
   }
 };
+
