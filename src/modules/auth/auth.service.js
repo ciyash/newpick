@@ -1,4 +1,3 @@
-import bcrypt from "bcrypt";
 import db from "../../config/db.js";
 import redis from "../../config/redis.js";
 import crypto from "crypto";
@@ -94,9 +93,7 @@ export const signupService = async ({ mobile, otp }) => {
 
   const { name, email, region, address, dob,category, referralid } = signupData;
 
-  /* --------------------------------
-     3️⃣ GENERATE UNIQUE USERCODE
-  -------------------------------- */
+
   let usercode;
   while (true) {
     usercode = generateUserCode();
