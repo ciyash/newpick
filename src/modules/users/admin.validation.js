@@ -79,3 +79,70 @@ export const updatePlayer = validate(Joi.object({
   name: Joi.string(),
   position: Joi.string().valid("GK","DEF","MID","FWD")
 }));
+
+export const createContest = validate(Joi.object({
+  match_id: Joi.number().required(),
+
+  entry_fee: Joi.number().precision(2).positive().required(),
+  prize_pool: Joi.number().precision(2).positive().required(),
+
+  max_entries: Joi.number().integer().positive().required(),
+  min_entries: Joi.number().integer().min(0).default(0),
+
+  contest_type: Joi.string()
+    .valid("NORMAL", "GUARANTEED", "CASHBACK")
+    .default("NORMAL"),
+
+  is_guaranteed: Joi.number().valid(0, 1).default(0),
+
+  winner_percentage: Joi.number().min(0).max(100).default(0),
+  total_winners: Joi.number().integer().min(0).default(0),
+
+  first_prize: Joi.number().precision(2).min(0).default(0),
+
+  prize_distribution: Joi.string().allow(null, ""),
+
+  is_cashback: Joi.number().valid(0, 1).default(0),
+  cashback_percentage: Joi.number().min(0).max(100).default(0),
+  cashback_amount: Joi.number().precision(2).min(0).default(0),
+
+  platform_fee_percentage: Joi.number().min(0).max(100).default(0),
+  platform_fee_amount: Joi.number().precision(2).min(0).default(0),
+
+  status: Joi.string()
+    .valid("UPCOMING", "LIVE", "FULL", "COMPLETED", "CANCELLED")
+    .default("UPCOMING")
+}));
+
+export const updateContest = validate(Joi.object({
+  entry_fee: Joi.number().precision(2).positive(),
+  prize_pool: Joi.number().precision(2).positive(),
+
+  max_entries: Joi.number().integer().positive(),
+  min_entries: Joi.number().integer().min(0),
+  current_entries: Joi.number().integer().min(0),
+
+  contest_type: Joi.string().valid("NORMAL", "GUARANTEED", "CASHBACK"),
+  is_guaranteed: Joi.number().valid(0, 1),
+
+  winner_percentage: Joi.number().min(0).max(100),
+  total_winners: Joi.number().integer().min(0),
+
+  first_prize: Joi.number().precision(2).min(0),
+  prize_distribution: Joi.string().allow(null, ""),
+
+  is_cashback: Joi.number().valid(0, 1),
+  cashback_percentage: Joi.number().min(0).max(100),
+  cashback_amount: Joi.number().precision(2).min(0),
+
+  platform_fee_percentage: Joi.number().min(0).max(100),
+  platform_fee_amount: Joi.number().precision(2).min(0),
+
+  status: Joi.string().valid(
+    "UPCOMING",
+    "LIVE",
+    "FULL",
+    "COMPLETED",
+    "CANCELLED"
+  )
+}).min(1));

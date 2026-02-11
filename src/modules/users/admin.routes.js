@@ -37,4 +37,15 @@ router.get("/getplayersbyid/:id", adminAuth(), c.getPlayerById);
 router.get("/getplayersbyteam/:id", adminAuth(), c.getPlayerByTeam);
 router.put("/updateplayers/:id", adminAuth(), v.updatePlayer, c.updatePlayer);
 
+/* CONTEST */
+router.post("/createcontest",adminAuth(),v.createContest,c.createContest);
+router.get("/getcontests",adminAuth(),c.getContests);
+router.get("/getcontestbyid/:id",adminAuth(),c.getContestById);
+router.put("/updatecontest/:id",adminAuth(),v.updateContest,c.updateContest);
+router.get("/getcontestbymatch/:matchId",adminAuth(),c.getContestsByMatch);
+router.get("/getcontestbyseries/:seriesId",adminAuth(),c.getContestsBySeries);
+router.get("/getcontestbyteam/:teamId",adminAuth(),c.getContestsByTeam);
+
+
+
 export default router;
