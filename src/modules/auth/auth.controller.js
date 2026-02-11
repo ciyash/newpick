@@ -1,7 +1,7 @@
 
 import jwt from "jsonwebtoken";
 import { signupSchema, loginSchema,sendOtpSchema, verifyOtpSchema } from "../auth/auth.validation.js";
-import { signupService,sendLoginOtpService, loginService,requestSignupOtpService } from "../auth/auth.service.js";
+import { signupService,sendLoginOtpService, loginService,requestSignupOtpService,adminLoginService } from "../auth/auth.service.js";
 import { getClientIp } from "../../utils/ip.js";
 
 

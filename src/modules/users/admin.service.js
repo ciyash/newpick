@@ -264,9 +264,9 @@ export const createPlayer = async (data, admin, ip) => {
   try {
     const [res] = await db.query(
       `INSERT INTO players
-       (team_id,name,position,points,created_at)
-       VALUES (?,?,?,?, NOW())`,
-      [data.team_id, data.name, data.position,data.points]
+       (team_id,name,position,points,player_type,created_at)
+       VALUES (?,?,?,?,?, NOW())`,
+      [data.team_id, data.name, data.position,data.points,data.points]
     );
 
     await logAdmin(db, admin, "CREATE_PLAYER", "player", res.insertId, ip);
