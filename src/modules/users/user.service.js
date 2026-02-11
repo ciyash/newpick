@@ -54,8 +54,14 @@ export const getUserProfileService = async (userId) => {
   /* --------------------------------
      3️⃣ MONTHLY DEPOSIT LIMIT
   -------------------------------- */
-  const MONTHLY_LIMIT =
-    user.category === "students" ? 300 : 1500;
+  const DEFAULT_LIMIT =
+  user.category === "students" ? 300 : 1500;
+
+const MONTHLY_LIMIT =
+  user.monthly_limit !== null
+    ? Math.min(user.monthly_limit, DEFAULT_LIMIT)
+    : DEFAULT_LIMIT;
+
 
   const yearMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
 
@@ -128,4 +134,91 @@ export const getUserProfileService = async (userId) => {
 
     subscription   // 👈 HERE (current + next)
   };
+};
+
+
+export const reduceMonthlyLimitService = async (userId, newLimit) => {
+  const [[user]] = await db.query(
+    `SELECT category, monthly_limit
+     FROM users
+     WHERE id = ?`,
+    [userId]
+  );
+
+  if (!user) throw new Error("User not found");
+
+  const DEFAULT_LIMIT =
+    user.category === "students" ? 300 : 1500;
+
+  // 🔒 HARD BLOCK: MIN 100
+  if (newLimit < 100) {
+    throw new Error("Minimum allowed limit is 100");
+  }
+
+  // 🔒 HARD BLOCK: CATEGORY DEFAULT
+  if (newLimit > DEFAULT_LIMIT) {
+    throw new Error(
+      `Maximum allowed limit for your account is ${DEFAULT_LIMIT}`
+    );
+  }
+
+  // 🔒 HARD BLOCK: NO INCREASE
+  if (
+    user.monthly_limit !== null &&
+    newLimit > user.monthly_limit
+  ) {
+    throw new Error(
+      "Limit increase is not allowed once reduced"
+    );
+  }
+
+  await db.query(
+    `UPDATE users
+     SET monthly_limit = ?
+     WHERE id = ?`,
+    [newLimit, userId]
+  );
+};
+
+// feedback service.......................................................
+
+export const createFeedbackService = async (userId, data) => {
+  const { subject, message, rating, description } = data;
+
+  await db.query(
+    `INSERT INTO feedbacks
+     (user_id, subject, message, rating, description)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      userId,
+      subject,
+      message,
+      rating,
+      description || null
+    ]
+  );
+
+  return {
+    success: true,
+    message: "Feedback submitted successfully"
+  };
+};
+
+
+export const getMyFeedbacksService = async (userId) => {
+  const [rows] = await db.query(
+    `SELECT
+        id,
+        subject,
+        message,
+        rating,
+        description,
+        created_at
+     FROM feedbacks
+     WHERE user_id = ?
+     ORDER BY id DESC`,
+    [userId]
+  );
+
+  return rows;
 };

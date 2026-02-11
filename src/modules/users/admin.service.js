@@ -15,28 +15,24 @@ const logAdmin = async (conn, admin, action, entity, entityId, ip) => {
 
 export const createAdmin = async (req, res) => {
   try {
-    const data = await s.createAdmin(req.body, req.admin, req.ip);
+  
+    const hash = await bcrypt.hash(data.password, 12);
 
-    return res.status(201).json({
-      success: true,
-      message: "Admin created successfully",
-      data
-    });
-  } catch (error) {
-    // Duplicate admin
-    if (error.message === "Admin already exists") {
-      return res.status(409).json({
-        success: false,
-        message: error.message
-      });
-    }
+   const [res] = await conn.query(
+      `INSERT INTO admin
+       (name,email,password_hash,role,status,created_at)
+       VALUES (?,?,?,?,?, NOW())`,
+      [data.name, data.email, hash, data.role, "active"]
+    );
 
-    // Unknown error
-    console.error("Create admin error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    await logAdmin(conn, admin, "CREATE_ADMIN", "admin", res.insertId, ip);
+    await conn.commit();
+    return { id: res.insertId };
+  } catch (e) {
+    await conn.rollback();
+    throw e;
+  } finally {
+    conn.release();
   }
 };
 
@@ -83,9 +79,10 @@ export const updateAdmin = async (id, data, admin, ip) => {
 
 export const createSeries = async (data, admin, ip) => {
   try {
-    const [res] = await db.query(
-      `INSERT INTO series (name,season,start_date,end_date,provider_series_id)
-       VALUES (?,?,?,?,?)`,
+   const [res] = await db.query(
+      `INSERT INTO series
+       (name,season,start_date,end_date,provider_series_id,created_at)
+       VALUES (?,?,?,?,?, NOW())`,
       [
         data.name,
         data.season,
@@ -142,10 +139,10 @@ export const updateSeries = async (id, data, admin, ip) => {
 
 export const createMatch = async (data, admin, ip) => {
   try {
-    const [res] = await db.query(
+   const [res] = await db.query(
       `INSERT INTO matches
-       (series_id,home_team_id,away_team_id,start_time,status)
-       VALUES (?,?,?,?, 'UPCOMING')`,
+       (series_id,home_team_id,away_team_id,start_time,status,created_at)
+       VALUES (?,?,?,?, 'UPCOMING', NOW())`,
       [
         data.series_id,
         data.home_team_id,
@@ -210,6 +207,7 @@ export const updateMatch = async (id, data, admin, ip) => {
   }
 };
 
+
 /* ================= TEAMS ================= */
 
 export const createTeam = async (data, admin, ip) => {
@@ -265,8 +263,9 @@ export const updateTeam = async (id, data, admin, ip) => {
 export const createPlayer = async (data, admin, ip) => {
   try {
     const [res] = await db.query(
-      `INSERT INTO players (team_id,name,position,points)
-       VALUES (?,?,?,?)`,
+      `INSERT INTO players
+       (team_id,name,position,points,created_at)
+       VALUES (?,?,?,?, NOW())`,
       [data.team_id, data.name, data.position,data.points]
     );
 
