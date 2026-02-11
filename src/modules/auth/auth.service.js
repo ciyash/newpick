@@ -1,4 +1,5 @@
 import db from "../../config/db.js";
+import bcrypt from "bcrypt";
 import redis from "../../config/redis.js";
 import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
@@ -325,4 +326,79 @@ export const pauseAccountService = async (userId, durationKey) => {
     status: "paused",
     pauseTill: end
   };
+};
+
+
+//Admin service
+const MAX_FAILED_ATTEMPTS = 5;
+
+export const adminLoginService = async ({ email, password }, ipAddress) => {
+
+  const [rows] = await db.query(
+    'SELECT * FROM admin WHERE email = ?',
+    [email]
+  );
+
+  const admin = rows[0];
+
+  if (!admin) {
+    await db.query(
+      `INSERT INTO admin_logs (email, action, reason, ip_address)
+       VALUES (?, 'LOGIN_FAILED', 'EMAIL_NOT_FOUND', ?)`,
+      [email, ipAddress]
+    );
+    throw new Error("Invalid credentials");
+  }
+
+  
+  if (admin.status !== 'active') {
+    await db.query(
+      `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
+       VALUES (?, ?, 'LOGIN_FAILED', 'ACCOUNT_INACTIVE', ?)`,
+      [admin.id, admin.email, ipAddress]
+    );
+    throw new Error("Account is inactive");
+  }
+
+  const isMatch = await bcrypt.compare(password, admin.password_hash);
+
+  if (!isMatch) {
+    await db.query(
+      `UPDATE admin
+       SET failed_attempts = failed_attempts + 1
+       WHERE id = ?`,
+      [admin.id]
+    );
+
+    await db.query(
+      `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
+       VALUES (?, ?, 'LOGIN_FAILED', 'INVALID_PASSWORD', ?)`,
+      [admin.id, admin.email, ipAddress]
+    );
+
+    if (admin.failed_attempts + 1 >= MAX_FAILED_ATTEMPTS) {
+      await db.query(
+        `UPDATE admin SET status = 'inactive' WHERE id = ?`,
+        [admin.id]
+      );
+    }
+
+    throw new Error("Invalid credentials");
+  }
+
+  await db.query(
+    `UPDATE admin
+     SET failed_attempts = 0, last_login = NOW()
+     WHERE id = ?`,
+    [admin.id]
+  );
+
+  await db.query(
+    `INSERT INTO admin_logs (admin_id, email, action, ip_address)
+     VALUES (?, ?, 'LOGIN_SUCCESS', ?)`,
+    [admin.id, admin.email, ipAddress]
+  );
+
+  delete admin.password_hash;
+  return admin;
 };
