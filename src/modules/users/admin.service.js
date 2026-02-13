@@ -79,11 +79,16 @@ export const updateAdmin = async (id, data, admin, ip) => {
 
 export const createSeries = async (data, admin, ip) => {
   try {
-   const [res] = await db.query(
+    const [[{ nextSeriesId }]] = await db.query(
+      `SELECT IFNULL(MAX(seriesid), 0) + 1 AS nextSeriesId FROM series`
+    );
+
+    const [res] = await db.query(
       `INSERT INTO series
-       (name,season,start_date,end_date,provider_series_id,created_at)
-       VALUES (?,?,?,?,?, NOW())`,
+       (seriesid, name, season, start_date, end_date, provider_series_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
       [
+        nextSeriesId,
         data.name,
         data.season,
         data.start_date,
@@ -93,11 +98,12 @@ export const createSeries = async (data, admin, ip) => {
     );
 
     await logAdmin(db, admin, "CREATE_SERIES", "series", res.insertId, ip);
-    return { id: res.insertId };
+    return { id: res.insertId, seriesid: nextSeriesId };
   } catch (err) {
     throw err;
   }
 };
+
 
 export const getSeries = async () => {
   try {
@@ -112,7 +118,7 @@ export const getSeries = async () => {
 
 export const getSeriesById = async (id) => {
   try {
-    const [[row]] = await db.query(`SELECT * FROM series WHERE id=?`, [id]);
+    const [[row]] = await db.query(`SELECT * FROM series WHERE seriesid=?`, [id]);
     if (!row) throw new Error("Series not found");
     return row;
   } catch (err) {
@@ -262,19 +268,31 @@ export const updateTeam = async (id, data, admin, ip) => {
 
 export const createPlayer = async (data, admin, ip) => {
   try {
+    const points = Number.isInteger(data.points) ? data.points : 0;
+
     const [res] = await db.query(
       `INSERT INTO players
-       (team_id,name,position,points,created_at)
-       VALUES (?,?,?,?, NOW())`,
-      [data.team_id, data.name, data.position,data.points]
+       (team_id, name, position, points, created_at)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [data.team_id, data.name, data.position, points]
     );
 
     await logAdmin(db, admin, "CREATE_PLAYER", "player", res.insertId, ip);
-    return { id: res.insertId };
+
+    return {
+      success: true,
+      id: res.insertId
+    };
   } catch (err) {
-    throw err;
+    // Optional: log error here
+    throw {
+      success: false,
+      message: err.message || "Failed to create player",
+      error: err
+    };
   }
 };
+
 
 export const getPlayers = async () => {
   try {
