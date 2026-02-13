@@ -125,11 +125,11 @@ export const addDepositService = async (userId, amount) => {
 
   const yearMonth = new Date().toISOString().slice(0, 7);
   const conn = await db.getConnection();
-
+ 
   try {
     await conn.beginTransaction();
 
-    /* GET LIMIT FROM WALLET */
+    
     const [[wallet]] = await conn.query(
       `SELECT deposit_limit
        FROM wallets
