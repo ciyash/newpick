@@ -3,9 +3,10 @@ import { getUserProfileService, reduceMonthlyLimitService,  createFeedbackServic
 import { feedbackSchema } from "./user.validation.js";
 import db from "../../config/db.js";
 
+
 export const getUserProfile = async (req, res) => {
   try {
-    const userId = req.user.id; // ✅ from JWT
+    const userId = req.user.id;
 
     const profile = await getUserProfileService(userId);
 
@@ -134,31 +135,8 @@ export const pauseAccount = async (req, res) => {
   }
 };
 
-export const resumeAccount = async (req, res) => {
-  try {
-    const userId = req.user.id;
 
-    await db.query(
-      `UPDATE users SET
-        account_status = 'active',
-        pause_start = NULL,
-        pause_end = NULL
-       WHERE id = ?`,
-      [userId]
-    );
 
-    res.status(200).json({
-      success: true,
-      message: "Account resumed successfully"
-    });
-
-  } catch (err) {
-    res.status(400).json({
-      success: false,
-      message: err.message
-    });
-  }
-};
 
 
 
@@ -187,3 +165,6 @@ export const deleteAccount = async (req, res) => {
     });
   }
 };
+
+
+

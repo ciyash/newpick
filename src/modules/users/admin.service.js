@@ -125,6 +125,7 @@ export const getSeriesById = async (id) => {
     throw err;
   }
 };
+//
 
 export const updateSeries = async (id, data, admin, ip) => {
   try {
