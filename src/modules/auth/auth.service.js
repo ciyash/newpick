@@ -4,61 +4,6 @@ import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
 
 
-// export const requestSignupOtpService = async (data) => {
-//   const { name, email, mobile, region, address, dob,category, referralid } = data;
-
-//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-//   // age check
-//   const birthDate = new Date(dob);
-//   const age =
-//     new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
-//   if (age < 18) throw new Error("You must be at least 18 years old");
-
-//   const [[emailExists]] = await db.query(
-//     "SELECT id FROM users WHERE email = ?",
-//     [email]
-//   );
-//   if (emailExists) throw new Error("Email already registered");
-
-//   const [[mobileExists]] = await db.query(
-//     "SELECT id FROM users WHERE mobile = ?",
-//     [normalizedMobile]
-//   );
-//   if (mobileExists) throw new Error("Mobile already registered");
-
-//   const otp = crypto.randomInt(100000, 999999).toString();
-
-//   // 🔑 ALWAYS USE normalizedMobile
-//   await redis.set(
-//     `SIGNUP:${normalizedMobile}`,
-//     JSON.stringify({
-//       name,
-//       email,
-//       mobile: normalizedMobile,
-//       region,
-//       address,
-//       dob,
-//       category,
-//       referralid: referralid || "AAAAA1111"
-//     }),
-//     { ex: 300 }
-//   );
-
-//   await redis.set(
-//     `SIGNUP_OTP:${normalizedMobile}`,
-//     otp,
-//     { ex: 300 }
-//   );
-
-//   console.log(`SIGNUP OTP for ${normalizedMobile}: ${otp}`);
-
-//   return {
-//     success: true,
-//     message: "OTP sent to mobile number",
-//     otp
-//   };
-// };
 
 
 export const requestSignupOtpService = async (data) => {
@@ -144,38 +89,191 @@ export const requestSignupOtpService = async (data) => {
   };
 };
 
+
+// export const signupService = async ({ mobile, otp }) => {
+
+//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+//   /* --------------------------------
+//      1️⃣ OTP CHECK
+//   -------------------------------- */
+//   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
+//   if (!savedOtp) {
+//     throw new Error("OTP expired");
+//   }
+
+//   if (String(savedOtp).trim() !== String(otp).trim()) {
+//     throw new Error("Invalid OTP");
+//   }
+
+//   /* --------------------------------
+//      2️⃣ SIGNUP DATA FROM REDIS
+//   -------------------------------- */
+//   const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
+//   if (!signupRaw) {
+//     throw new Error("Signup session expired");
+//   }
+
+//   const signupData =
+//     typeof signupRaw === "string"
+//       ? JSON.parse(signupRaw)
+//       : signupRaw;
+
+//   const { name, email, region, address, dob, category, referralid } =
+//     signupData;
+
+//   /* --------------------------------
+//      3️⃣ GENERATE UNIQUE USERCODE
+//   -------------------------------- */
+//   let usercode;
+//   while (true) {
+//     usercode = generateUserCode();
+//     const [[exists]] = await db.query(
+//       "SELECT id FROM users WHERE usercode = ?",
+//       [usercode]
+//     );
+//     if (!exists) break;
+//   }
+
+//   /* --------------------------------
+//      4️⃣ GENERATE SEQUENTIAL USERID
+//   -------------------------------- */
+//   const [[lastUser]] = await db.query(
+//     "SELECT userid FROM users ORDER BY id DESC LIMIT 1"
+//   );
+
+//   const nextNumber =
+//     lastUser && lastUser.userid
+//       ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
+//       : 1;
+
+//   const userid = "PTW" + String(nextNumber).padStart(6, "0");
+
+//   /* --------------------------------
+//      5️⃣ REFERRAL VALIDATION
+//   -------------------------------- */
+//   let referralUserCode = null;
+
+//   if (referralid && referralid !== "AAAAA1111") {
+//     const [[refUser]] = await db.query(
+//       "SELECT id FROM users WHERE usercode = ?",
+//       [referralid]
+//     );
+
+//     if (!refUser) {
+//       throw new Error("Invalid referral code");
+//     }
+
+//     referralUserCode = referralid;
+//   }
+
+//   /* --------------------------------
+//      6️⃣ INSERT USER
+//   -------------------------------- */
+//   const [result] = await db.query(
+//     `INSERT INTO users
+//      (
+//        userid,
+//        usercode,
+//        name,
+//        email,
+//        mobile,
+//        region,
+//        address,
+//        dob,
+//        referalid,
+//        category,
+//        emailverify,
+//        phoneverify,
+//        created_at
+//      )
+//      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
+//     [
+//       userid,
+//       usercode,
+//       name,
+//       email,
+//       normalizedMobile,
+//       region,
+//       address || null,
+//       dob,
+//       referralUserCode,
+//       category
+//     ]
+//   );
+
+//   const userId = result.insertId;
+
+//   /* --------------------------------
+//      7️⃣ CREATE WALLET + CATEGORY LIMIT ⭐
+//   -------------------------------- */
+
+//   const depositLimit =
+//     category.toLowerCase() === "student" ? 300 : 1500;
+
+//   await db.query(
+//     `INSERT INTO wallets
+//      (
+//        user_id,
+//        depositwallet,
+//        earnwallet,
+//        bonusamount,
+//        total_deposits,
+//        total_withdrawals,
+//        deposit_limit,
+//         depositelimitdate
+//      )
+//      VALUES (?, 0, 0, 0, 0, 0, ?, CURDATE())`,
+//     [userId, depositLimit]
+//   );
+
+//   /* --------------------------------
+//      8️⃣ JOINING BONUS
+//   -------------------------------- */
+//   await db.query(
+//     `UPDATE wallets
+//      SET bonusamount = bonusamount + 5
+//      WHERE user_id = ?`,
+//     [userId]
+//   );
+
+//   /* --------------------------------
+//      9️⃣ CLEAR REDIS
+//   -------------------------------- */
+//   await redis.del(`SIGNUP:${normalizedMobile}`);
+//   await redis.del(`SIGNUP_OTP:${normalizedMobile}`);
+
+//   /* --------------------------------
+//      🔟 RESPONSE
+//   -------------------------------- */
+//   return {
+//     success: true,
+//     message: "Signup completed successfully",
+//     data: {
+//       userid,
+//       usercode
+//     }
+//   };
+// };
+
+
 export const signupService = async ({ mobile, otp }) => {
-  // ✅ Normalize mobile EXACTLY same as signup OTP service
+
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-  /* --------------------------------
-     1️⃣ OTP CHECK
-  -------------------------------- */
+  /* OTP CHECK */
   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
-  if (!savedOtp) {
-    throw new Error("OTP expired");
-  }
+  if (!savedOtp) throw new Error("OTP expired");
+  if (String(savedOtp) !== String(otp)) throw new Error("Invalid OTP");
 
-  if (String(savedOtp).trim() !== String(otp).trim()) {
-    throw new Error("Invalid OTP");
-  }
-
-  /* --------------------------------
-     2️⃣ SIGNUP DATA FROM REDIS
-  -------------------------------- */
+  /* SIGNUP DATA */
   const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
-  if (!signupRaw) {
-    throw new Error("Signup session expired");
-  }
+  if (!signupRaw) throw new Error("Signup session expired");
 
- const signupData =
-  typeof signupRaw === "string"
-    ? JSON.parse(signupRaw)
-    : signupRaw;
+  const signupData = JSON.parse(signupRaw);
+  const { name, email, region, address, dob, category, referralid } = signupData;
 
-  const { name, email, region, address, dob,category, referralid } = signupData;
-
-
+  /* GENERATE USERCODE */
   let usercode;
   while (true) {
     usercode = generateUserCode();
@@ -186,122 +284,66 @@ export const signupService = async ({ mobile, otp }) => {
     if (!exists) break;
   }
 
-  /* --------------------------------
-     4️⃣ GENERATE SEQUENTIAL USERID
-  -------------------------------- */
+  /* GENERATE USERID */
   const [[lastUser]] = await db.query(
     "SELECT userid FROM users ORDER BY id DESC LIMIT 1"
   );
 
-  const nextNumber = lastUser && lastUser.userid
-    ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
-    : 1;
+  const nextNumber =
+    lastUser && lastUser.userid
+      ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
+      : 1;
 
   const userid = "PTW" + String(nextNumber).padStart(6, "0");
 
-  /* --------------------------------
-     5️⃣ REFERRAL VALIDATION
-  -------------------------------- */
-  let referralUserCode = null;
-
-  if (referralid && referralid !== "AAAAA1111") {
-    const [[refUser]] = await db.query(
-      "SELECT id FROM users WHERE usercode = ?",
-      [referralid]
-    );
-
-    if (!refUser) {
-      throw new Error("Invalid referral code");
-    }
-
-    referralUserCode = referralid;
-  }
-
-  /* --------------------------------
-     6️⃣ INSERT USER
-  -------------------------------- */
- const [result] = await db.query(
-  `INSERT INTO users
-   (
-     userid,
-     usercode,
-     name,
-     email,
-     mobile,
-     region,
-     address,
-     dob,
-     referalid,
-     category,
-     emailverify,
-     phoneverify,
-     created_at
-   )
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
-  [
-    userid,
-    usercode,
-    name,
-    email,
-    normalizedMobile,
-    region,
-    address || null,
-    dob,
-    referralUserCode,
-    category   // ✅ CORRECT PLACE
-  ]
-);
+  /* INSERT USER */
+  const [result] = await db.query(
+    `INSERT INTO users
+     (userid,usercode,name,email,mobile,region,address,dob,referalid,category,emailverify,phoneverify,created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
+    [
+      userid,
+      usercode,
+      name,
+      email,
+      normalizedMobile,
+      region,
+      address || null,
+      dob,
+      referralid || null,
+      category.toLowerCase()
+    ]
+  );
 
   const userId = result.insertId;
 
-  /* --------------------------------
-     7️⃣ CREATE WALLET
-  -------------------------------- */
+  /* ⭐ CREATE WALLET WITH DEFAULT LIMIT */
+  const depositLimit =
+    category.toLowerCase() === "students" ? 300 : 1500;
+
   await db.query(
     `INSERT INTO wallets
-     (user_id, depositwallet, earnwallet, bonusamount, total_deposits, total_withdrawals)
-     VALUES (?, 0, 0, 0, 0, 0)`,
-    [userId]
+     (
+       user_id,
+       depositwallet,
+       earnwallet,
+       bonusamount,
+       total_deposits,
+       total_withdrawals,
+       deposit_limit,
+       depositlimitdate
+     )
+     VALUES (?, 0, 0, 5, 0, 0, ?, CURDATE())`,
+    [userId, depositLimit]
   );
 
-  /* --------------------------------
-     8️⃣ JOINING BONUS
-  -------------------------------- */
-  await db.query(
-    `UPDATE wallets
-     SET bonusamount = bonusamount + 5
-     WHERE user_id = ?`,
-    [userId]
-  );
-
-  /* --------------------------------
-     9️⃣ CLEAR REDIS
-  -------------------------------- */
   await redis.del(`SIGNUP:${normalizedMobile}`);
   await redis.del(`SIGNUP_OTP:${normalizedMobile}`);
-  
- //const verificationUrl = `${process.env.FRONTEND_URL}/email-verified?token=${emailToken}`;
 
-// await transporter.sendMail({
-//   from: process.env.SMTP_USER,
-//   to: email,
-//   subject: "Verify your email",
-//   html: `<p>Hi ${name},</p>
-//          <p>Click the button below to verify your email:</p>
-//          <a href="${verificationUrl}" style="padding:10px 20px; background-color:#4CAF50; color:white; text-decoration:none; border-radius:5px;">Verify Email</a>
-//          <p>If you did not signup, ignore this email.</p>`,
-// });
-
-  /* --------------------------------
-     🔟 RESPONSE
-  -------------------------------- */
   return {
     success: true,
     message: "Signup completed successfully",
-    data: {
-      userid,
-      usercode
-    }
+    data: { userid, usercode }
   };
 };
 
@@ -336,16 +378,7 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
     throw new Error("This account has been deleted");
   }
 
-  /* --------------------------------
-     3️⃣ BLOCK PAUSED ACCOUNT
-  -------------------------------- */
-  // if (user.account_status === "paused") {
-  //   throw new Error("Your account is temporarily paused");
-  // }
-
-  /* --------------------------------
-     4️⃣ REUSE OTP IF NOT EXPIRED
-  -------------------------------- */
+  
   if (
     user.loginotp &&
     user.loginotpexpires &&

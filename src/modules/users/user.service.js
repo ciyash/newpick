@@ -1,69 +1,23 @@
 import db from "../../config/db.js";
 
+
 export const getUserProfileService = async (userId) => {
 
-  /* --------------------------------
-     1️⃣ USER BASIC DETAILS
-  -------------------------------- */
   const [[user]] = await db.query(
-    `SELECT
-        userid,
-        usercode,
-        name,
-        email,
-        mobile,
-        region,
-        category,
-        dob,
-        created_at,
-
-        -- subscription fields
-        subscribe,
-        subscribepack,
-        subscribestartdate,
-        subscribeenddate,
-        nextsubscribe,
-        nextsubscribestartdate,
-        nextsubscribeenddate
+    `SELECT userid,usercode,name,email,mobile,region,category,dob,created_at
      FROM users
      WHERE id = ?`,
     [userId]
   );
 
-  if (!user) {
-    throw new Error("User not found");
-  }
-
-  /* --------------------------------
-     2️⃣ WALLET DETAILS
-  -------------------------------- */
   const [[wallet]] = await db.query(
-    `SELECT
-        depositwallet,
-        earnwallet,
-        bonusamount
+    `SELECT depositwallet, earnwallet, bonusamount, deposit_limit
      FROM wallets
      WHERE user_id = ?`,
     [userId]
   );
 
-  if (!wallet) {
-    throw new Error("Wallet not found");
-  }
-
-  /* --------------------------------
-     3️⃣ MONTHLY DEPOSIT LIMIT
-  -------------------------------- */
-  const DEFAULT_LIMIT =
-  user.category === "students" ? 300 : 1500;
-
-const MONTHLY_LIMIT =
-  user.monthly_limit !== null
-    ? Math.min(user.monthly_limit, DEFAULT_LIMIT)
-    : DEFAULT_LIMIT;
-
-
-  const yearMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const yearMonth = new Date().toISOString().slice(0, 7);
 
   const [[monthly]] = await db.query(
     `SELECT total_added
@@ -72,53 +26,14 @@ const MONTHLY_LIMIT =
     [userId, yearMonth]
   );
 
-  const alreadyAdded = monthly ? Number(monthly.total_added) : 0;
-  const remainingLimit = Math.max(
-    MONTHLY_LIMIT - alreadyAdded,
-    0
-  );
+  const added = monthly ? Number(monthly.total_added) : 0;
 
-  /* --------------------------------
-     4️⃣ SUBSCRIPTION STATUS (INLINE)
-  -------------------------------- */
-  let subscription = { active: false };
-
-  const now = new Date();
-
-  if (
-    user.subscribe === 1 &&
-    user.subscribeenddate &&
-    new Date(user.subscribeenddate).getTime() >= now.getTime()
-  ) {
-    subscription = {
-      active: true,
-      current: {
-        plan: user.subscribepack,
-        startDate: user.subscribestartdate,
-        endDate: user.subscribeenddate
-      },
-      next: user.nextsubscribe === 1
-        ? {
-            startDate: user.nextsubscribestartdate,
-            endDate: user.nextsubscribeenddate
-          }
-        : null
-    };
-  }
-
-  /* --------------------------------
-     5️⃣ FINAL PROFILE RESPONSE
-  -------------------------------- */
   return {
     userid: user.userid,
     usercode: user.usercode,
     name: user.name,
     email: user.email,
-    mobile: user.mobile,
-    region: user.region,
     category: user.category,
-    dob: user.dob,
-    joinedAt: user.created_at,
 
     wallet: {
       depositWallet: Number(wallet.depositwallet),
@@ -127,58 +42,78 @@ const MONTHLY_LIMIT =
     },
 
     depositLimits: {
-      monthlyLimit: MONTHLY_LIMIT,
-      addedThisMonth: alreadyAdded,
-      remainingThisMonth: remainingLimit
-    },
-
-    subscription   // 👈 HERE (current + next)
+      monthlyLimit: Number(wallet.deposit_limit),
+      addedThisMonth: added,
+      remainingThisMonth: wallet.deposit_limit - added
+    }
   };
 };
 
 
 export const reduceMonthlyLimitService = async (userId, newLimit) => {
-  const [[user]] = await db.query(
-    `SELECT category, monthly_limit
-     FROM users
-     WHERE id = ?`,
+
+  /* --------------------------------
+     1️⃣ FETCH USER + CURRENT LIMIT
+  -------------------------------- */
+  const [[data]] = await db.query(
+    `SELECT u.category, w.deposit_limit
+     FROM users u
+     JOIN wallets w ON u.id = w.user_id
+     WHERE u.id = ?`,
     [userId]
   );
 
-  if (!user) throw new Error("User not found");
+  if (!data) throw new Error("User not found");
+
+  const currentLimit = Number(data.deposit_limit);
+
+  /* --------------------------------
+     2️⃣ CATEGORY DEFAULT LIMIT
+  -------------------------------- */
+  const normalizedCategory =
+    String(data.category || "").toLowerCase();
 
   const DEFAULT_LIMIT =
-    user.category === "students" ? 300 : 1500;
+    normalizedCategory === "student" ? 300 : 1500;
 
-  // 🔒 HARD BLOCK: MIN 100
+  /* --------------------------------
+     3️⃣ VALIDATIONS
+  -------------------------------- */
+
+  // 🔒 Minimum allowed
   if (newLimit < 100) {
-    throw new Error("Minimum allowed limit is 100");
+    throw new Error("Minimum allowed limit is £100");
   }
 
-  // 🔒 HARD BLOCK: CATEGORY DEFAULT
+  // 🔒 Cannot exceed category default
   if (newLimit > DEFAULT_LIMIT) {
     throw new Error(
-      `Maximum allowed limit for your account is ${DEFAULT_LIMIT}`
+      `Maximum allowed limit for your account is £${DEFAULT_LIMIT}`
     );
   }
 
-  // 🔒 HARD BLOCK: NO INCREASE
-  if (
-    user.monthly_limit !== null &&
-    newLimit > user.monthly_limit
-  ) {
-    throw new Error(
-      "Limit increase is not allowed once reduced"
-    );
+  // 🔒 Cannot increase limit
+  if (newLimit > currentLimit) {
+    throw new Error("Limit increase is not allowed");
   }
 
+  // 🔒 Must be lower than current
+  if (newLimit === currentLimit) {
+    throw new Error("New limit must be lower than current limit");
+  }
+
+  /* --------------------------------
+     4️⃣ UPDATE WALLET LIMIT
+  -------------------------------- */
   await db.query(
-    `UPDATE users
-     SET monthly_limit = ?
-     WHERE id = ?`,
+    `UPDATE wallets
+     SET deposit_limit = ?
+     WHERE user_id = ?`,
     [newLimit, userId]
   );
 };
+
+
 
 // feedback service.......................................................
 

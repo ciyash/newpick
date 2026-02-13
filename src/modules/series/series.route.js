@@ -12,3 +12,4 @@ router.get("/", authenticate, checkAccountActive, getAllSeries);
   
 
 export default router;
+  
