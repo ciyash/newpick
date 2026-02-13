@@ -5,32 +5,118 @@ import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
 
 
+// export const requestSignupOtpService = async (data) => {
+//   const { name, email, mobile, region, address, dob,category, referralid } = data;
+
+//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+//   // age check
+//   const birthDate = new Date(dob);
+//   const age =
+//     new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
+//   if (age < 18) throw new Error("You must be at least 18 years old");
+
+//   const [[emailExists]] = await db.query(
+//     "SELECT id FROM users WHERE email = ?",
+//     [email]
+//   );
+//   if (emailExists) throw new Error("Email already registered");
+
+//   const [[mobileExists]] = await db.query(
+//     "SELECT id FROM users WHERE mobile = ?",
+//     [normalizedMobile]
+//   );
+//   if (mobileExists) throw new Error("Mobile already registered");
+
+//   const otp = crypto.randomInt(100000, 999999).toString();
+
+//   // 🔑 ALWAYS USE normalizedMobile
+//   await redis.set(
+//     `SIGNUP:${normalizedMobile}`,
+//     JSON.stringify({
+//       name,
+//       email,
+//       mobile: normalizedMobile,
+//       region,
+//       address,
+//       dob,
+//       category,
+//       referralid: referralid || "AAAAA1111"
+//     }),
+//     { ex: 300 }
+//   );
+
+//   await redis.set(
+//     `SIGNUP_OTP:${normalizedMobile}`,
+//     otp,
+//     { ex: 300 }
+//   );
+
+//   console.log(`SIGNUP OTP for ${normalizedMobile}: ${otp}`);
+
+//   return {
+//     success: true,
+//     message: "OTP sent to mobile number",
+//     otp
+//   };
+// };
+
+
 export const requestSignupOtpService = async (data) => {
-  const { name, email, mobile, region, address, dob,category, referralid } = data;
+  const { name, email, mobile, region, address, dob, category, referralid } = data;
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-  // age check
+  /* -----------------------------
+     1️⃣ AGE CHECK
+  ----------------------------- */
   const birthDate = new Date(dob);
   const age =
     new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
-  if (age < 18) throw new Error("You must be at least 18 years old");
 
-  const [[emailExists]] = await db.query(
-    "SELECT id FROM users WHERE email = ?",
+  if (age < 18) {
+    throw new Error("You must be at least 18 years old");
+  }
+
+  /* -----------------------------
+     2️⃣ EMAIL CHECK
+  ----------------------------- */
+  const [[emailUser]] = await db.query(
+    `SELECT id, account_status
+     FROM users
+     WHERE email = ?`,
     [email]
   );
-  if (emailExists) throw new Error("Email already registered");
 
-  const [[mobileExists]] = await db.query(
-    "SELECT id FROM users WHERE mobile = ?",
+  if (emailUser) {
+    if (emailUser.account_status === "deleted") {
+      throw new Error("This email was previously deleted. Contact support.");
+    }
+    throw new Error("Email already registered");
+  }
+
+  /* -----------------------------
+     3️⃣ MOBILE CHECK
+  ----------------------------- */
+  const [[mobileUser]] = await db.query(
+    `SELECT id, account_status
+     FROM users
+     WHERE mobile = ?`,
     [normalizedMobile]
   );
-  if (mobileExists) throw new Error("Mobile already registered");
 
+  if (mobileUser) {
+    if (mobileUser.account_status === "deleted") {
+      throw new Error("This mobile was previously deleted. Contact support.");
+    }
+    throw new Error("Mobile already registered");
+  }
+
+  /* -----------------------------
+     4️⃣ GENERATE OTP
+  ----------------------------- */
   const otp = crypto.randomInt(100000, 999999).toString();
 
-  // 🔑 ALWAYS USE normalizedMobile
   await redis.set(
     `SIGNUP:${normalizedMobile}`,
     JSON.stringify({
@@ -52,16 +138,12 @@ export const requestSignupOtpService = async (data) => {
     { ex: 300 }
   );
 
-  console.log(`SIGNUP OTP for ${normalizedMobile}: ${otp}`);
-
   return {
     success: true,
-    message: "OTP sent to mobile number",
-    otp
+    message: "OTP sent successfully",
+    otp // remove in production
   };
 };
-
-
 
 export const signupService = async ({ mobile, otp }) => {
   // ✅ Normalize mobile EXACTLY same as signup OTP service
@@ -224,34 +306,63 @@ export const signupService = async ({ mobile, otp }) => {
   };
 };
 
-
 export const sendLoginOtpService = async ({ email, mobile }) => {
+
+  /* --------------------------------
+     1️⃣ FETCH USER
+  -------------------------------- */
   const [users] = await db.query(
-    `SELECT id, email, mobile, loginotp, loginotpexpires
+    `SELECT id,
+            email,
+            mobile,
+            loginotp,
+            loginotpexpires,
+            account_status
      FROM users
-     WHERE email = ? OR mobile = ?`,
+     WHERE (email = ? OR mobile = ?)
+     LIMIT 1`,
     [email || null, mobile || null]
   );
 
-  if (!users.length) throw new Error("User not found");
+  if (!users.length) {
+    throw new Error("User not found");
+  }
 
   const user = users[0];
 
-  // 🔁 Reuse OTP if not expired
+  /* --------------------------------
+     2️⃣ BLOCK DELETED ACCOUNT
+  -------------------------------- */
+  if (user.account_status === "deleted") {
+    throw new Error("This account has been deleted");
+  }
+
+  /* --------------------------------
+     3️⃣ BLOCK PAUSED ACCOUNT
+  -------------------------------- */
+  // if (user.account_status === "paused") {
+  //   throw new Error("Your account is temporarily paused");
+  // }
+
+  /* --------------------------------
+     4️⃣ REUSE OTP IF NOT EXPIRED
+  -------------------------------- */
   if (
     user.loginotp &&
     user.loginotpexpires &&
     new Date(user.loginotpexpires) > new Date()
   ) {
-    console.log(`LOGIN OTP (REUSED): ${user.loginotp}`);
     return {
-      otp: user.loginotp
+      success: true,
+      message: "OTP already sent",
+      otp: user.loginotp   // ❌ remove in production
     };
   }
 
-  // 🔐 Generate new OTP
+  /* --------------------------------
+     5️⃣ GENERATE NEW OTP
+  -------------------------------- */
   const otp = crypto.randomInt(100000, 999999).toString();
-   console.log("Send OTP :",otp);
   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
   await db.query(
@@ -261,36 +372,147 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
     [otp, expiresAt, user.id]
   );
 
-  console.log(`LOGIN OTP (NEW): ${otp}`);
-
   return {
-    otp
+    success: true,
+    message: "OTP sent successfully",
+    otp   // ❌ remove in production
   };
 };
 
 
+// export const sendLoginOtpService = async ({ email, mobile }) => {
+//   const [users] = await db.query(
+//     `SELECT id, email, mobile, loginotp, loginotpexpires
+//      FROM users
+//      WHERE email = ? OR mobile = ?`,
+//     [email || null, mobile || null]
+//   );
+
+//   if (!users.length) throw new Error("User not found");
+
+//   const user = users[0];
+
+//   // 🔁 Reuse OTP if not expired
+//   if (
+//     user.loginotp &&
+//     user.loginotpexpires &&
+//     new Date(user.loginotpexpires) > new Date()
+//   ) {
+//     console.log(`LOGIN OTP (REUSED): ${user.loginotp}`);
+//     return {
+//       otp: user.loginotp
+//     };
+//   }
+
+//   // 🔐 Generate new OTP
+//   const otp = crypto.randomInt(100000, 999999).toString();
+//    console.log("Send OTP :",otp);
+//   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+//   await db.query(
+//     `UPDATE users
+//      SET loginotp = ?, loginotpexpires = ?
+//      WHERE id = ?`,
+//     [otp, expiresAt, user.id]
+//   );
+
+//   console.log(`LOGIN OTP (NEW): ${otp}`);
+
+//   return {
+//     otp
+//   };
+// };
+
+
+
+
+// export const loginService = async ({ email, mobile, otp }) => {
+//   const [users] = await db.query(
+//     `SELECT id, usercode, email, mobile, name, loginotp, loginotpexpires
+//      FROM users
+//      WHERE email = ? OR mobile = ?`,
+//     [email || null, mobile || null]
+//   );
+
+//   if (!users.length) throw new Error("User not found");
+
+//   const user = users[0];
+
+//   if (user.loginotp !== otp) throw new Error("Invalid OTP");
+//   if (new Date(user.loginotpexpires) < new Date()) {
+//     throw new Error("OTP expired");
+//   }
+
+//   await db.query(
+//     `UPDATE users
+//      SET loginotp = NULL, loginotpexpires = NULL
+//      WHERE id = ?`,
+//     [user.id]
+//   );
+
+//   return {
+//     id: user.id,
+//     usercode: user.usercode,
+//     email: user.email,
+//     mobile: user.mobile,
+//     name: user.name
+//   };
+// };
 
 
 export const loginService = async ({ email, mobile, otp }) => {
+
   const [users] = await db.query(
-    `SELECT id, usercode, email, mobile, name, loginotp, loginotpexpires
+    `SELECT id, usercode, email, mobile, name,
+            loginotp, loginotpexpires, account_status
      FROM users
-     WHERE email = ? OR mobile = ?`,
+     WHERE (email = ? OR mobile = ?)
+     LIMIT 1`,
     [email || null, mobile || null]
   );
 
-  if (!users.length) throw new Error("User not found");
+  if (!users.length) {
+    throw new Error("User not found");
+  }
 
   const user = users[0];
 
-  if (user.loginotp !== otp) throw new Error("Invalid OTP");
+  /* -----------------------------
+     🔴 BLOCK DELETED ACCOUNT
+  ----------------------------- */
+  if (user.account_status === "deleted") {
+    throw new Error("This account has been deleted");
+  }
+
+  /* -----------------------------
+     🔴 BLOCK PAUSED ACCOUNT
+  ----------------------------- */
+  if (user.account_status === "paused") {
+    throw new Error("Your account is temporarily paused");
+  }
+
+  /* -----------------------------
+     OTP VALIDATION
+  ----------------------------- */
+  if (!user.loginotp) {
+    throw new Error("OTP not requested");
+  }
+
+  if (user.loginotp !== otp) {
+    throw new Error("Invalid OTP");
+  }
+
   if (new Date(user.loginotpexpires) < new Date()) {
     throw new Error("OTP expired");
   }
 
+  /* -----------------------------
+     CLEAR OTP
+  ----------------------------- */
   await db.query(
     `UPDATE users
-     SET loginotp = NULL, loginotpexpires = NULL
+     SET loginotp = NULL,
+         loginotpexpires = NULL
      WHERE id = ?`,
     [user.id]
   );
