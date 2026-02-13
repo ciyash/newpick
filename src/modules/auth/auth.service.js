@@ -405,9 +405,6 @@ export const signupService = async ({ mobile, otp }) => {
     [userId, depositLimit]
   );
 
-  /* ================================
-     9️⃣ CLEAR REDIS
-  ================================= */
   await redis.del(`SIGNUP:${normalizedMobile}`);
   await redis.del(
     `SIGNUP_OTP:${normalizedMobile}`
