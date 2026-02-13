@@ -107,6 +107,8 @@ export const createSeries = async (data, admin, ip) => {
   }
 };
 
+
+
 export const getSeries = async () => {
   try {
     const [rows] = await db.query(
