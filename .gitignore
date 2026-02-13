@@ -64,3 +64,5 @@ temp/
 # Uploads (if using local storage)
 # ===============================
 uploads/
+account.json
+src/middlewares/account.json
