@@ -2,11 +2,14 @@
 
 import  db  from "../../config/db.js";
 
+
+
 export const getAllSeries = async (req, res) => {
   try {
-    const [rows] = await db.execute(`
+    // 1️⃣ Get all series
+    const [seriesRows] = await db.execute(`
       SELECT 
-        id,    
+        id,
         seriesid,
         name,
         season,
@@ -18,17 +21,49 @@ export const getAllSeries = async (req, res) => {
       ORDER BY created_at DESC
     `);
 
+    // 2️⃣ For each series → get matches WITH TEAM NAMES
+    const result = await Promise.all(
+      seriesRows.map(async (series) => {
+        const [matches] = await db.execute(
+          `
+          SELECT 
+            m.id,
+            m.series_id,
+            m.start_time,
+            m.status,
+
+            ht.name AS home_team_name,
+            at.name AS away_team_name
+
+          FROM matches m
+          JOIN teams ht ON m.home_team_id = ht.id
+          JOIN teams at ON m.away_team_id = at.id
+
+          WHERE m.series_id = ?
+          ORDER BY m.start_time ASC
+          `,
+          [series.seriesid]
+        );
+
+        return {
+          ...series,
+          matches
+        };
+      })
+    );
+
     res.status(200).json({
       success: true,
-      count: rows.length,
-      data: rows
+      count: result.length,
+      data: result
     });
 
   } catch (error) {
+    console.error("GetAllSeries Error:", error.message);
+
     res.status(500).json({
       success: false,
-      message: "Internal server error",
-      error: error.message
+      message: error.message
     });
   }
 };
@@ -80,6 +115,39 @@ export const getSeriesById = async (req, res) => {
 
   } catch (error) {
     console.error("GetSeriesById Error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+  }
+};
+
+
+export const getMatchesBySeriesId = async (req, res) => {
+  try {
+    const { seriesid } = req.params;
+
+    if (!seriesid) {
+      return res.status(400).json({
+        success: false,
+        message: "Series id is required"
+      });
+    }
+
+    const [rows] = await db.execute(
+      `SELECT * FROM matches WHERE series_id = ? ORDER BY start_time ASC`,
+      [seriesid]
+    );
+
+    return res.status(200).json({
+      success: true,
+      count: rows.length,
+      data: rows
+    });
+
+  } catch (error) {
+    console.error("GetMatchesBySeriesId Error:", error);
 
     return res.status(500).json({
       success: false,
