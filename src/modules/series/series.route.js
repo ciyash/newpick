@@ -6,7 +6,7 @@ import { authenticate, checkAccountActive } from "../../middlewares/auth.middlew
 
 const router = express.Router();
 
-router.get("/:id", authenticate, checkAccountActive, getSeriesById);
+router.get("/:seriesid", authenticate, checkAccountActive, getSeriesById);
 
 router.get("/", authenticate, checkAccountActive, getAllSeries);
   

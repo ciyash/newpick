@@ -6,7 +6,8 @@ export const getAllSeries = async (req, res) => {
   try {
     const [rows] = await db.execute(`
       SELECT 
-        id,
+        id,    
+        seriesid,
         name,
         season,
         start_date,
@@ -33,10 +34,12 @@ export const getAllSeries = async (req, res) => {
 };
 
 
+
 export const getSeriesById = async (req, res) => {
   try {
-    const id = String(req.params.id);
+    const { id } = req.params;
 
+    // Validate id presence
     if (!id) {
       return res.status(400).json({
         success: false,
@@ -44,30 +47,48 @@ export const getSeriesById = async (req, res) => {
       });
     }
 
+    // Convert to number
+    const seriesid = Number(id);
+
+    // Validate numeric id
+    if (Number.isNaN(seriesid)) {
+      return res.status(400).json({
+        success: false,
+        message: "Series id must be a number"
+      });
+    }
+
+    // Query DB
     const [rows] = await db.execute(
-      `SELECT * FROM series WHERE CAST(id AS CHAR) = ?`,
-      [id]
+      "SELECT * FROM series WHERE seriesid = ? LIMIT 1",
+      [seriesid]
     );
 
-    if (!rows.length) {
+    // Not found
+    if (rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Series not found"
       });
     }
 
+    // Success
     return res.status(200).json({
       success: true,
       data: rows[0]
     });
 
   } catch (error) {
+    console.error("GetSeriesById Error:", error);
+
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Internal server error"
     });
   }
 };
+
+
 
 
 

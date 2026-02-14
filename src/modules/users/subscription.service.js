@@ -172,7 +172,6 @@ const PACK_CONFIG = {
 
 export const buySubscriptionService = async (userId, pack, meta = {}) => {
   let conn;
-
   try {
     conn = await db.getConnection();
     await conn.beginTransaction();
