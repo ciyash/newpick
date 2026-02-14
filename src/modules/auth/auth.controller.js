@@ -18,7 +18,7 @@ export const signup = async (req, res) => {
       message: err.details?.[0]?.message || err.message
     });
   }
-};  
+};    
 
 
 export const verifySignupOtp = async (req, res) => {
