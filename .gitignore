@@ -60,9 +60,9 @@ tmp/
 temp/
 *.tmp
 
-# ===============================
-# Uploads (if using local storage)
-# ===============================
-uploads/
-account.json
-src/middlewares/account.json
+
+node_modules
+.env
+account.json  
+src/middlewares/account.js
+
