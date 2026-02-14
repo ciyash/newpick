@@ -1,4 +1,4 @@
-// routes/series.routes.js
+
 import express from "express";
 
 import { getAllSeries, getSeriesById } from "./series.controller.js";
