@@ -11,3 +11,4 @@ router.get("/all", authenticate, checkAccountActive, getAllMatches);
 router.get("/seriesId/:seriesid", authenticate, checkAccountActive, getMatchesBySeriesId);
 
 export default router
+//
