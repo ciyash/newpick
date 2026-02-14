@@ -72,7 +72,6 @@ export const getTeamById = async (req, res) => {
 
 
 
-
 export const getAllPlayers = async (req, res) => {
   try {
     const [rows] = await db.execute(`

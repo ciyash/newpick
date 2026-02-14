@@ -8,6 +8,6 @@ const router = express.Router();
 
 router.get("/all", authenticate, checkAccountActive, getAllMatches);
 
-router.get("/:seriesid", authenticate, checkAccountActive, getMatchesBySeriesId);
+router.get("/seriesId/:seriesid", authenticate, checkAccountActive, getMatchesBySeriesId);
 
 export default router
