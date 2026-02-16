@@ -70,8 +70,6 @@ export const getTeamById = async (req, res) => {
 };
 
 
-
-
 export const getAllPlayers = async (req, res) => {
   try {
     const [rows] = await db.execute(`
@@ -136,3 +134,45 @@ export const getPlayerById = async (req, res) => {
     });
   }
 };
+
+
+export const getPlayerTeamById = async (req, res) => {
+  console.log("✅ getPlayerByTeam API HIT");
+
+  try {
+    const team_id = Number(req.params.id);
+
+    if (!team_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Valid team id is required"
+      });
+    }
+
+    const [rows] = await db.execute(
+      `SELECT * FROM players WHERE team_id = ?`,
+      [team_id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Player not found"
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: rows[0]
+    });
+
+  } catch (error) {
+    console.log("❌ Error in getPlayerById:", error.message);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error.message
+    });
+  }
+};   

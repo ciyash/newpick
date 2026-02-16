@@ -4,7 +4,8 @@ import db from "../../config/db.js";
 export const getUserProfileService = async (userId) => {
 
   const [[user]] = await db.query(
-    `SELECT userid,usercode,name,email,mobile,region,category,dob,created_at
+    `SELECT userid,usercode,name,email,mobile,
+   subscribe,region,category,dob,created_at
      FROM users
      WHERE id = ?`,
     [userId]

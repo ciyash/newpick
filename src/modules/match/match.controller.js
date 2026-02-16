@@ -50,30 +50,44 @@ export const getAllMatches = async (req, res) => {
 
 
 
-export const getMatchesBySeriesId = async (req, res) => {
+export const getMatchFullDetails = async (req, res) => {
   try {
-    const { seriesid } = req.params;
+    const { id } = req.params;
 
-    if (!seriesid) {
-      return res.status(400).json({
+    // 1️⃣ Get match
+    const [[match]] = await db.execute(
+      `SELECT * FROM matches WHERE id = ?`,
+      [id]
+    );
+
+    if (!match) {
+      return res.status(404).json({
         success: false,
-        message: "Series id is required"
+        message: "Match not found"
       });
     }
 
-    const [rows] = await db.execute(
-      `SELECT * FROM matches WHERE series_id = ? ORDER BY start_time ASC`,
-      [seriesid]
+    // 2️⃣ Get teams
+    const [teams] = await db.execute(
+      `SELECT * FROM teams WHERE id IN (?, ?)`,
+      [match.home_team_id, match.away_team_id]
+    );
+
+    // 3️⃣ Get players of both teams
+    const [players] = await db.execute(
+      `SELECT * FROM players WHERE team_id IN (?, ?)`,
+      [match.home_team_id, match.away_team_id]
     );
 
     return res.status(200).json({
       success: true,
-      count: rows.length,
-      data: rows
+      match,
+      teams,
+      players
     });
 
   } catch (error) {
-    console.error("GetMatchesBySeriesId Error:", error);
+    console.error("getMatchFullDetails Error:", error);
 
     return res.status(500).json({
       success: false,
@@ -81,4 +95,3 @@ export const getMatchesBySeriesId = async (req, res) => {
     });
   }
 };
-
