@@ -88,30 +88,59 @@ export const getUserProfileService = async (userId) => {
   // 🏆 SUBSCRIPTION STATUS — reuse existing service
   const subscription = await getSubscriptionStatusService(userId);
 
+  // return {
+
+  //   userid: user.userid,
+  //   usercode: user.usercode,
+  //   name: user.name,
+  //   email: user.email,
+  //   category: user.category,
+
+  //   wallet: {
+  //     depositWallet: Number(wallet.depositwallet),
+  //     withdrawWallet: Number(wallet.earnwallet),
+  //     bonusWallet: Number(wallet.bonusamount)
+  //   },
+
+  //   depositLimits: {
+  //     monthlyLimit: Number(wallet.deposit_limit),
+  //     addedThisMonth: added,
+  //     remainingThisMonth: wallet.deposit_limit - added
+  //   },
+
+  //   // 🔥 Subscription info included
+  //   subscription
+  // };
+
   return {
 
-    userid: user.userid,
-    usercode: user.usercode,
-    name: user.name,
-    email: user.email,
-    category: user.category,
+  userid: user.userid,
+  usercode: user.usercode,
+  name: user.name,
+  email: user.email,
 
-    wallet: {
-      depositWallet: Number(wallet.depositwallet),
-      withdrawWallet: Number(wallet.earnwallet),
-      bonusWallet: Number(wallet.bonusamount)
-    },
+  // 🔥 ADD THESE
+  mobile: user.mobile,
+  region: user.region,
+  category: user.category,
+  dob: user.dob,
+  memberSince: user.created_at,
 
-    depositLimits: {
-      monthlyLimit: Number(wallet.deposit_limit),
-      addedThisMonth: added,
-      remainingThisMonth: wallet.deposit_limit - added
-    },
+  wallet: {
+    depositWallet: Number(wallet.depositwallet),
+    withdrawWallet: Number(wallet.earnwallet),
+    bonusWallet: Number(wallet.bonusamount)
+  },
 
-    // 🔥 Subscription info included
-    subscription
-  };
+  depositLimits: {
+    monthlyLimit: Number(wallet.deposit_limit),
+    addedThisMonth: added,
+    remainingThisMonth: wallet.deposit_limit - added
+  },
+
+  subscription
 };
+}
 
 
 
