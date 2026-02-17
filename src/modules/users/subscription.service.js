@@ -21,7 +21,8 @@ const PACK_CONFIG = {
 //         subscribe,
 //         subscribeenddate,
 //         nextsubscribe,
-//         subscription_bonus_given
+//         subscription_bonus_given,
+//         subscription_count
 //        FROM users
 //        WHERE id = ?
 //        FOR UPDATE`,
@@ -30,8 +31,18 @@ const PACK_CONFIG = {
 
 //     if (!user) throw new Error("User not found");
 
+//     if (user.subscription_count >= 2) {
+//       throw new Error("Subscription allowed only 2 times");
+//     }
+
 //     /* ================================
-//        2️⃣ LOCK WALLET
+//        2️⃣ VALIDATE PACK
+//     ================================= */
+//     const config = PACK_CONFIG[pack];
+//     if (!config) throw new Error("Invalid pack");
+
+//     /* ================================
+//        3️⃣ LOCK WALLET
 //     ================================= */
 //     const [[wallet]] = await conn.query(
 //       `SELECT depositwallet, earnwallet, bonusamount, is_frozen
@@ -44,32 +55,21 @@ const PACK_CONFIG = {
 //     if (!wallet) throw new Error("Wallet not found");
 //     if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
 
-//     /* ================================
-//        3️⃣ VALIDATE PACK
-//     ================================= */
-//     const config = PACK_CONFIG[pack];
-//     if (!config) throw new Error("Invalid pack");
-
 //     const price = config.price;
 
 //     /* ================================
-//        ⭐ WALLET DEDUCTION LOGIC
+//        ⭐ WALLET DEDUCTION
 //        BONUS → EARN → DEPOSIT
 //     ================================= */
-
 //     let remaining = price;
 
-//     // 1️⃣ BONUS (max 5%)
-//     const maxBonus = price * 0.05;
-//     const bonusUse = Math.min(wallet.bonusamount, maxBonus);
-
+//     const maxBonusAllowed = price * 0.05;
+//     const bonusUse = Math.min(wallet.bonusamount, maxBonusAllowed);
 //     remaining -= bonusUse;
 
-//     // 2️⃣ EARN WALLET
 //     const earnUse = Math.min(wallet.earnwallet, remaining);
 //     remaining -= earnUse;
 
-//     // 3️⃣ DEPOSIT WALLET
 //     const depositUse = Math.min(wallet.depositwallet, remaining);
 //     remaining -= depositUse;
 
@@ -78,11 +78,10 @@ const PACK_CONFIG = {
 //     }
 
 //     /* ================================
-//        4️⃣ UPDATE WALLET BALANCES
+//        4️⃣ UPDATE WALLET
 //     ================================= */
 //     await conn.query(
-//       `UPDATE wallets
-//        SET
+//       `UPDATE wallets SET
 //          bonusamount = bonusamount - ?,
 //          earnwallet = earnwallet - ?,
 //          depositwallet = depositwallet - ?
@@ -93,43 +92,79 @@ const PACK_CONFIG = {
 //     /* ================================
 //        5️⃣ WALLET TRANSACTION ENTRY
 //     ================================= */
-//    await conn.query(
-//   `INSERT INTO wallet_transactions
-//    (user_id, wallettype, transtype, remark, amount,
-//     reference_id, ip_address, device)
-//    VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
-//   [
-//     userId,
-//     `Subscription purchase (${pack})`,
-//     price,
-//     `SUB-${userId}-${Date.now()}`,
-//     meta.ip || null,
-//     meta.device || null
-//   ]
-// );
-
-    
-
-//     /* ================================
-//        6️⃣ ACTIVATE SUBSCRIPTION
-//     ================================= */
-//     const startDate = new Date();
-//     const endDate = new Date();
-//     endDate.setMonth(endDate.getMonth() + config.months);
-
 //     await conn.query(
-//       `UPDATE users SET
-//         subscribe = 1,
-//         subscribepack = ?,
-//         subscribestartdate = ?,
-//         subscribeenddate = ?,
-//         nextsubscribe = 0
-//        WHERE id = ?`,
-//       [pack, startDate, endDate, userId]
+//       `INSERT INTO wallet_transactions
+//        (user_id, wallettype, transtype, remark, amount,
+//         reference_id, ip_address, device)
+//        VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
+//       [
+//         userId,
+//         `Subscription purchase (${pack})`,
+//         price,
+//         `SUB-${userId}-${Date.now()}`,
+//         meta.ip || null,
+//         meta.device || null
+//       ]
 //     );
 
 //     /* ================================
-//        7️⃣ BONUS FOR FIRST SUB
+//        6️⃣ ACTIVATE OR QUEUE SUB
+//     ================================= */
+//     const now = new Date();
+
+//     const hasActive =
+//       user.subscribe === 1 &&
+//       user.subscribeenddate &&
+//       new Date(user.subscribeenddate) > now;
+
+//     let startDate, endDate;
+
+//     if (hasActive) {
+
+//       // 🟡 ADD AS NEXT SUBSCRIPTION
+//       startDate = new Date(user.subscribeenddate);
+//       endDate = new Date(startDate);
+//       endDate.setMonth(endDate.getMonth() + config.months);
+
+//       await conn.query(
+//         `UPDATE users SET
+//           nextsubscribe = 1,
+//           nextsubscribestartdate = ?,
+//           nextsubscribeenddate = ?
+//          WHERE id = ?`,
+//         [startDate, endDate, userId]
+//       );
+
+//     } else {
+
+//       // 🟢 START IMMEDIATELY
+//       startDate = now;
+//       endDate = new Date(now);
+//       endDate.setMonth(endDate.getMonth() + config.months);
+
+//       await conn.query(
+//         `UPDATE users SET
+//           subscribe = 1,
+//           subscribepack = ?,
+//           subscribestartdate = ?,
+//           subscribeenddate = ?
+//          WHERE id = ?`,
+//         [pack, startDate, endDate, userId]
+//       );
+//     }
+
+//     /* ================================
+//        ⭐ INCREMENT COUNT
+//     ================================= */
+//     await conn.query(
+//       `UPDATE users
+//        SET subscription_count = subscription_count + 1
+//        WHERE id = ?`,
+//       [userId]
+//     );
+
+//     /* ================================
+//        ⭐ FIRST SUB BONUS
 //     ================================= */
 //     if (user.subscription_bonus_given === 0) {
 //       await conn.query(
@@ -151,12 +186,9 @@ const PACK_CONFIG = {
 
 //     return {
 //       success: true,
-//       message: "Subscription activated",
-//       deducted: {
-//         bonusUsed: bonusUse,
-//         earnUsed: earnUse,
-//         depositUsed: depositUse
-//       },
+//       message: hasActive
+//         ? "Subscription added to queue"
+//         : "Subscription activated",
 //       startDate,
 //       endDate
 //     };
@@ -172,6 +204,7 @@ const PACK_CONFIG = {
 
 export const buySubscriptionService = async (userId, pack, meta = {}) => {
   let conn;
+
   try {
     conn = await db.getConnection();
     await conn.beginTransaction();
@@ -194,13 +227,18 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
 
     if (!user) throw new Error("User not found");
 
-    /* 🚫 MAX 2 TIMES ONLY */
     if (user.subscription_count >= 2) {
       throw new Error("Subscription allowed only 2 times");
     }
 
     /* ================================
-       2️⃣ LOCK WALLET
+       2️⃣ VALIDATE PACK
+    ================================= */
+    const config = PACK_CONFIG[pack];
+    if (!config) throw new Error("Invalid pack");
+
+    /* ================================
+       3️⃣ LOCK WALLET
     ================================= */
     const [[wallet]] = await conn.query(
       `SELECT depositwallet, earnwallet, bonusamount, is_frozen
@@ -213,32 +251,21 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     if (!wallet) throw new Error("Wallet not found");
     if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
 
-    /* ================================
-       3️⃣ VALIDATE PACK
-    ================================= */
-    const config = PACK_CONFIG[pack];
-    if (!config) throw new Error("Invalid pack");
-
     const price = config.price;
 
     /* ================================
-       ⭐ WALLET DEDUCTION LOGIC
-       BONUS (5%) → EARN → DEPOSIT
+       ⭐ WALLET DEDUCTION
+       BONUS → EARN → DEPOSIT
     ================================= */
-
     let remaining = price;
 
-    // ⭐ BONUS — max 5% of subscription price
     const maxBonusAllowed = price * 0.05;
     const bonusUse = Math.min(wallet.bonusamount, maxBonusAllowed);
-
     remaining -= bonusUse;
 
-    // ⭐ EARN WALLET
     const earnUse = Math.min(wallet.earnwallet, remaining);
     remaining -= earnUse;
 
-    // ⭐ DEPOSIT WALLET
     const depositUse = Math.min(wallet.depositwallet, remaining);
     remaining -= depositUse;
 
@@ -250,8 +277,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
        4️⃣ UPDATE WALLET
     ================================= */
     await conn.query(
-      `UPDATE wallets
-       SET
+      `UPDATE wallets SET
          bonusamount = bonusamount - ?,
          earnwallet = earnwallet - ?,
          depositwallet = depositwallet - ?
@@ -278,24 +304,54 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     );
 
     /* ================================
-       6️⃣ ACTIVATE SUBSCRIPTION
+       6️⃣ ACTIVATE OR QUEUE SUB
     ================================= */
-    const startDate = new Date();
-    const endDate = new Date();
-    endDate.setMonth(endDate.getMonth() + config.months);
+    const now = new Date();
 
-    await conn.query(
-      `UPDATE users SET
-        subscribe = 1,
-        subscribepack = ?,
-        subscribestartdate = ?,
-        subscribeenddate = ?,
-        nextsubscribe = 0
-       WHERE id = ?`,
-      [pack, startDate, endDate, userId]
-    );
+    const hasActive =
+      user.subscribe === 1 &&
+      user.subscribeenddate &&
+      new Date(user.subscribeenddate) > now;
 
-    /* ⭐ INCREMENT SUB COUNT */
+    let startDate, endDate;
+
+    if (hasActive) {
+
+      // 🟡 ADD AS NEXT SUBSCRIPTION
+      startDate = new Date(user.subscribeenddate);
+      endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + config.months);
+
+      await conn.query(
+        `UPDATE users SET
+          nextsubscribe = 1,
+          nextsubscribestartdate = ?,
+          nextsubscribeenddate = ?
+         WHERE id = ?`,
+        [startDate, endDate, userId]
+      );
+
+    } else {
+
+      // 🟢 START IMMEDIATELY
+      startDate = now;
+      endDate = new Date(now);
+      endDate.setMonth(endDate.getMonth() + config.months);
+
+      await conn.query(
+        `UPDATE users SET
+          subscribe = 1,
+          subscribepack = ?,
+          subscribestartdate = ?,
+          subscribeenddate = ?
+         WHERE id = ?`,
+        [pack, startDate, endDate, userId]
+      );
+    }
+
+    /* ================================
+       ⭐ INCREMENT COUNT
+    ================================= */
     await conn.query(
       `UPDATE users
        SET subscription_count = subscription_count + 1
@@ -304,7 +360,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     );
 
     /* ================================
-       7️⃣ FIRST SUB BONUS
+       ⭐ FIRST SUB BONUS
     ================================= */
     if (user.subscription_bonus_given === 0) {
       await conn.query(
@@ -326,12 +382,9 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
 
     return {
       success: true,
-      message: "Subscription activated",
-      deducted: {
-        bonusUsed: bonusUse,
-        earnUsed: earnUse,
-        depositUsed: depositUse
-      },
+      message: hasActive
+        ? "Subscription added to queue"
+        : "Subscription activated",
       startDate,
       endDate
     };

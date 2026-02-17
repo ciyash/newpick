@@ -298,3 +298,23 @@ export const createWalletTransaction = async ({
   );
 };
 
+export const deleteTransactionsByUserCodeService = async (userid) => {
+
+  // 🔍 Convert userid → id
+  const [[user]] = await db.query(
+    `SELECT id FROM users WHERE userid = ?`,
+    [userid]
+  );
+
+  if (!user) throw new Error("User not found");
+
+  // 🗑 Delete using numeric ID
+  const [result] = await db.query(
+    `DELETE FROM wallet_transactions
+     WHERE user_id = ?`,
+    [user.id]
+  );
+
+  return result.affectedRows;
+};
+

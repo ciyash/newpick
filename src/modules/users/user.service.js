@@ -1,16 +1,71 @@
 import db from "../../config/db.js";
 
+import { getSubscriptionStatusService } from "./subscription.service.js";
+
+// export const getUserProfileService = async (userId) => {
+
+//   const [[user]] = await db.query(
+//     `SELECT userid,usercode,name,email,mobile,
+//    subscribe,region,category,dob,created_at
+//      FROM users
+//      WHERE id = ?`,
+//     [userId]
+//   );
+
+//   const [[wallet]] = await db.query(
+//     `SELECT depositwallet, earnwallet, bonusamount, deposit_limit
+//      FROM wallets
+//      WHERE user_id = ?`,
+//     [userId]
+//   );
+
+//   const yearMonth = new Date().toISOString().slice(0, 7);
+
+//   const [[monthly]] = await db.query(
+//     `SELECT total_added
+//      FROM monthly_deposits
+//      WHERE user_id = ? AND ym = ?`,
+//     [userId, yearMonth]
+//   );
+
+//   const added = monthly ? Number(monthly.total_added) : 0;
+
+//   return {
+    
+//     userid: user.userid,
+//     usercode: user.usercode,
+//     name: user.name,
+//     email: user.email,
+//     category: user.category,
+
+//     wallet: {
+//       depositWallet: Number(wallet.depositwallet),
+//       withdrawWallet: Number(wallet.earnwallet),
+//       bonusWallet: Number(wallet.bonusamount)
+//     },
+
+//     depositLimits: {
+//       monthlyLimit: Number(wallet.deposit_limit),
+//       addedThisMonth: added,
+//       remainingThisMonth: wallet.deposit_limit - added
+//     }
+//   };
+// };
+
+
 
 export const getUserProfileService = async (userId) => {
 
+  // 🧑 USER DETAILS
   const [[user]] = await db.query(
     `SELECT userid,usercode,name,email,mobile,
-   subscribe,region,category,dob,created_at
+     subscribe,region,category,dob,created_at
      FROM users
      WHERE id = ?`,
     [userId]
   );
 
+  // 💰 WALLET DETAILS
   const [[wallet]] = await db.query(
     `SELECT depositwallet, earnwallet, bonusamount, deposit_limit
      FROM wallets
@@ -18,6 +73,7 @@ export const getUserProfileService = async (userId) => {
     [userId]
   );
 
+  // 📅 MONTHLY DEPOSIT
   const yearMonth = new Date().toISOString().slice(0, 7);
 
   const [[monthly]] = await db.query(
@@ -29,7 +85,11 @@ export const getUserProfileService = async (userId) => {
 
   const added = monthly ? Number(monthly.total_added) : 0;
 
+  // 🏆 SUBSCRIPTION STATUS — reuse existing service
+  const subscription = await getSubscriptionStatusService(userId);
+
   return {
+
     userid: user.userid,
     usercode: user.usercode,
     name: user.name,
@@ -46,9 +106,16 @@ export const getUserProfileService = async (userId) => {
       monthlyLimit: Number(wallet.deposit_limit),
       addedThisMonth: added,
       remainingThisMonth: wallet.deposit_limit - added
-    }
+    },
+
+    // 🔥 Subscription info included
+    subscription
   };
 };
+
+
+
+
 
 
 export const reduceMonthlyLimitService = async (userId, newLimit) => {
