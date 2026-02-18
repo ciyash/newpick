@@ -146,14 +146,66 @@ export const updateSeries = async (id, data, admin, ip) => {
 
 export const createMatch = async (data, admin, ip) => {
   try {
-   const [res] = await db.query(
-      `INSERT INTO matches
-       (series_id,home_team_id,away_team_id,start_time,status,created_at)
-       VALUES (?,?,?,?, 'UPCOMING', NOW())`,
+  
+    const [[series]] = await db.query(
+      `SELECT name AS seriesname FROM series WHERE seriesid = ?`,
+      [data.series_id]
+    );
+
+    console.log("Series Result:", series);
+
+    if (!series || !series.seriesname) {
+      throw new Error("Invalid series_id");
+    }
+
+    
+    const [[homeTeam]] = await db.query(
+      `SELECT name AS teamname FROM teams WHERE id = ?`,
+      [data.home_team_id]
+    );
+
+    console.log("Home Team Result:", homeTeam);
+
+    if (!homeTeam || !homeTeam.teamname) {
+      throw new Error("Invalid home_team_id");
+    }
+
+    
+    const [[awayTeam]] = await db.query(
+      `SELECT name AS teamname FROM teams WHERE id = ?`,
+      [data.away_team_id]
+    );
+
+    console.log("Away Team Result:", awayTeam);
+
+    if (!awayTeam || !awayTeam.teamname) {
+      throw new Error("Invalid away_team_id");
+    }
+
+    
+    const [res] = await db.query(
+      `
+      INSERT INTO matches
+      (
+        series_id,
+        seriesname,
+        home_team_id,
+        hometeamname,
+        away_team_id,
+        awayteamname,
+        start_time,
+        status,
+        created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'UPCOMING', NOW())
+      `,
       [
         data.series_id,
+        series.seriesname,       
         data.home_team_id,
+        homeTeam.teamname,        
         data.away_team_id,
+        awayTeam.teamname,        
         data.start_time
       ]
     );
@@ -161,6 +213,7 @@ export const createMatch = async (data, admin, ip) => {
     await logAdmin(db, admin, "CREATE_MATCH", "match", res.insertId, ip);
     return { id: res.insertId };
   } catch (err) {
+    console.error("CreateMatch Error:", err.message);
     throw err;
   }
 };
@@ -473,6 +526,43 @@ export const getContestsByTeam = async (teamId) => {
     );
 
     if (!rows.length) throw new Error("No contests found for team");
+    return rows;
+  } catch (err) {
+    throw err;
+  }
+};
+
+
+/* ================= CONTEST CATEGORY ================= */
+
+export const createContestCategory = async (data) => {
+  try {
+    const [res] = await db.query(
+      `
+      INSERT INTO contestcategory
+      (name, percentage, entryfee,platformfee, created_at)
+      VALUES (?, ?, ?, ?,?)
+      `,
+      [
+        data.name,
+        data.percentage,
+        data.entryfee,
+         data.platformfee,
+        new Date()
+      ]
+    );
+
+    return { id: res.insertId };
+  } catch (err) {
+    console.error("Create contest category DB error:", err);
+    throw err;
+  }
+};
+export const getContestcategory = async () => {
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM contestcategory ORDER BY id DESC`
+    );
     return rows;
   } catch (err) {
     throw err;

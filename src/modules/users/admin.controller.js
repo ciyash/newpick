@@ -318,3 +318,26 @@ export const getContestsByTeam = async (req, res) => {
     handleError(res, e);
   }
 };
+
+
+/* ================= CONTEST CATEGORY ================= */ 
+export const createContestCategory = async (req, res) => {
+  try {
+    const data = await s.createContestCategory(req.body);
+    res.status(201).json({
+      success: true,
+      data
+    });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+export const getContestcategory = async (req, res) => {
+  try {
+    const data = await s.getContestcategory();
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
