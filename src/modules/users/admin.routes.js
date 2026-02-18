@@ -49,7 +49,7 @@ router.get("/getcontestbyteam/:teamId",adminAuth(),c.getContestsByTeam);
 
 /* CONTEST CATEGORY */
 router.post("/createContestCategory",adminAuth(),v.createContestCategory,c.createContestCategory);
-router.get("/getcontests",adminAuth(),c.getContestcategory);
+router.get("/getContestcategory",adminAuth(),c.getContestcategory);
 
 
 export default router;
