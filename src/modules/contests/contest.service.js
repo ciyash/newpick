@@ -46,39 +46,51 @@ export const getAllContestsService = async () => {
 
 
 
-export const getContestsService = async (matchId = null) => {
-  let query = `
+
+export const getContestsService = async (matchId) => {
+
+  const [rows] = await db.query(`
     SELECT *
     FROM contest
-    WHERE status = 'active'
-  `;
-
-  const params = [];
-
-  if (matchId) {
-    query += " AND match_id = ?";
-    params.push(matchId);
-  }
-
-  query += " ORDER BY entry_fee ASC";
-
-  const [rows] = await db.query(query, params);
+    WHERE match_id = ?
+    ORDER BY entry_fee ASC
+  `, [matchId]);
 
   return rows.map(c => ({
     id: c.id,
     matchId: c.match_id,
+
     entryFee: Number(c.entry_fee),
     prizePool: Number(c.prize_pool),
+
     maxEntries: c.max_entries,
     minEntries: c.min_entries,
     currentEntries: c.current_entries,
+
     contestType: c.contest_type,
     isGuaranteed: c.is_guaranteed === 1,
+
+    winnerPercentage: Number(c.winner_percentage),
     totalWinners: c.total_winners,
+
+    firstPrize: Number(c.first_prize),
+    prizeDistribution: c.prize_distribution,
+
+    isCashback: c.is_cashback === 1,
+    cashbackPercentage: Number(c.cashback_percentage),
+    cashbackAmount: Number(c.cashback_amount),
+
+    platformFeePercentage: Number(c.platform_fee_percentage),
+    platformFeeAmount: Number(c.platform_fee_amount),
+
     status: c.status,
-    createdAt: c.created_at
+    createdAt: c.created_at,
+
+    // 🔥 EXTRA useful field
+    remainingSpots: c.max_entries - c.current_entries
   }));
 };
+
 
 
 export const deductForContestService = async (userId, entryFee, meta = {}) => {
