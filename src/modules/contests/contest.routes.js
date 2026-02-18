@@ -18,14 +18,16 @@
 
 import express from "express";
 import {
-  getContests,
+  getAllContests,
+  getContestsByMatchId,
   joinContest   // 🔥 correct name
 } from "./contest.controller.js";
 import { authenticate } from "../../middlewares/auth.middleware.js";
 
 const router = express.Router();
 
-router.get("/", authenticate, getContests);
+router.get("/", authenticate, getAllContests);
+router.get("/:match_id", authenticate, getContestsByMatchId);
 router.post("/join", authenticate, joinContest);
 
 export default router;

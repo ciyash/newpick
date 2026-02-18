@@ -1,9 +1,30 @@
 import {
   getContestsService,
-  deductForContestService
+  joinContestService,
+  getAllContestsService
+
 } from "./contest.service.js";
 
-export const getContests = async (req, res) => {
+export const getAllContests = async (req, res) => {
+  try {
+    const contests = await getAllContestsService();
+
+    res.status(200).json({
+      success: true,
+      total: contests.length,
+      data: contests
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+export const getContestsByMatchId = async (req, res) => {
   try {
     const { match_id } = req.query;
 
@@ -23,43 +44,27 @@ export const getContests = async (req, res) => {
   }
 };
 
+
+
+
 export const joinContest = async (req, res) => {
   try {
-    const userId = req.user.id; // 🔒 from token only
-    const { entryFee } = req.body;
+    const userId = req.user.id;
+    const { contestId, userTeamId } = req.body;
 
-    if (!entryFee || isNaN(entryFee) || Number(entryFee) <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid entry fee"
-      });
-    }
+    const response = await joinContestService(
+      userId,
+      contestId,
+      userTeamId
+    );
 
-    const result = await deductForContestService(userId, Number(entryFee));
-
-    if (!result.allowed) {
-      return res.status(400).json({
-        success: false,
-        message: "Insufficient balance",
-        eligibleTeams: result.eligibleTeams,
-        action: "ADD_MONEY_OR_REDUCE_TEAMS"
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      message: "Contest joined successfully",
-      walletUsed: {
-        bonus: result.used.bonusUsed,
-        deposit: result.used.depositUsed,
-        withdraw: result.used.withdrawUsed
-      }
-    });
-
-  } catch (err) {
-    return res.status(400).json({
+    res.status(200).json(response);
+  } catch (error) {
+    res.status(400).json({
       success: false,
-      message: err.message
+      message: error.message
     });
   }
 };
+
+
