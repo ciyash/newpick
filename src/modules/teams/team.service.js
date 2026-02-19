@@ -102,6 +102,7 @@ export const getTeamPlayersService = async (teamId) => {
         p.id,
         p.name,
         p.playerimage,
+          p.points,           
         p.player_type,
         utp.is_captain,
         utp.is_vice_captain
