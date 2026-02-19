@@ -15,7 +15,8 @@ const validate = schema => (req, res, next) => {
   next();
 };
 
-/* ADMIN */
+/* ================= ADMIN ================= */
+
 export const createAdmin = validate(Joi.object({
   name: Joi.string().min(3).required(),
   email: Joi.string().email().required(),
@@ -28,7 +29,8 @@ export const updateAdmin = validate(Joi.object({
   status: Joi.string().valid("active","inactive")
 }));
 
-/* SERIES */
+/* ================= SERIES ================= */
+
 export const createSeries = validate(Joi.object({
   name: Joi.string().required(),
   season: Joi.string().required(),
@@ -44,7 +46,8 @@ export const updateSeries = validate(Joi.object({
   end_date: Joi.date()
 }));
 
-/* MATCH */
+/* ================= MATCH ================= */
+
 export const createMatch = validate(Joi.object({
   series_id: Joi.number().required(),
   home_team_id: Joi.number().required(),
@@ -57,7 +60,8 @@ export const updateMatch = validate(Joi.object({
   status: Joi.string().valid("scheduled","live","completed")
 }));
 
-/* TEAM */
+/* ================= TEAM ================= */
+
 export const createTeam = validate(Joi.object({
   name: Joi.string().required(),
   short_name: Joi.string().max(10).required()
@@ -68,7 +72,9 @@ export const updateTeam = validate(Joi.object({
   short_name: Joi.string()
 }));
 
-/* PLAYER */
+
+/* ================= PLAYERS ================= */ 
+
 export const createPlayer = validate(Joi.object({
   team_id: Joi.number().required(),
   name: Joi.string().required(),
@@ -80,6 +86,8 @@ export const updatePlayer = validate(Joi.object({
   position: Joi.string().valid("GK","DEF","MID","FWD")
 }));
 
+/* ================= CONTEST ================= */
+
 export const createContest = validate(Joi.object({
   match_id: Joi.number().required(),
 
@@ -89,11 +97,6 @@ export const createContest = validate(Joi.object({
   max_entries: Joi.number().integer().positive().required(),
   min_entries: Joi.number().integer().min(0).default(0),
 
-  contest_type: Joi.string()
-    .valid("NORMAL", "GUARANTEED", "CASHBACK")
-    .default("NORMAL"),
-
-  is_guaranteed: Joi.number().valid(0, 1).default(0),
 
   winner_percentage: Joi.number().min(0).max(100).default(0),
   total_winners: Joi.number().integer().min(0).default(0),
@@ -102,7 +105,6 @@ export const createContest = validate(Joi.object({
 
   prize_distribution: Joi.string().allow(null, ""),
 
-  is_cashback: Joi.number().valid(0, 1).default(0),
   cashback_percentage: Joi.number().min(0).max(100).default(0),
   cashback_amount: Joi.number().precision(2).min(0).default(0),
 
@@ -146,3 +148,29 @@ export const updateContest = validate(Joi.object({
     "CANCELLED"
   )
 }).min(1));
+
+
+
+/* ================= CONTEST CATEGORY ================= */
+
+export const createContestCategory = validate(
+  Joi.object({
+    name: Joi.string().trim().min(2).max(100).required(),
+
+    percentage: Joi.number()
+      .min(0)
+      .max(100)
+      .precision(2)
+      .required(),
+
+    entryfee: Joi.number()
+      .positive()
+      .precision(2)
+      .required(),
+
+      platformfee: Joi.number()
+      .positive()
+      .precision(2)
+      .required()
+  })
+);
