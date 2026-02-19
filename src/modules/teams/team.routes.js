@@ -1,5 +1,5 @@
 import express from "express";
-import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById} from "./team.controller.js"
+import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById,createTeam,getMyTeams,getTeamPlayers} from "./team.controller.js"
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -14,6 +14,11 @@ router.get("/team-players/team/:id", authenticate, checkAccountActive, getPlayer
 
 router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById); // no need
 
+router.post("/create", authenticate, checkAccountActive, createTeam);
+
+router.get("/user-my-teams", authenticate, checkAccountActive, getMyTeams);
+
+router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers);
 
 
 

@@ -1,4 +1,5 @@
 import db from "../../config/db.js";
+import { createTeamService, getMyTeamsService, getTeamPlayersService } from "./team.service.js";
 
 
 export const getAllTeams = async (req, res) => {
@@ -176,3 +177,84 @@ export const getPlayerTeamById = async (req, res) => {
     });
   }
 };   
+
+
+
+
+export const createTeam = async (req, res) => {
+  try {
+
+    if (!req.user || !req.user.id) {
+      throw new Error("User not authenticated");
+    }
+
+    const userId = req.user.id;
+
+    const { matchId, teamName, players, captainId, viceCaptainId } = req.body;
+
+    console.log(req.body);
+
+    const response = await createTeamService(
+      userId,
+      matchId,
+      teamName,
+      players,
+      captainId,
+      viceCaptainId
+    );
+
+    res.status(201).json(response);
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+export const getMyTeams = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+    const { matchId } = req.query;
+
+    const teams = await getMyTeamsService(userId, matchId);
+
+    res.status(200).json({
+      success: true,
+      total: teams.length,
+      data: teams
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+export const getTeamPlayers = async (req, res) => {
+  try {
+
+    const { teamId } = req.params;
+
+    const players = await getTeamPlayersService(teamId);
+
+    res.status(200).json({
+      success: true,
+      total: players.length,
+      data: players
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+

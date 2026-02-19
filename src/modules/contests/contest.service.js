@@ -2,8 +2,6 @@ import db from "../../config/db.js";
 import { createWalletTransaction } from "../wallet/wallet.service.js";
 
 
-
-
 export const getAllContestsService = async () => {
 
   const [rows] = await db.query(`
@@ -43,8 +41,6 @@ export const getAllContestsService = async () => {
     createdAt: c.created_at
   }));
 };
-
-
 
 
 export const getContestsService = async (matchId) => {
@@ -90,7 +86,6 @@ export const getContestsService = async (matchId) => {
     remainingSpots: c.max_entries - c.current_entries
   }));
 };
-
 
 
 export const deductForContestService = async (userId, entryFee, meta = {}) => {
@@ -162,9 +157,6 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 };
 
 
-
-
-
 export const joinContestService = async (userId, contestId, userTeamId) => {
   const conn = await db.getConnection();
 
@@ -233,7 +225,6 @@ export const joinContestService = async (userId, contestId, userTeamId) => {
     conn.release();
   }
 };
-;
 
 
 
