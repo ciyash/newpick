@@ -113,3 +113,59 @@ export const getTeamPlayersService = async (teamId) => {
 
   return rows;
 };
+
+
+export const getMyTeamsWithPlayersService = async (userId) => {
+
+  const [rows] = await db.query(
+    `SELECT 
+        ut.id AS team_id,
+        ut.team_name,
+        ut.match_id,
+
+        p.id AS player_id,
+        p.name,
+        p.playerimage,
+        p.player_type,
+        p.points,
+
+        utp.is_captain,
+        utp.is_vice_captain
+
+     FROM user_teams ut
+     JOIN user_team_players utp ON ut.id = utp.user_team_id
+     JOIN players p ON utp.player_id = p.id
+
+     WHERE ut.user_id = ?
+     ORDER BY ut.id`,
+    [userId]
+  );
+
+  /* 🔥 Group players by team */
+
+  const teams = {};
+
+  for (const row of rows) {
+
+    if (!teams[row.team_id]) {
+      teams[row.team_id] = {
+        teamId: row.team_id,
+        teamName: row.team_name,
+        matchId: row.match_id,
+        players: []
+      };
+    }
+
+    teams[row.team_id].players.push({
+      playerId: row.player_id,
+      name: row.name,
+      image: row.playerimage,
+      type: row.player_type,
+      points: row.points,
+      isCaptain: row.is_captain === 1,
+      isViceCaptain: row.is_vice_captain === 1
+    });
+  }
+
+  return Object.values(teams);
+};
