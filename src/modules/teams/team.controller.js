@@ -176,7 +176,7 @@ export const getPlayerTeamById = async (req, res) => {
       error: error.message
     });
   }
-};   
+};
 
 
 
@@ -190,14 +190,11 @@ export const createTeam = async (req, res) => {
 
     const userId = req.user.id;
 
-    const { matchId, teamName, players, captainId, viceCaptainId } = req.body;
-
-    console.log(req.body);
+    const { matchId, players, captainId, viceCaptainId } = req.body;
 
     const response = await createTeamService(
       userId,
       matchId,
-      teamName,
       players,
       captainId,
       viceCaptainId

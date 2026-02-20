@@ -5,7 +5,6 @@ import db from "../../config/db.js";
 export const createTeamService = async (
   userId,
   matchId,
-  teamName,
   players,
   captainId,
   viceCaptainId
@@ -43,9 +42,9 @@ export const createTeamService = async (
     // 🧠 Insert user team
     const [teamResult] = await conn.execute(
       `INSERT INTO user_teams
-       (user_id, match_id, team_name, locked)
-       VALUES (?, ?, ?, 0)`,
-      [userId, matchId, teamName]
+       (user_id, match_id,  locked)
+       VALUES (?, ?, 0)`,
+      [userId, matchId]
     );
 
     const teamId = teamResult.insertId;
