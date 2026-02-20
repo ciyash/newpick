@@ -1,4 +1,4 @@
-import {addDepositService,  getMyWalletService,getMyTransactionsService, deleteTransactionsByUserCodeService} from "./wallet.service.js";
+import {addDepositService,  getMyWalletService,getMyTransactionsService, deleteTransactionsByUserCodeService, getMyAnalyticsService} from "./wallet.service.js";
 
 export const addMoney = async (req, res) => {
   try {
@@ -58,10 +58,6 @@ export const getMyTransactions = async (req, res) => {
   }
 };
 
-
-
-
-
 export const deleteTransactionsByUser = async (req, res) => {
   try {
     const { userid } = req.params; // ✅ only userId
@@ -81,4 +77,21 @@ export const deleteTransactionsByUser = async (req, res) => {
   }
 };
 
+
+export const getMyAnalytics = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+
+    const data = await getMyAnalyticsService(userId);
+
+    res.status(200).json(data);
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
 

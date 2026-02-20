@@ -4,14 +4,16 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 
 // export const getUserProfileService = async (userId) => {
 
+//   // 🧑 USER DETAILS
 //   const [[user]] = await db.query(
 //     `SELECT userid,usercode,name,email,mobile,
-//    subscribe,region,category,dob,created_at
+//      subscribe,region,category,dob,created_at
 //      FROM users
 //      WHERE id = ?`,
 //     [userId]
 //   );
 
+//   // 💰 WALLET DETAILS
 //   const [[wallet]] = await db.query(
 //     `SELECT depositwallet, earnwallet, bonusamount, deposit_limit
 //      FROM wallets
@@ -19,6 +21,7 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //     [userId]
 //   );
 
+//   // 📅 MONTHLY DEPOSIT
 //   const yearMonth = new Date().toISOString().slice(0, 7);
 
 //   const [[monthly]] = await db.query(
@@ -30,50 +33,100 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 
 //   const added = monthly ? Number(monthly.total_added) : 0;
 
+//   // 🏆 SUBSCRIPTION STATUS — reuse existing service
+//   const subscription = await getSubscriptionStatusService(userId);
+
+//   // return {
+
+//   //   userid: user.userid,
+//   //   usercode: user.usercode,
+//   //   name: user.name,
+//   //   email: user.email,
+//   //   category: user.category,
+
+//   //   wallet: {
+//   //     depositWallet: Number(wallet.depositwallet),
+//   //     withdrawWallet: Number(wallet.earnwallet),
+//   //     bonusWallet: Number(wallet.bonusamount)
+//   //   },
+
+//   //   depositLimits: {
+//   //     monthlyLimit: Number(wallet.deposit_limit),
+//   //     addedThisMonth: added,
+//   //     remainingThisMonth: wallet.deposit_limit - added
+//   //   },
+
+//   //   // 🔥 Subscription info included
+//   //   subscription
+//   // };
+
 //   return {
-    
-//     userid: user.userid,
-//     usercode: user.usercode,
-//     name: user.name,
-//     email: user.email,
-//     category: user.category,
 
-//     wallet: {
-//       depositWallet: Number(wallet.depositwallet),
-//       withdrawWallet: Number(wallet.earnwallet),
-//       bonusWallet: Number(wallet.bonusamount)
-//     },
+//   userid: user.userid,
+//   usercode: user.usercode,
+//   name: user.name,
+//   email: user.email,
 
-//     depositLimits: {
-//       monthlyLimit: Number(wallet.deposit_limit),
-//       addedThisMonth: added,
-//       remainingThisMonth: wallet.deposit_limit - added
-//     }
-//   };
+//   // 🔥 ADD THESE
+//   mobile: user.mobile,
+//   region: user.region,
+//   category: user.category,
+//   dob: user.dob,
+//   memberSince: user.created_at,
+
+//   wallet: {
+//     depositWallet: Number(wallet.depositwallet),
+//     withdrawWallet: Number(wallet.earnwallet),
+//     bonusWallet: Number(wallet.bonusamount)
+//   },
+
+//   depositLimits: {
+//     monthlyLimit: Number(wallet.deposit_limit),
+//     addedThisMonth: added,
+//     remainingThisMonth: wallet.deposit_limit - added
+//   },
+
+//   subscription
 // };
-
-
+// }
 
 export const getUserProfileService = async (userId) => {
 
-  // 🧑 USER DETAILS
-  const [[user]] = await db.query(
-    `SELECT userid,usercode,name,email,mobile,
-     subscribe,region,category,dob,created_at
-     FROM users
-     WHERE id = ?`,
-    [userId]
-  );
+  /* ================= USER DETAILS ================= */
 
-  // 💰 WALLET DETAILS
+ 
+  const [[user]] = await db.query(
+  `SELECT 
+      userid,
+      usercode,
+      name,
+      email,
+      mobile,
+      region,
+      category,
+      dob,
+      created_at
+   FROM users
+   WHERE id = ?`,
+  [userId]
+);
+
+
+  /* ================= WALLET ================= */
+
   const [[wallet]] = await db.query(
-    `SELECT depositwallet, earnwallet, bonusamount, deposit_limit
+    `SELECT 
+        depositwallet,
+        earnwallet,
+        bonusamount,
+        deposit_limit
      FROM wallets
      WHERE user_id = ?`,
     [userId]
   );
 
-  // 📅 MONTHLY DEPOSIT
+  /* ================= MONTHLY DEPOSIT ================= */
+
   const yearMonth = new Date().toISOString().slice(0, 7);
 
   const [[monthly]] = await db.query(
@@ -85,66 +138,71 @@ export const getUserProfileService = async (userId) => {
 
   const added = monthly ? Number(monthly.total_added) : 0;
 
-  // 🏆 SUBSCRIPTION STATUS — reuse existing service
+  /* ================= WITHDRAW HISTORY ================= */
+
+  const [withdrawals] = await db.query(
+    `SELECT amount, status, created_at
+     FROM withdraws
+     WHERE user_id = ?
+     ORDER BY created_at DESC
+     LIMIT 3`,
+    [userId]
+  );
+
+  /* ================= SUBSCRIPTION ================= */
+
   const subscription = await getSubscriptionStatusService(userId);
 
-  // return {
-
-  //   userid: user.userid,
-  //   usercode: user.usercode,
-  //   name: user.name,
-  //   email: user.email,
-  //   category: user.category,
-
-  //   wallet: {
-  //     depositWallet: Number(wallet.depositwallet),
-  //     withdrawWallet: Number(wallet.earnwallet),
-  //     bonusWallet: Number(wallet.bonusamount)
-  //   },
-
-  //   depositLimits: {
-  //     monthlyLimit: Number(wallet.deposit_limit),
-  //     addedThisMonth: added,
-  //     remainingThisMonth: wallet.deposit_limit - added
-  //   },
-
-  //   // 🔥 Subscription info included
-  //   subscription
-  // };
+  /* ================= RETURN PROFILE ================= */
 
   return {
 
-  userid: user.userid,
-  usercode: user.usercode,
-  name: user.name,
-  email: user.email,
+    /* ===== PERSONAL DETAILS ===== */
 
-  // 🔥 ADD THESE
-  mobile: user.mobile,
-  region: user.region,
-  category: user.category,
-  dob: user.dob,
-  memberSince: user.created_at,
+    personal: {
+      userid: user.userid,
+      usercode: user.usercode,
+      name: user.name,
+      email: user.email,
+      mobile: user.mobile,
+      region: user.region,
+      category: user.category,
+      dob: user.dob,
+      memberSince: user.created_at
+    },
 
-  wallet: {
-    depositWallet: Number(wallet.depositwallet),
-    withdrawWallet: Number(wallet.earnwallet),
-    bonusWallet: Number(wallet.bonusamount)
-  },
+    /* ===== ACCOUNT STATUS ===== */
 
-  depositLimits: {
-    monthlyLimit: Number(wallet.deposit_limit),
-    addedThisMonth: added,
-    remainingThisMonth: wallet.deposit_limit - added
-  },
+    // accountStatus: {
+    //   accountState: user.account_state || "Active",
+    //   kycStatus: user.kyc_status || "Pending"
+    // },
 
-  subscription
+    /* ===== WALLET ===== */
+
+    wallet: {
+      depositWallet: Number(wallet.depositwallet),
+      withdrawWallet: Number(wallet.earnwallet),
+      bonusWallet: Number(wallet.bonusamount)
+    },
+
+    /* ===== LIMITS ===== */
+
+    depositLimits: {
+      monthlyLimit: Number(wallet.deposit_limit),
+      addedThisMonth: added,
+      remainingThisMonth: wallet.deposit_limit - added
+    },
+
+    /* ===== PAYMENTS & WITHDRAWALS ===== */
+
+    withdrawals,
+
+    /* ===== SUBSCRIPTION ===== */
+
+    subscription
+  };
 };
-}
-
-
-
-
 
 
 export const reduceMonthlyLimitService = async (userId, newLimit) => {
