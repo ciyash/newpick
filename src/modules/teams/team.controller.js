@@ -255,26 +255,6 @@ export const getTeamPlayers = async (req, res) => {
   }
 };
 
-// export const getMyTeamsWithPlayers = async (req, res) => {
-//   try {
-
-//     const userId = req.user.id;
-
-//     const teams = await getMyTeamsWithPlayersService(userId);
-
-//     res.status(200).json({
-//       success: true,
-//       total: teams.length,
-//       data: teams
-//     });
-
-//   } catch (error) {
-//     res.status(400).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
 
 
 
