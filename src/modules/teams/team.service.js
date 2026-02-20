@@ -9,27 +9,32 @@ export const createTeamService = async (
   captainId,
   viceCaptainId
 ) => {
+
   const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    // ✅ 11 players
-    if (players.length !== 11) {
+    /* ================================
+       1️⃣ BASIC VALIDATIONS
+    ================================= */
+
+    if (!Array.isArray(players) || players.length !== 11) {
       throw new Error("Team must have exactly 11 players");
     }
 
-    // ✅ Unique players
     if (new Set(players).size !== players.length) {
       throw new Error("Duplicate players not allowed");
     }
 
-    // ✅ Captain & VC rules
     if (captainId === viceCaptainId) {
       throw new Error("Captain and VC must be different");
     }
 
-    // 🔎 Check players exist in players table
+    /* ================================
+       2️⃣ CHECK PLAYERS EXIST
+    ================================= */
+
     const [existing] = await conn.query(
       `SELECT id FROM players WHERE id IN (?)`,
       [players]
@@ -39,17 +44,77 @@ export const createTeamService = async (
       throw new Error("Some players not found");
     }
 
-    // 🧠 Insert user team
+    /* ================================
+       3️⃣ DUPLICATE TEAM CHECK 🔥
+    ================================= */
+
+    const [existingTeams] = await conn.query(
+      `SELECT id FROM user_teams
+       WHERE user_id = ? AND match_id = ?`,
+      [userId, matchId]
+    );
+
+    for (const team of existingTeams) {
+
+      const [teamPlayers] = await conn.query(
+        `SELECT player_id, is_captain, is_vice_captain
+         FROM user_team_players
+         WHERE user_team_id = ?`,
+        [team.id]
+      );
+
+      const existingSet = new Set(
+        teamPlayers.map(p =>
+          `${p.player_id}-${p.is_captain}-${p.is_vice_captain}`
+        )
+      );
+
+      const newSet = new Set(
+        players.map(id => {
+          const c = id === captainId ? 1 : 0;
+          const v = id === viceCaptainId ? 1 : 0;
+          return `${id}-${c}-${v}`;
+        })
+      );
+
+      if (
+        existingSet.size === newSet.size &&
+        [...existingSet].every(x => newSet.has(x))
+      ) {
+        throw new Error("Duplicate team not allowed");
+      }
+    }
+
+    /* ================================
+       4️⃣ AUTO TEAM NAME
+    ================================= */
+
+    const [[count]] = await conn.query(
+      `SELECT COUNT(*) AS total
+       FROM user_teams
+       WHERE user_id = ? AND match_id = ?`,
+      [userId, matchId]
+    );
+
+    const teamName = `Team ${count.total + 1}`;
+
+    /* ================================
+       5️⃣ INSERT TEAM
+    ================================= */
+
     const [teamResult] = await conn.execute(
       `INSERT INTO user_teams
-       (user_id, match_id,  locked)
-       VALUES (?, ?, 0)`,
-      [userId, matchId]
+       (user_id, match_id, team_name, locked)
+       VALUES (?, ?, ?, 0)`,
+      [userId, matchId, teamName]
     );
 
     const teamId = teamResult.insertId;
 
-    // 👥 Insert players
+    /* ================================
+       6️⃣ INSERT TEAM PLAYERS
+    ================================= */
+
     for (const playerId of players) {
 
       const isCaptain = playerId === captainId ? 1 : 0;
@@ -68,7 +133,8 @@ export const createTeamService = async (
     return {
       success: true,
       message: "Team created successfully",
-      teamId
+      teamId,
+      teamName
     };
 
   } catch (err) {
@@ -78,6 +144,7 @@ export const createTeamService = async (
     conn.release();
   }
 };
+
 
 export const getMyTeamsService = async (userId, matchId) => {
 
@@ -115,6 +182,7 @@ export const getTeamPlayersService = async (teamId) => {
 };
 
 
+
 export const getMyTeamsWithPlayersService = async (userId) => {
 
   const [rows] = await db.query(
@@ -123,16 +191,15 @@ export const getMyTeamsWithPlayersService = async (userId) => {
         ut.team_name,
         ut.match_id,
 
-        p.id AS player_id,
-        p.name,
-        p.playerimage,
-        p.player_type,
-        p.points,
+        u.nickname,
+
+        p.*,  -- 🔥 ALL PLAYER FIELDS
 
         utp.is_captain,
         utp.is_vice_captain
 
      FROM user_teams ut
+     JOIN users u ON ut.user_id = u.id
      JOIN user_team_players utp ON ut.id = utp.user_team_id
      JOIN players p ON utp.player_id = p.id
 
@@ -152,16 +219,24 @@ export const getMyTeamsWithPlayersService = async (userId) => {
         teamId: row.team_id,
         teamName: row.team_name,
         matchId: row.match_id,
+        nickname: row.nickname || null,
         players: []
       };
     }
 
     teams[row.team_id].players.push({
-      playerId: row.player_id,
+      playerId: row.id,
+      teamId: row.team_id,
       name: row.name,
-      image: row.playerimage,
-      type: row.player_type,
+      position: row.position,
+      createdAt: row.created_at,
       points: row.points,
+      playerType: row.player_type,
+      image: row.playerimage,
+      credits: row.playercredits,
+      selectPercent: row.selectpercent,
+      captainPercent: row.captainper,
+      viceCaptainPercent: row.vcper,
       isCaptain: row.is_captain === 1,
       isViceCaptain: row.is_vice_captain === 1
     });
@@ -169,3 +244,4 @@ export const getMyTeamsWithPlayersService = async (userId) => {
 
   return Object.values(teams);
 };
+

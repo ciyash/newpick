@@ -8,7 +8,7 @@ import generateUserCode from "../../utils/usercode.js";
 
 
 export const requestSignupOtpService = async (data) => {
-  const { name, email, mobile, region, address, dob, category, referralid } = data;
+  const { name, email, mobile, region, address, dob,nickname, category, referralid } = data;
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
@@ -67,6 +67,7 @@ export const requestSignupOtpService = async (data) => {
     JSON.stringify({
       name,
       email,
+      nickname,
       mobile: normalizedMobile,
       region,
       address,
@@ -290,6 +291,7 @@ export const signupService = async ({ mobile, otp }) => {
     name,
     email,
     region,
+    nickname,
     address,
     dob,
     category,
@@ -356,23 +358,25 @@ export const signupService = async ({ mobile, otp }) => {
   /* ================================
      6️⃣ INSERT USER
   ================================= */
+ 
   const [result] = await db.query(
-    `INSERT INTO users
-     (userid,usercode,name,email,mobile,region,address,dob,referalid,category,emailverify,phoneverify,created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
-    [
-      userid,
-      usercode,
-      name,
-      email,
-      normalizedMobile,
-      region,
-      address || null,
-      dob,
-      referralUserCode,
-      categoryNormalized
-    ]
-  );
+  `INSERT INTO users
+   (userid,usercode,name,email,mobile,region,address,dob,referalid,nickname,category,emailverify,phoneverify,created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
+  [
+    userid,
+    usercode,
+    name,
+    email,
+    normalizedMobile,
+    region,
+    address || null,
+    dob,
+    referralUserCode,
+    nickname || null,
+    categoryNormalized
+  ]
+);
 
   const userId = result.insertId;
 
@@ -490,84 +494,6 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 };
 
 
-// export const sendLoginOtpService = async ({ email, mobile }) => {
-//   const [users] = await db.query(
-//     `SELECT id, email, mobile, loginotp, loginotpexpires
-//      FROM users
-//      WHERE email = ? OR mobile = ?`,
-//     [email || null, mobile || null]
-//   );
-
-//   if (!users.length) throw new Error("User not found");
-
-//   const user = users[0];
-
-//   // 🔁 Reuse OTP if not expired
-//   if (
-//     user.loginotp &&
-//     user.loginotpexpires &&
-//     new Date(user.loginotpexpires) > new Date()
-//   ) {
-//     console.log(`LOGIN OTP (REUSED): ${user.loginotp}`);
-//     return {
-//       otp: user.loginotp
-//     };
-//   }
-
-//   // 🔐 Generate new OTP
-//   const otp = crypto.randomInt(100000, 999999).toString();
-//    console.log("Send OTP :",otp);
-//   const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
-//   await db.query(
-//     `UPDATE users
-//      SET loginotp = ?, loginotpexpires = ?
-//      WHERE id = ?`,
-//     [otp, expiresAt, user.id]
-//   );
-
-//   console.log(`LOGIN OTP (NEW): ${otp}`);
-
-//   return {
-//     otp
-//   };
-// };
-
-
-
-
-// export const loginService = async ({ email, mobile, otp }) => {
-//   const [users] = await db.query(
-//     `SELECT id, usercode, email, mobile, name, loginotp, loginotpexpires
-//      FROM users
-//      WHERE email = ? OR mobile = ?`,
-//     [email || null, mobile || null]
-//   );
-
-//   if (!users.length) throw new Error("User not found");
-
-//   const user = users[0];
-
-//   if (user.loginotp !== otp) throw new Error("Invalid OTP");
-//   if (new Date(user.loginotpexpires) < new Date()) {
-//     throw new Error("OTP expired");
-//   }
-
-//   await db.query(
-//     `UPDATE users
-//      SET loginotp = NULL, loginotpexpires = NULL
-//      WHERE id = ?`,
-//     [user.id]
-//   );
-
-//   return {
-//     id: user.id,
-//     usercode: user.usercode,
-//     email: user.email,
-//     mobile: user.mobile,
-//     name: user.name
-//   };
-// };
 
 
 export const loginService = async ({ email, mobile, otp }) => {

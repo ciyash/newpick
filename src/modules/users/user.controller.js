@@ -136,10 +136,6 @@ export const pauseAccount = async (req, res) => {
 };
 
 
-
-
-
-
 export const deleteAccount = async (req, res) => {
   try {
     const userId = req.user.id;
