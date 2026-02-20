@@ -16,7 +16,7 @@ router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById)
 
 router.post("/create", authenticate, checkAccountActive, createTeam);
 
-router.get("/user-my-teams", authenticate, checkAccountActive, getMyTeams);
+router.get("/user-my-teams/:matchId", authenticate, checkAccountActive, getMyTeams);
 
 router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers);
 

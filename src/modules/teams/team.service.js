@@ -291,17 +291,114 @@ export const createTeamService = async (
     conn.release();
   }
 };
-export const getMyTeamsService = async (userId, matchId) => {
+
+export const getMyTeamsMatchIdPlayersService = async (userId, matchId) => {
 
   const [rows] = await db.query(
-    `SELECT *
-     FROM user_teams
-     WHERE user_id = ? AND match_id = ?
-     ORDER BY created_at DESC`,
-    [userId, matchId]
+    `SELECT 
+        ut.id AS team_id,
+        ut.team_name,
+        ut.match_id,
+
+        p.id AS player_id,
+        p.name,
+        p.position,
+        p.points,
+        p.player_type,
+        p.playerimage,
+        p.team_id AS real_team_id,
+
+        t.name AS real_team_name,
+        t.short_name AS real_team_short_name,
+
+        utp.is_captain,
+        utp.is_vice_captain
+
+     FROM user_teams ut
+     JOIN user_team_players utp ON ut.id = utp.user_team_id
+     JOIN players p ON utp.player_id = p.id
+     LEFT JOIN teams t ON p.team_id = t.id
+
+     WHERE ut.user_id = ?
+     ${matchId ? "AND ut.match_id = ?" : ""}
+
+     ORDER BY ut.created_at DESC`,
+    matchId ? [userId, matchId] : [userId]
   );
 
-  return rows;
+  if (!rows.length) {
+    throw new Error("No teams found");
+  }
+
+  const teams = {};
+
+  for (const row of rows) {
+
+    if (!teams[row.team_id]) {
+      teams[row.team_id] = {
+        teamId: row.team_id,
+        teamName: row.team_name,
+        matchId: row.match_id,
+        captain: null,
+        viceCaptain: null,
+        players: [],
+        totalPlayers: 0,
+        realTeamsBreakdown: {}
+      };
+    }
+
+    const player = {
+      playerId: row.player_id,
+      name: row.name,
+      position: row.position,
+      points: row.points,
+      playerType: row.player_type,
+      image: row.playerimage,
+      isCaptain: row.is_captain === 1,
+      isViceCaptain: row.is_vice_captain === 1,
+      realTeamId: row.real_team_id,
+      realTeamName: row.real_team_name,
+      realTeamShortName: row.real_team_short_name
+    };
+
+    if (player.isCaptain) teams[row.team_id].captain = player;
+    if (player.isViceCaptain) teams[row.team_id].viceCaptain = player;
+
+    teams[row.team_id].players.push(player);
+    teams[row.team_id].totalPlayers++;
+
+    const rtId = row.real_team_id;
+
+    if (rtId) {
+      if (!teams[row.team_id].realTeamsBreakdown[rtId]) {
+        teams[row.team_id].realTeamsBreakdown[rtId] = {
+          teamId: rtId,
+          teamName: row.real_team_name,
+          shortName: row.real_team_short_name,
+          count: 0
+        };
+      }
+      teams[row.team_id].realTeamsBreakdown[rtId].count++;
+    }
+  }
+
+  for (const team of Object.values(teams)) {
+
+    team.realTeamsBreakdown = Object.values(team.realTeamsBreakdown);
+
+    if (!team.captain && team.players.length) {
+      team.captain = team.players[0];
+      team.captain.isCaptain = true;
+    }
+
+    if (!team.viceCaptain) {
+      const vc = team.players.find(p => !p.isCaptain);
+      team.viceCaptain = vc || team.players[1];
+      if (team.viceCaptain) team.viceCaptain.isViceCaptain = true;
+    }
+  }
+
+  return Object.values(teams);
 };
 
 
@@ -545,4 +642,4 @@ export const getMyTeamsWithPlayersService = async (userId) => {
   }
 
   return Object.values(teams);
-};
+};   

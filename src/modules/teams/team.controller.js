@@ -1,5 +1,5 @@
 import db from "../../config/db.js";
-import { createTeamService, getMyTeamsService, getMyTeamsWithPlayersService, getTeamPlayersService } from "./team.service.js";
+import { createTeamService,  getMyTeamsWithPlayersService, getTeamPlayersService } from "./team.service.js";
 
 
 export const getAllTeams = async (req, res) => {
@@ -215,9 +215,11 @@ export const getMyTeams = async (req, res) => {
   try {
 
     const userId = req.user.id;
-    const { matchId } = req.query;
 
-    const teams = await getMyTeamsService(userId, matchId);
+    // 🔥 PARAMS nundi matchId theeyali
+    const { matchId } = req.params;
+
+    const teams = await getMyTeamsWithPlayersService(userId, matchId);
 
     res.status(200).json({
       success: true,
@@ -232,6 +234,7 @@ export const getMyTeams = async (req, res) => {
     });
   }
 };
+
 
 
 export const getTeamPlayers = async (req, res) => {
