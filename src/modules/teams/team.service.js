@@ -183,6 +183,64 @@ export const getTeamPlayersService = async (teamId) => {
 
 
 
+// export const getMyTeamsWithPlayersService = async (userId) => {
+
+//   const [rows] = await db.query(
+//     `SELECT 
+//         p.id,
+//         p.name,
+//         p.position,
+//         p.points,
+//         p.player_type,
+//         p.playerimage,
+//         utp.is_captain,
+//         utp.is_vice_captain
+//      FROM user_team_players utp
+//      JOIN players p ON utp.player_id = p.id
+//      WHERE utp.user_team_id = ?`,
+//     [teamId]
+//   );
+  
+
+//   /* 🔥 Group players by team */
+
+//   const teams = {};
+
+//   for (const row of rows) {
+
+//     if (!teams[row.team_id]) {
+//       teams[row.team_id] = {
+//         teamId: row.team_id,
+//         teamName: row.team_name,
+//         matchId: row.match_id,
+//         nickname: row.nickname || null,
+//         players: []
+//       };
+//     }
+
+//     teams[row.team_id].players.push({
+//       playerId: row.id,
+//       teamId: row.team_id,
+//       name: row.name,
+//       position: row.position,
+//       createdAt: row.created_at,
+//       points: row.points,
+//       playerType: row.player_type,
+//       image: row.playerimage,
+//       credits: row.playercredits,
+//       selectPercent: row.selectpercent,
+//       captainPercent: row.captainper,
+//       viceCaptainPercent: row.vcper,
+//       isCaptain: row.is_captain === 1,
+//       isViceCaptain: row.is_vice_captain === 1
+//     });
+//   }
+
+//   return Object.values(teams);
+// };
+
+
+
 export const getMyTeamsWithPlayersService = async (userId) => {
 
   const [rows] = await db.query(
@@ -191,24 +249,29 @@ export const getMyTeamsWithPlayersService = async (userId) => {
         ut.team_name,
         ut.match_id,
 
-        u.nickname,
-
-        p.*,  -- 🔥 ALL PLAYER FIELDS
+        p.id AS player_id,
+        p.name,
+        p.position,
+        p.points,
+        p.player_type,
+        p.playerimage,
 
         utp.is_captain,
         utp.is_vice_captain
 
      FROM user_teams ut
-     JOIN users u ON ut.user_id = u.id
      JOIN user_team_players utp ON ut.id = utp.user_team_id
      JOIN players p ON utp.player_id = p.id
-
      WHERE ut.user_id = ?
-     ORDER BY ut.id`,
+     ORDER BY ut.created_at DESC`,
     [userId]
   );
 
-  /* 🔥 Group players by team */
+  if (!rows.length) {
+    throw new Error("No teams found");
+  }
+
+  /* 🔥 Group teams */
 
   const teams = {};
 
@@ -219,29 +282,53 @@ export const getMyTeamsWithPlayersService = async (userId) => {
         teamId: row.team_id,
         teamName: row.team_name,
         matchId: row.match_id,
-        nickname: row.nickname || null,
+        captain: null,
+        viceCaptain: null,
         players: []
       };
     }
 
-    teams[row.team_id].players.push({
-      playerId: row.id,
-      teamId: row.team_id,
+    const player = {
+      playerId: row.player_id,
       name: row.name,
       position: row.position,
-      createdAt: row.created_at,
       points: row.points,
       playerType: row.player_type,
       image: row.playerimage,
-      credits: row.playercredits,
-      selectPercent: row.selectpercent,
-      captainPercent: row.captainper,
-      viceCaptainPercent: row.vcper,
       isCaptain: row.is_captain === 1,
       isViceCaptain: row.is_vice_captain === 1
-    });
+    };
+
+    if (player.isCaptain) {
+      teams[row.team_id].captain = player;
+    }
+
+    if (player.isViceCaptain) {
+      teams[row.team_id].viceCaptain = player;
+    }
+
+    teams[row.team_id].players.push(player);
+  }
+
+  /* 🔥 IMPORTANT FIX — Never return null */
+
+  for (const team of Object.values(teams)) {
+
+    // Captain fallback
+    if (!team.captain && team.players.length) {
+      team.captain = team.players[0];
+      team.captain.isCaptain = true;
+    }
+
+    // Vice Captain fallback
+    if (!team.viceCaptain) {
+      const vc = team.players.find(p => !p.isCaptain);
+      team.viceCaptain = vc || team.players[1];
+      if (team.viceCaptain) {
+        team.viceCaptain.isViceCaptain = true;
+      }
+    }
   }
 
   return Object.values(teams);
 };
-
