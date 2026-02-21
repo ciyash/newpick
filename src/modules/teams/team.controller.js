@@ -1,5 +1,5 @@
 import db from "../../config/db.js";
-import { createTeamService,  getMyTeamsWithPlayersService, getTeamPlayersService } from "./team.service.js";
+import { createTeamService,  getMyTeamsWithPlayersService, getTeamPlayersService, updateTeamService } from "./team.service.js";
 
 
 export const getAllTeams = async (req, res) => {
@@ -200,7 +200,13 @@ export const createTeam = async (req, res) => {
       viceCaptainId
     );
 
-    res.status(201).json(response);
+      res.status(201).json({
+      success: true,
+      message: result.message,
+      teamId: result.teamId,
+      teamName: result.teamName,
+      matchId: matchId   // 🔥 Add this line
+    });
 
   } catch (error) {
     res.status(400).json({
@@ -272,6 +278,32 @@ export const getMyTeamsWithPlayers = async (req, res) => {
       success: true,
       total: teams.length,
       data: teams
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+
+export const updateTeam = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+    const { teamId } = req.params;
+
+    const result = await updateTeamService(
+      userId,
+      teamId,
+      req.body
+    );
+
+    res.status(200).json({
+      success: true,
+      message: result.message
     });
 
   } catch (error) {
