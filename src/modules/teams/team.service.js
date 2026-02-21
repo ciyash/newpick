@@ -181,17 +181,17 @@ export const createTeamService = async (
     const now = new Date();
 
     // ❌ If match started or completed → block
-    if (
-      match.status !== "upcoming" ||
-      now >= new Date(match.start_time)
-    ) {
-      throw new Error("Team creation closed for this match");
-    }
+    // if (
+    //   match.status !== "upcoming" ||
+    //   now >= new Date(match.start_time)
+    // ) {
+    //   throw new Error("Team creation closed for this match");
+    // }
 
     /* ================================
        1️⃣ BASIC VALIDATIONS
     ================================= */
-
+ 
     if (!Array.isArray(players) || players.length !== 11) {
       throw new Error("Team must have exactly 11 players");
     }

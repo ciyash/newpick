@@ -320,9 +320,44 @@ export const updateTeam = async (id, data, admin, ip) => {
 
 /* ================= PLAYERS ================= */
 
+// export const createPlayer = async (data, admin, ip) => {
+//   try {
+//     const points = Number.isInteger(data.points) ? data.points : 0;
+
+//     const [res] = await db.query(
+//       `INSERT INTO players
+//        (team_id, name, position, points, created_at)
+//        VALUES (?, ?, ?, ?, NOW())`,
+//       [data.team_id, data.name, data.position, points]
+//     );
+
+//     await logAdmin(db, admin, "CREATE_PLAYER", "player", res.insertId, ip);
+
+//     return {
+//       success: true,
+//       id: res.insertId
+//     };
+//   } catch (err) {
+//     // Optional: log error here
+//     throw {
+//       success: false,
+//       message: err.message || "Failed to create player",
+//       error: err
+//     };
+//   }
+// };
+
+
 export const createPlayer = async (data, admin, ip) => {
   try {
-    const points = Number.isInteger(data.points) ? data.points : 0;
+
+    console.log("Incoming data:", data);
+    console.log("Points received:", data.points);
+    console.log("Parsed points:", parseFloat(data.points));
+   const points =
+  data.points !== undefined
+    ? parseFloat(data.points)
+    : 0;
 
     const [res] = await db.query(
       `INSERT INTO players
@@ -337,8 +372,8 @@ export const createPlayer = async (data, admin, ip) => {
       success: true,
       id: res.insertId
     };
+
   } catch (err) {
-    // Optional: log error here
     throw {
       success: false,
       message: err.message || "Failed to create player",
