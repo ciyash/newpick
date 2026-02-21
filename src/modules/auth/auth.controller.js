@@ -1,7 +1,7 @@
 
 import jwt from "jsonwebtoken";
 import { signupSchema, loginSchema,sendOtpSchema, verifyOtpSchema } from "../auth/auth.validation.js";
-import { signupService,sendLoginOtpService, loginService,requestSignupOtpService,adminLoginService } from "../auth/auth.service.js";
+import { signupService,sendLoginOtpService, loginService,requestSignupOtpService,adminLoginService, updateProfileService } from "../auth/auth.service.js";
 import { getClientIp } from "../../utils/ip.js";
 
 
@@ -162,3 +162,23 @@ export const adminLogin = async (req, res) => {
   }
 };
 
+
+export const updateProfile = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+
+    const result = await updateProfileService(
+      userId,
+      req.body
+    );
+
+    res.status(200).json(result);
+
+  } catch (err) {
+    res.status(400).json({
+      success: false,
+      message: err.message
+    });
+  }
+};

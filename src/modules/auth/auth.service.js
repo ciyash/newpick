@@ -660,3 +660,37 @@ export const adminLoginService = async ({ email, password }, ipAddress) => {
   delete admin.password_hash;
   return admin;
 };
+
+
+export const updateProfileService = async (userId, data) => {
+
+  const allowedFields = [
+    "name",
+    "nickname",
+    "region",
+    "address",
+    "category"
+  ];
+
+  const updateData = {};
+
+  for (const key of allowedFields) {
+    if (data[key] !== undefined) {
+      updateData[key] = data[key];
+    }
+  }
+
+  if (!Object.keys(updateData).length) {
+    throw new Error("No valid fields to update");
+  }
+
+  await db.query(
+    `UPDATE users SET ? WHERE id = ?`,
+    [updateData, userId]
+  );
+
+  return {
+    success: true,
+    message: "Profile updated successfully"
+  };
+};
