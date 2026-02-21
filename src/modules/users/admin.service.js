@@ -323,12 +323,13 @@ export const updateTeam = async (id, data, admin, ip) => {
 export const createPlayer = async (data, admin, ip) => {
   try {
     const points = Number.isInteger(data.points) ? data.points : 0;
+    const playercredits = Number.isInteger(data.playercredits) ? data.playercredits : 0;
 
     const [res] = await db.query(
       `INSERT INTO players
-       (team_id, name, position, points, created_at)
-       VALUES (?, ?, ?, ?, NOW())`,
-      [data.team_id, data.name, data.position, points]
+       (team_id, name, position, points,playercredits, created_at)
+       VALUES (?, ?, ?, ?,?, NOW())`,
+      [data.team_id, data.name, data.position,,playercredits,points]
     );
 
     await logAdmin(db, admin, "CREATE_PLAYER", "player", res.insertId, ip);
