@@ -202,10 +202,10 @@ export const createTeam = async (req, res) => {
 
       res.status(201).json({
       success: true,
-      message: result.message,
-      teamId: result.teamId,
-      teamName: result.teamName,
-      matchId: matchId   // 🔥 Add this line
+      message: response.message,
+      teamId: response.teamId,
+      teamName: response.teamName,
+      matchId: response.matchId     // 🔥 Add this line
     });
 
   } catch (error) {
