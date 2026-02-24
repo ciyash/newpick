@@ -12,7 +12,7 @@ router.get("/team-players", authenticate, checkAccountActive, getAllPlayers);
 
 router.get("/team-players/team/:id", authenticate, checkAccountActive, getPlayerTeamById);
 
-router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById); // no need
+router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById); // 
 
 router.post("/create", authenticate, checkAccountActive, createTeam);  
 
