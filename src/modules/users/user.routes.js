@@ -12,6 +12,7 @@ import teamRoutes from '../teams/team.routes.js'
 import matchesRoutes from '../match/match.router.js'
 import { saveFcmToken ,testNotification} from '../../middlewares/send.notification.js';
 import paymentRoutes from '../payment/payment.router.js'
+import uctRoutes from '../uct/uct.route.js'
 
 const app = express.Router();
 
@@ -30,5 +31,6 @@ app.use("/teams", authenticate, checkAccountActive, teamRoutes)
 app.post("/save-fcm-token", authenticate, saveFcmToken);
 app.post("/test-notification", authenticate, testNotification);
 app.use("/payment",authenticate,checkAccountActive, paymentRoutes)
+app.use("/uct",uctRoutes)
 
 export default app;     
