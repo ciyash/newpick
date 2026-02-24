@@ -6,14 +6,15 @@ export const generateUCTTeams = async (req, res) => {
 
     const userId = req.user.id;
 
-    const teams = await generateUCTTeamsService(
+    const result = await generateUCTTeamsService(
       userId,
       req.body
-    );   
+    );
 
-    res.json({
+    return res.json({
       success: true,
-      teams
+      message: "UCT teams generated successfully",
+      ...result
     });
 
   } catch (err) {
