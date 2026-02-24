@@ -149,6 +149,112 @@ export function teamToBinary(teamPlayers, allPlayerIds) {
 }
 
 
+// export const generateUCTTeamsService = async (userId, data) => {
+//   const { matchId } = data;
+
+//   // 🧠 Get match teams
+//   const [[match]] = await db.query(
+//     `SELECT home_team_id, away_team_id
+//      FROM matches
+//      WHERE id = ?`,
+//     [matchId]
+//   );
+
+//   if (!match) throw new Error("Match not found");
+
+//   // 🧠 Get players of both teams
+//   const [players] = await db.query(
+//     `SELECT id, position AS role, team_id
+//      FROM players
+//      WHERE team_id IN (?, ?)`,
+//     [match.home_team_id, match.away_team_id]
+//   );
+
+//   if (!players.length) throw new Error("No players found");
+
+//   console.log("👥 Player pool:", players.length);
+
+//   const allPlayerIds = players.map(p => p.id).sort((a,b)=>a-b);
+
+//   const teams = [];
+//   const uniqueTeams = new Set(); // 🔥 Duplicate prevention
+
+//   // ⭐ Generate 20 unique teams
+//   for (let i = 0; i < 20; i++) {
+
+//     let validTeam = false;
+//     let attempts = 0;
+
+//     while (!validTeam && attempts < 500) {
+//       attempts++;
+
+//       const teamPlayers = [];
+//       const roleCount = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
+//       const teamCount = {};
+
+//       // 🔥 Build team of 11 players
+//       while (teamPlayers.length < 11) {
+
+//         const random =
+//           players[Math.floor(Math.random() * players.length)];
+
+//         if (teamPlayers.includes(random.id)) continue;
+
+//         // Role limits (football)
+//         if (random.role === "GK" && roleCount.GK >= 1) continue;
+//         if (random.role === "DEF" && roleCount.DEF >= 6) continue;
+//         if (random.role === "MID" && roleCount.MID >= 5) continue;
+//         if (random.role === "FWD" && roleCount.FWD >= 3) continue;
+
+//         // Max 8 from same team
+//         if ((teamCount[random.team_id] || 0) >= 8) continue;
+
+//         teamPlayers.push(random.id);
+//         roleCount[random.role]++;
+//         teamCount[random.team_id] =
+//           (teamCount[random.team_id] || 0) + 1;
+//       }
+
+//       // 🧠 Convert to binary
+//       const binary = teamToBinary(teamPlayers, allPlayerIds);
+
+//       // ❌ Duplicate check
+//       if (uniqueTeams.has(binary)) {
+//         continue;
+//       }
+
+//       uniqueTeams.add(binary);
+
+//       // 👑 Random Captain & VC
+//       const captain =
+//         teamPlayers[Math.floor(Math.random() * teamPlayers.length)];
+
+//       let viceCaptain;
+//       do {
+//         viceCaptain =
+//           teamPlayers[Math.floor(Math.random() * teamPlayers.length)];
+//       } while (viceCaptain === captain);
+
+//       teams.push({
+//         players: teamPlayers,
+//         binary,
+//         captainId: captain,
+//         viceCaptainId: viceCaptain
+//       });
+
+//       validTeam = true;
+//     }
+
+//     if (!validTeam) {
+//       console.log("⚠️ Failed to generate unique team", i);
+//     }
+//   }
+
+//   console.log("🎯 Generated unique teams:", teams.length);
+
+//   return teams;
+// };
+
 export const generateUCTTeamsService = async (userId, data) => {
   const { matchId } = data;
 
@@ -162,7 +268,7 @@ export const generateUCTTeamsService = async (userId, data) => {
 
   if (!match) throw new Error("Match not found");
 
-  // 🧠 Get players of both teams
+  // 🧠 Get players
   const [players] = await db.query(
     `SELECT id, position AS role, team_id
      FROM players
@@ -172,14 +278,12 @@ export const generateUCTTeamsService = async (userId, data) => {
 
   if (!players.length) throw new Error("No players found");
 
-  console.log("👥 Player pool:", players.length);
-
   const allPlayerIds = players.map(p => p.id).sort((a,b)=>a-b);
 
-  const teams = [];
-  const uniqueTeams = new Set(); // 🔥 Duplicate prevention
+  const savedTeams = [];
+  const uniqueTeams = new Set();
 
-  // ⭐ Generate 20 unique teams
+  // ⭐ Generate 20 teams
   for (let i = 0; i < 20; i++) {
 
     let validTeam = false;
@@ -192,7 +296,7 @@ export const generateUCTTeamsService = async (userId, data) => {
       const roleCount = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
       const teamCount = {};
 
-      // 🔥 Build team of 11 players
+      // 🔥 Build team
       while (teamPlayers.length < 11) {
 
         const random =
@@ -200,13 +304,11 @@ export const generateUCTTeamsService = async (userId, data) => {
 
         if (teamPlayers.includes(random.id)) continue;
 
-        // Role limits (football)
         if (random.role === "GK" && roleCount.GK >= 1) continue;
         if (random.role === "DEF" && roleCount.DEF >= 6) continue;
         if (random.role === "MID" && roleCount.MID >= 5) continue;
         if (random.role === "FWD" && roleCount.FWD >= 3) continue;
 
-        // Max 8 from same team
         if ((teamCount[random.team_id] || 0) >= 8) continue;
 
         teamPlayers.push(random.id);
@@ -215,17 +317,13 @@ export const generateUCTTeamsService = async (userId, data) => {
           (teamCount[random.team_id] || 0) + 1;
       }
 
-      // 🧠 Convert to binary
       const binary = teamToBinary(teamPlayers, allPlayerIds);
 
-      // ❌ Duplicate check
-      if (uniqueTeams.has(binary)) {
-        continue;
-      }
-
+      // ❌ Duplicate prevention
+      if (uniqueTeams.has(binary)) continue;
       uniqueTeams.add(binary);
 
-      // 👑 Random Captain & VC
+      // 👑 Captain & VC
       const captain =
         teamPlayers[Math.floor(Math.random() * teamPlayers.length)];
 
@@ -235,22 +333,82 @@ export const generateUCTTeamsService = async (userId, data) => {
           teamPlayers[Math.floor(Math.random() * teamPlayers.length)];
       } while (viceCaptain === captain);
 
-      teams.push({
-        players: teamPlayers,
-        binary,
-        captainId: captain,
-        viceCaptainId: viceCaptain
-      });
+      // ================================
+      // 💾 SAVE INTO YOUR TABLES
+      // ================================
 
+      // ⭐ Insert into user_teams
+      const [teamResult] = await db.query(
+        `INSERT INTO user_teams
+         (user_id, match_id, team_name, locked)
+         VALUES (?, ?, ?, ?)`,
+        [userId, matchId, `UCT Team ${i+1}`, 0]
+      );
+
+      const teamId = teamResult.insertId;
+
+      // ⭐ Insert players
+      for (const playerId of teamPlayers) {
+
+        const isCaptain = playerId === captain ? 1 : 0;
+        const isViceCaptain = playerId === viceCaptain ? 1 : 0;
+
+        await db.query(
+          `INSERT INTO user_team_players
+           (user_team_id, player_id, is_captain, is_vice_captain)
+           VALUES (?, ?, ?, ?)`,
+          [teamId, playerId, isCaptain, isViceCaptain]
+        );
+      }
+
+      savedTeams.push(teamId);
       validTeam = true;
-    }
-
-    if (!validTeam) {
-      console.log("⚠️ Failed to generate unique team", i);
     }
   }
 
-  console.log("🎯 Generated unique teams:", teams.length);
+  console.log("🎯 Saved teams:", savedTeams.length);
 
-  return teams;
+  return savedTeams;
+};   
+
+
+export const getUserUCTTeamsService = async (userId, matchId) => {
+
+  const [teams] = await db.query(
+    `SELECT id, team_name, locked, created_at
+     FROM user_teams
+     WHERE user_id = ? AND match_id = ?
+     ORDER BY id DESC`,
+    [userId, matchId]
+  );
+
+  if (!teams.length) return [];
+
+  const result = [];
+
+  for (const team of teams) {
+
+    const [players] = await db.query(
+      `SELECT 
+          utp.player_id,
+          utp.is_captain,
+          utp.is_vice_captain,
+          p.name,
+          p.position,
+          p.team_id
+       FROM user_team_players utp
+       JOIN players p ON p.id = utp.player_id
+       WHERE utp.user_team_id = ?`,
+      [team.id]
+    );
+
+    result.push({
+      teamId: team.id,
+      teamName: team.team_name,
+      locked: team.locked,
+      players
+    });
+  }
+
+  return result;
 };
