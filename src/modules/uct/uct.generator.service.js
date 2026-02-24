@@ -256,6 +256,129 @@ export function teamToBinary(teamPlayers, allPlayerIds) {
 // };
 
 
+// export const generateUCTTeamsService = async (userId, data) => {
+
+//   const { matchId } = data;
+
+//   // 🧠 1) Get match teams
+//   const [[match]] = await db.query(
+//     `SELECT home_team_id, away_team_id
+//      FROM matches
+//      WHERE id = ?`,
+//     [matchId]
+//   );
+
+//   if (!match) throw new Error("Match not found");
+
+//   // 🧠 2) Get players of both teams
+//   const [players] = await db.query(
+//     `SELECT id, position AS role, team_id
+//      FROM players
+//      WHERE team_id IN (?, ?)`,
+//     [match.home_team_id, match.away_team_id]
+//   );
+
+//   if (!players.length) throw new Error("No players found");
+
+//   const allPlayerIds = players.map(p => p.id).sort((a, b) => a - b);
+
+//   const savedTeams = [];
+//   const uniqueTeams = new Set();
+
+//   // ⭐ 3) Generate 20 teams
+//   for (let i = 0; i < 20; i++) {
+
+//     let validTeam = false;
+//     let attempts = 0;
+
+//     while (!validTeam && attempts < 500) {
+//       attempts++;
+
+//       const teamPlayers = [];
+//       const roleCount = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
+//       const teamCount = {};
+
+//       // 🔥 Build team of 11 players
+//       while (teamPlayers.length < 11) {
+
+//         const random =
+//           players[Math.floor(Math.random() * players.length)];
+
+//         if (teamPlayers.includes(random.id)) continue;
+
+//         // Role limits (Football)
+//         if (random.role === "GK" && roleCount.GK >= 1) continue;
+//         if (random.role === "DEF" && roleCount.DEF >= 6) continue;
+//         if (random.role === "MID" && roleCount.MID >= 5) continue;
+//         if (random.role === "FWD" && roleCount.FWD >= 3) continue;
+
+//         // Max 8 from same real team
+//         if ((teamCount[random.team_id] || 0) >= 8) continue;
+
+//         teamPlayers.push(random.id);
+//         roleCount[random.role]++;
+//         teamCount[random.team_id] =
+//           (teamCount[random.team_id] || 0) + 1;
+//       }
+
+//       // 🧠 Binary for duplicate prevention
+//       const binary = teamToBinary(teamPlayers, allPlayerIds);
+
+//       if (uniqueTeams.has(binary)) continue;
+//       uniqueTeams.add(binary);
+
+//       // 👑 Captain & Vice Captain
+//       const captain =
+//         teamPlayers[Math.floor(Math.random() * teamPlayers.length)];
+
+//       let viceCaptain;
+//       do {
+//         viceCaptain =
+//           teamPlayers[Math.floor(Math.random() * teamPlayers.length)];
+//       } while (viceCaptain === captain);
+
+//       // ================================
+//       // 💾 SAVE INTO DATABASE
+//       // ================================
+
+//       const [teamResult] = await db.query(
+//         `INSERT INTO user_teams
+//          (user_id, match_id, team_name, locked)
+//          VALUES (?, ?, ?, ?)`,
+//         [userId, matchId, `UCT Team ${i + 1}`, 0]
+//       );
+
+//       const teamId = teamResult.insertId;
+
+//       // Save players
+//       for (const playerId of teamPlayers) {
+
+//         const isCaptain = playerId === captain ? 1 : 0;
+//         const isViceCaptain = playerId === viceCaptain ? 1 : 0;
+
+//         await db.query(
+//           `INSERT INTO user_team_players
+//            (user_team_id, player_id, is_captain, is_vice_captain)
+//            VALUES (?, ?, ?, ?)`,
+//           [teamId, playerId, isCaptain, isViceCaptain]
+//         );
+//       }
+
+//       savedTeams.push(teamId);
+//       validTeam = true;
+//     }
+//   }
+
+//   console.log("🎯 Saved teams:", savedTeams.length);
+
+//   // ⭐ FINAL RESPONSE STRUCTURE
+//   return {
+//     matchId,
+//     teamIds: savedTeams,
+//     totalTeams: savedTeams.length
+//   };
+// };   
+
 export const generateUCTTeamsService = async (userId, data) => {
 
   const { matchId } = data;
@@ -270,7 +393,23 @@ export const generateUCTTeamsService = async (userId, data) => {
 
   if (!match) throw new Error("Match not found");
 
-  // 🧠 2) Get players of both teams
+  // 🧠 2) Check existing teams for this user + match
+  const [[countRow]] = await db.query(
+    `SELECT COUNT(*) AS count
+     FROM user_teams
+     WHERE user_id = ? AND match_id = ?`,
+    [userId, matchId]
+  );
+
+  const existingTeams = countRow.count;
+
+  if (existingTeams >= 20) {
+    throw new Error("Already 20 UCT teams generated for this match");
+  }
+
+  const teamsToCreate = 20 - existingTeams;
+
+  // 🧠 3) Get players of both teams
   const [players] = await db.query(
     `SELECT id, position AS role, team_id
      FROM players
@@ -285,8 +424,8 @@ export const generateUCTTeamsService = async (userId, data) => {
   const savedTeams = [];
   const uniqueTeams = new Set();
 
-  // ⭐ 3) Generate 20 teams
-  for (let i = 0; i < 20; i++) {
+  // ⭐ 4) Generate only remaining teams
+  for (let i = 0; i < teamsToCreate; i++) {
 
     let validTeam = false;
     let attempts = 0;
@@ -321,7 +460,7 @@ export const generateUCTTeamsService = async (userId, data) => {
           (teamCount[random.team_id] || 0) + 1;
       }
 
-      // 🧠 Binary for duplicate prevention
+      // 🧠 Duplicate prevention (binary)
       const binary = teamToBinary(teamPlayers, allPlayerIds);
 
       if (uniqueTeams.has(binary)) continue;
@@ -338,14 +477,19 @@ export const generateUCTTeamsService = async (userId, data) => {
       } while (viceCaptain === captain);
 
       // ================================
-      // 💾 SAVE INTO DATABASE
+      // 💾 SAVE TEAM
       // ================================
 
       const [teamResult] = await db.query(
         `INSERT INTO user_teams
          (user_id, match_id, team_name, locked)
          VALUES (?, ?, ?, ?)`,
-        [userId, matchId, `UCT Team ${i + 1}`, 0]
+        [
+          userId,
+          matchId,
+          `UCT Team ${existingTeams + i + 1}`, // ⭐ correct numbering
+          0
+        ]
       );
 
       const teamId = teamResult.insertId;
@@ -371,15 +515,12 @@ export const generateUCTTeamsService = async (userId, data) => {
 
   console.log("🎯 Saved teams:", savedTeams.length);
 
-  // ⭐ FINAL RESPONSE STRUCTURE
   return {
     matchId,
     teamIds: savedTeams,
-    totalTeams: savedTeams.length
+    totalTeams: existingTeams + savedTeams.length
   };
-};   
-
-
+};
 
 
 export const getUserUCTTeamsService = async (userId, matchId) => {
