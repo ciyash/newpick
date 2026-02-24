@@ -31,6 +31,6 @@ app.use("/teams", authenticate, checkAccountActive, teamRoutes)
 app.post("/save-fcm-token", authenticate, saveFcmToken);
 app.post("/test-notification", authenticate, testNotification);
 app.use("/payment",authenticate,checkAccountActive, paymentRoutes)
-app.use("/uct",uctRoutes)
+app.use("/uct",authenticate,checkAccountActive, uctRoutes)
 
 export default app;     
