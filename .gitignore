@@ -1,0 +1,39 @@
+# Node.js
+node_modules/
+
+# Env files
+.env
+.env.*
+**/.env
+**/*.env
+!.env.example
+
+# Firebase keys
+serviceAccountKey.json
+firebase-key.json
+account.json
+*.pem
+
+# Logs
+logs/
+*.log
+
+# Build
+dist/
+build/
+
+# Coverage
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temp
+tmp/
+temp/
+*.tmp
