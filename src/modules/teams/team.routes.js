@@ -25,4 +25,4 @@ router.get("/my-teams-with-players", authenticate, checkAccountActive, getMyTeam
 router.put("/update-team/:teamId", authenticate, checkAccountActive,  updateTeam);
 
 export default router;
- 
+  

@@ -9,7 +9,7 @@ export const generateUCTTeams = async (req, res) => {
     const teams = await generateUCTTeamsService(
       userId,
       req.body
-    );
+    );   
 
     res.json({
       success: true,
