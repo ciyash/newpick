@@ -1,7 +1,7 @@
 
 import {Router} from "express";
 
-import { createDepositPayment, testStripe } from "./payment.controller.js"; 
+import { createDepositPayment, getStripeConfig, testStripe } from "./payment.controller.js"; 
 import { authenticate } from "../../middlewares/auth.middleware.js";
 
 
@@ -11,6 +11,7 @@ router.post("/deposit", authenticate, createDepositPayment);
 
 router.get("/test-stripe", authenticate, testStripe);
 
+router.get("/stripe/config", authenticate, getStripeConfig);
 
 export default router;
 

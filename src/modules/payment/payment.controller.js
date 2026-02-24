@@ -38,3 +38,20 @@ export const createDepositPayment = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
+export const getStripeConfig = async (req, res) => {
+  try {
+
+    res.json({
+      success: true,
+      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+  }
+};
