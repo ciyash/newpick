@@ -1,28 +1,46 @@
 import stripe from "../../middlewares/strip.js";
 
 
-export const testStripe = async (req, res) => {
-  const paymentIntent = await stripe.paymentIntents.create({
-    amount: 1000, // £10 (1000 pence)
-    currency: "gbp"
-  });
+// export const testStripe = async (req, res) => {
+//   const paymentIntent = await stripe.paymentIntents.create({
+//     amount: 1000, // £10 (1000 pence)
+//     currency: "gbp"
+//   });
 
-  res.json(paymentIntent);
+//   res.json(paymentIntent);
+// };
+
+export const testStripe = async (req, res) => {
+  try {
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: 1000, // £10
+      currency: "gbp",
+      automatic_payment_methods: { enabled: true },
+    });
+
+    res.json(paymentIntent);
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ error: err.message });
+  }
 };
+
 
 
 export const createDepositPayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { amount } = req.body;
+    const { amount } = req.body; // ⭐ pounds
 
-    if (!amount || amount < 10) {
-      throw new Error("Minimum deposit ₹10");
+    // 🔴 Minimum £0.30 (Stripe UK rule)
+    if (!amount || amount < 0.3) {
+      throw new Error("Minimum deposit £0.30");
     }
-//
+
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount * 100, 
-      currency: "inr",
+      amount: Math.round(amount * 100), // convert £ → pence
+      currency: "gbp",
+      automatic_payment_methods: { enabled: true },
       metadata: {
         userId,
         type: "wallet_deposit"
@@ -38,7 +56,6 @@ export const createDepositPayment = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
 
 export const getStripeConfig = async (req, res) => {
   try {
