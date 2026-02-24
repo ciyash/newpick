@@ -1,14 +1,14 @@
 import stripe from "../../middlewares/strip.js";
 
+
 export const testStripe = async (req, res) => {
   const paymentIntent = await stripe.paymentIntents.create({
-    amount: 10, // ₹0.10 in paise
-    currency: "inr"
+    amount: 1000, // £10 (1000 pence)
+    currency: "gbp"
   });
 
   res.json(paymentIntent);
-};  
-
+};
 
 
 export const createDepositPayment = async (req, res) => {

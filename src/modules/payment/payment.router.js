@@ -15,3 +15,4 @@ router.get("/stripe/config", authenticate, getStripeConfig);
 
 export default router;
 
+  
