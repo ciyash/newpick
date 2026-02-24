@@ -19,9 +19,9 @@ export const createDepositPayment = async (req, res) => {
     if (!amount || amount < 10) {
       throw new Error("Minimum deposit ₹10");
     }
-
+//
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: amount * 100, // rupees → paise
+      amount: amount * 100, 
       currency: "inr",
       metadata: {
         userId,
