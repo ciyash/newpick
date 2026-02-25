@@ -9,11 +9,11 @@ import { stripeWebhook } from "./modules/payment/webhook.controller.js";
 
 const app = express();
 
-app.post("/api/user/payment/webhook/stripe",
+app.post(
+  "/api/user/payment/webhook/stripe",
   express.raw({ type: "application/json" }),
   stripeWebhook
 );
-
 
 // Middleware
 app.use(helmet());

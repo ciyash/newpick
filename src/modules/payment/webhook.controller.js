@@ -83,25 +83,27 @@ export const stripeWebhook = async (req, res) => {
 
     console.log("🔥 Event:", event.type);
 
-    // ⭐ PAYMENT SUCCESS
     if (event.type === "payment_intent.succeeded") {
 
       const paymentIntent = event.data.object;
 
-      // 🔐 Only wallet deposits
-      if (paymentIntent.metadata.type === "wallet_deposit") {
+      const userId = paymentIntent.metadata.userId;
+      const amount = paymentIntent.amount / 100;
 
-        const userId = paymentIntent.metadata.userId;
+      if (!userId) {
+        console.error("❌ userId missing in metadata");
+        return res.json({ received: true });
+      }
 
-        // pence → pounds
-        const amount = paymentIntent.amount / 100;
-
-        console.log("💰 Deposit:", userId, amount);
-
-        // ⭐ ADD TO WALLET
+      // ⭐ TRY WALLET UPDATE
+      try {
         await addDepositService(userId, amount);
-
         console.log("✅ Wallet updated");
+      } catch (err) {
+        console.error("❌ Wallet update failed:", err.message);
+
+        // 🔥 SAVE FAILED PAYMENT FOR RETRY
+        // (optional table)
       }
     }
 
