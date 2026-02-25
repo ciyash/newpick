@@ -84,7 +84,12 @@ import db from "../../config/db.js";
 //   }
 // };
 
-export const addDepositService = async (userId, amount, paymentIntentId = null) => {
+
+export const addDepositService = async (
+  userId,
+  amount,
+  paymentIntentId = null
+) => {
 
   if (!amount || amount < 10)
     throw new Error("Minimum deposit £10");
@@ -92,10 +97,10 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
   const yearMonth = new Date().toISOString().slice(0, 7);
   const conn = await db.getConnection();
 
-  try {  
+  try {
     await conn.beginTransaction();
 
-    /* GET WALLET */
+    /* 🧑 GET WALLET LIMIT */
     const [[wallet]] = await conn.query(
       `SELECT deposit_limit
        FROM wallets
@@ -108,7 +113,7 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
 
     const MONTHLY_LIMIT = Number(wallet.deposit_limit);
 
-    /* MONTHLY TRACKING */
+    /* 📅 MONTHLY TRACKING */
     const [[row]] = await conn.query(
       `SELECT total_added
        FROM monthly_deposits
@@ -126,7 +131,7 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
     if (amount > remaining)
       throw new Error(`You can add only £${remaining}`);
 
-    /* UPDATE MONTHLY TABLE */
+    /* 📅 UPDATE MONTHLY TABLE */
     if (row) {
       await conn.query(
         `UPDATE monthly_deposits
@@ -142,7 +147,7 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
       );
     }
 
-    /* UPDATE WALLET BALANCE */
+    /* 💰 UPDATE WALLET BALANCE */
     await conn.query(
       `UPDATE wallets
        SET depositwallet = depositwallet + ?
@@ -150,30 +155,37 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
       [amount, userId]
     );
 
-    /* ⭐ ADD TRANSACTION HISTORY */
-    await conn.query(
-      `INSERT INTO wallet_transactions
-       (user_id, amount, type, wallettype, description, reference_id)
-       VALUES (?, ?, 'credit', 'deposit', 'Stripe deposit', ?)`,
-      [userId, amount, paymentIntentId]
-    );
-
+    /* ✅ COMMIT WALLET UPDATE FIRST */
     await conn.commit();
+
+    /* 🧾 INSERT TRANSACTION HISTORY (SEPARATE, SAFE) */
+    try {
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, amount, type, wallettype, description, reference_id)
+         VALUES (?, ?, 'credit', 'deposit', 'Stripe deposit', ?)`,
+        [userId, amount, paymentIntentId]
+      );
+    } catch (txErr) {
+      // ⚠️ Transaction history fail ayina wallet undo avvakudadhu
+      console.error("Transaction insert failed:", txErr.message);
+    }
 
     return {
       success: true,
-      monthlyLimit: MONTHLY_LIMIT,
-      addedThisMonth: alreadyAdded + amount,
+      addedAmount: amount,
       remainingMonthlyLimit: remaining - amount
     };
 
   } catch (err) {
     await conn.rollback();
     throw err;
+
   } finally {
     conn.release();
   }
 };
+
 
 export const getMyWalletService = async (userId) => {
   const [[wallet]] = await db.query(
