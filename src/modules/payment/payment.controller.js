@@ -19,22 +19,51 @@ export const testStripe = async (req, res) => {
 
 
 
+// export const createDepositPayment = async (req, res) => {
+//   try {
+//     const userId = req.user.id;
+//     const { amount } = req.body; // ⭐ pounds
+
+//     // 🔴 Minimum £0.30 (Stripe UK rule)
+//     if (!amount || amount < 0.3) {
+//       throw new Error("Minimum deposit £0.30");
+//     }
+
+//     const paymentIntent = await stripe.paymentIntents.create({
+//       amount: Math.round(amount * 100), // convert £ → pence
+//       currency: "gbp",
+//       automatic_payment_methods: { enabled: true },
+//       metadata: {
+//         userId,
+//         type: "wallet_deposit"
+//       }
+//     });
+
+//     res.json({
+//       success: true,
+//       clientSecret: paymentIntent.client_secret
+//     });
+
+//   } catch (err) {
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 export const createDepositPayment = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { amount } = req.body; // ⭐ pounds
+    const { amount } = req.body;
 
-    // 🔴 Minimum £0.30 (Stripe UK rule)
     if (!amount || amount < 0.3) {
-      throw new Error("Minimum deposit £0.30");
+      throw new Error("Minimum £0.30");
     }
 
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount * 100), // convert £ → pence
+      amount: Math.round(amount * 100),
       currency: "gbp",
       automatic_payment_methods: { enabled: true },
       metadata: {
-        userId,
+        userId: userId.toString(),
         type: "wallet_deposit"
       }
     });
@@ -48,7 +77,6 @@ export const createDepositPayment = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
 export const getStripeConfig = async (req, res) => {
   try {
 
