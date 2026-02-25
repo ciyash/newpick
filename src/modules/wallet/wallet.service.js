@@ -1,20 +1,18 @@
 import db from "../../config/db.js";
 
 
-// export const addDepositService = async (userId, amount, meta = {}) => {
-//   if (!amount || amount < 10) {
-//     throw new Error("Minimum deposit is £10");
-//   }
+// export const addDepositService = async (userId, amount) => {
+
+//   if (!amount || amount < 10)
+//     throw new Error("Minimum deposit £10");
 
 //   const yearMonth = new Date().toISOString().slice(0, 7);
 //   const conn = await db.getConnection();
-
+ 
 //   try {
 //     await conn.beginTransaction();
 
-//     /* --------------------------------
-//        1️⃣ FETCH WALLET LIMIT ⭐
-//     -------------------------------- */
+    
 //     const [[wallet]] = await conn.query(
 //       `SELECT deposit_limit
 //        FROM wallets
@@ -27,13 +25,7 @@ import db from "../../config/db.js";
 
 //     const MONTHLY_LIMIT = Number(wallet.deposit_limit);
 
-//     if (!MONTHLY_LIMIT) {
-//       throw new Error("Deposit limit not set");
-//     }
-
-//     /* --------------------------------
-//        2️⃣ LOCK MONTHLY DEPOSIT ROW
-//     -------------------------------- */
+//     /* MONTHLY TRACKING */
 //     const [[row]] = await conn.query(
 //       `SELECT total_added
 //        FROM monthly_deposits
@@ -45,19 +37,13 @@ import db from "../../config/db.js";
 //     const alreadyAdded = row ? Number(row.total_added) : 0;
 //     const remaining = MONTHLY_LIMIT - alreadyAdded;
 
-//     if (remaining <= 0) {
+//     if (remaining <= 0)
 //       throw new Error(`Monthly limit £${MONTHLY_LIMIT} reached`);
-//     }
 
-//     if (amount > remaining) {
-//       throw new Error(
-//         `You can add only £${remaining} more this month`
-//       );
-//     }
+//     if (amount > remaining)
+//       throw new Error(`You can add only £${remaining}`);
 
-//     /* --------------------------------
-//        3️⃣ UPDATE MONTHLY_DEPOSITS
-//     -------------------------------- */
+//     /* UPDATE MONTHLY TABLE */
 //     if (row) {
 //       await conn.query(
 //         `UPDATE monthly_deposits
@@ -73,9 +59,7 @@ import db from "../../config/db.js";
 //       );
 //     }
 
-//     /* --------------------------------
-//        4️⃣ UPDATE USER WALLET
-//     -------------------------------- */
+//     /* UPDATE WALLET */
 //     await conn.query(
 //       `UPDATE wallets
 //        SET depositwallet = depositwallet + ?
@@ -83,26 +67,10 @@ import db from "../../config/db.js";
 //       [amount, userId]
 //     );
 
-//     /* --------------------------------
-//        5️⃣ COMPANY LEDGER TRANSACTION
-//     -------------------------------- */
-//     await createWalletTransaction({
-//       conn,
-//       userId,
-//       wallettype: "deposit",
-//       transtype: "credit",
-//       amount,
-//       remark: "User deposit",
-//       referenceId: `DEP-${userId}-${Date.now()}`,
-//       ip: meta.ip || null,
-//       device: meta.device || null
-//     });
-
 //     await conn.commit();
 
 //     return {
 //       success: true,
-//       added: amount,
 //       monthlyLimit: MONTHLY_LIMIT,
 //       addedThisMonth: alreadyAdded + amount,
 //       remainingMonthlyLimit: remaining - amount
@@ -117,85 +85,56 @@ import db from "../../config/db.js";
 // };
 
 
-
-export const addDepositService = async (userId, amount) => {
-
-  if (!amount || amount < 10)
-    throw new Error("Minimum deposit £10");
-
-  const yearMonth = new Date().toISOString().slice(0, 7);
+export const addDepositService = async (
+  userId,
+  amount,
+  paymentIntentId
+) => {
   const conn = await db.getConnection();
- 
+
   try {
     await conn.beginTransaction();
 
-    
-    const [[wallet]] = await conn.query(
-      `SELECT deposit_limit
-       FROM wallets
-       WHERE user_id = ?
-       FOR UPDATE`,
-      [userId]
+    // 🛑 1️⃣ Duplicate check (idempotency)
+    const [existing] = await conn.query(
+      `SELECT id FROM wallet_transactions 
+       WHERE reference_id = ? LIMIT 1`,
+      [paymentIntentId]
     );
 
-    if (!wallet) throw new Error("Wallet not found");
-
-    const MONTHLY_LIMIT = Number(wallet.deposit_limit);
-
-    /* MONTHLY TRACKING */
-    const [[row]] = await conn.query(
-      `SELECT total_added
-       FROM monthly_deposits
-       WHERE user_id = ? AND ym = ?
-       FOR UPDATE`,
-      [userId, yearMonth]
-    );
-
-    const alreadyAdded = row ? Number(row.total_added) : 0;
-    const remaining = MONTHLY_LIMIT - alreadyAdded;
-
-    if (remaining <= 0)
-      throw new Error(`Monthly limit £${MONTHLY_LIMIT} reached`);
-
-    if (amount > remaining)
-      throw new Error(`You can add only £${remaining}`);
-
-    /* UPDATE MONTHLY TABLE */
-    if (row) {
-      await conn.query(
-        `UPDATE monthly_deposits
-         SET total_added = total_added + ?
-         WHERE user_id = ? AND ym = ?`,
-        [amount, userId, yearMonth]
-      );
-    } else {
-      await conn.query(
-        `INSERT INTO monthly_deposits (user_id, ym, total_added)
-         VALUES (?, ?, ?)`,
-        [userId, yearMonth, amount]
-      );
+    if (existing.length > 0) {
+      // Already processed — avoid double credit
+      await conn.rollback();
+      return { message: "Already processed" };
     }
 
-    /* UPDATE WALLET */
+    // 💰 2️⃣ Update wallet balance
     await conn.query(
-      `UPDATE wallets
-       SET depositwallet = depositwallet + ?
-       WHERE user_id = ?`,
+      `UPDATE wallets 
+       SET depositwallet = depositwallet + ? 
+       WHERE userid = ?`,
       [amount, userId]
+    );
+
+    // 🧾 3️⃣ Insert transaction history
+    await conn.query(
+      `INSERT INTO wallet_transactions
+       (userid, amount, type, wallettype, description, reference_id)
+       VALUES (?, ?, 'credit', 'deposit', 'Stripe deposit', ?)`,
+      [userId, amount, paymentIntentId]
     );
 
     await conn.commit();
 
     return {
       success: true,
-      monthlyLimit: MONTHLY_LIMIT,
-      addedThisMonth: alreadyAdded + amount,
-      remainingMonthlyLimit: remaining - amount
+      added: amount
     };
 
   } catch (err) {
     await conn.rollback();
     throw err;
+
   } finally {
     conn.release();
   }
