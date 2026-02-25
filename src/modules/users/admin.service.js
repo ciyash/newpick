@@ -403,6 +403,15 @@ export const updatePlayer = async (id, data, admin, ip) => {
 
 export const createContest = async (data) => {
   try {
+   
+     const totalCollected = data.max_entries * data.entry_fee;
+    const platformFeeAmount = (totalCollected * (data.platform_fee_percentage ?? 0)) / 100;
+    let cashbackAmount = 0;
+    if (data.is_cashback && data.cashback_percentage) {
+      cashbackAmount = (totalCollected * data.cashback_percentage) / 100;
+    }
+    const netPrizePool = totalCollected - platformFeeAmount - cashbackAmount;
+    const totalWinners = Math.floor((data.max_entries * (data.winner_percentage ?? 0)) / 100);
     const prizeDistribution = data.prize_distribution
       ? JSON.stringify(data.prize_distribution)
       : null;
@@ -419,25 +428,26 @@ export const createContest = async (data) => {
       [
         data.match_id,
         data.entry_fee,
-        data.prize_pool,
+        netPrizePool,          // calculated
         data.max_entries,
         data.min_entries ?? 0,
-        0,
-        data.contest_type ,
+        0,                     // current entries always start at 0
+        data.contest_type,
         data.is_guaranteed ?? 0,
         data.winner_percentage ?? 0,
-        data.total_winners ?? 0,
+        totalWinners,          // calculated
         data.first_prize ?? 0,
         prizeDistribution,
         data.is_cashback ?? 0,
         data.cashback_percentage ?? 0,
-        data.cashback_amount ?? 0,
+        cashbackAmount,        // calculated
         data.platform_fee_percentage ?? 0,
-        data.platform_fee_amount ?? 0,
+        platformFeeAmount,     // calculated
         data.status ?? "UPCOMING",
         new Date()
       ]
     );
+
 
     return { id: res.insertId };
   } catch (err) {
