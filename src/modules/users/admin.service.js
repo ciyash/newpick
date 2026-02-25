@@ -320,50 +320,16 @@ export const updateTeam = async (id, data, admin, ip) => {
 
 /* ================= PLAYERS ================= */
 
-// export const createPlayer = async (data, admin, ip) => {
-//   try {
-//     const points = Number.isInteger(data.points) ? data.points : 0;
-
-//     const [res] = await db.query(
-//       `INSERT INTO players
-//        (team_id, name, position, points, created_at)
-//        VALUES (?, ?, ?, ?, NOW())`,
-//       [data.team_id, data.name, data.position, points]
-//     );
-
-//     await logAdmin(db, admin, "CREATE_PLAYER", "player", res.insertId, ip);
-
-//     return {
-//       success: true,
-//       id: res.insertId
-//     };
-//   } catch (err) {
-//     // Optional: log error here
-//     throw {
-//       success: false,
-//       message: err.message || "Failed to create player",
-//       error: err
-//     };
-//   }
-// };
-
-
 export const createPlayer = async (data, admin, ip) => {
   try {
-
-    console.log("Incoming data:", data);
-    console.log("Points received:", data.points);
-    console.log("Parsed points:", parseFloat(data.points));
-   const points =
-  data.points !== undefined
-    ? parseFloat(data.points)
-    : 0;
+    const points = Number.isInteger(data.points) ? data.points : 0;
+    const playercredits = Number.isInteger(data.playercredits) ? data.playercredits : 0;
 
     const [res] = await db.query(
       `INSERT INTO players
-       (team_id, name, position, points, created_at)
-       VALUES (?, ?, ?, ?, NOW())`,
-      [data.team_id, data.name, data.position, points]
+       (team_id, name, position, points,playercredits, created_at)
+       VALUES (?, ?, ?, ?,?, NOW())`,
+      [data.team_id, data.name, data.position, points,playercredits]
     );
 
     await logAdmin(db, admin, "CREATE_PLAYER", "player", res.insertId, ip);
@@ -372,8 +338,8 @@ export const createPlayer = async (data, admin, ip) => {
       success: true,
       id: res.insertId
     };
-
   } catch (err) {
+    // Optional: log error here
     throw {
       success: false,
       message: err.message || "Failed to create player",
@@ -381,6 +347,9 @@ export const createPlayer = async (data, admin, ip) => {
     };
   }
 };
+
+
+
 
 
 export const getPlayers = async () => {
@@ -434,6 +403,15 @@ export const updatePlayer = async (id, data, admin, ip) => {
 
 export const createContest = async (data) => {
   try {
+   
+     const totalCollected = data.max_entries * data.entry_fee;
+    const platformFeeAmount = (totalCollected * (data.platform_fee_percentage ?? 0)) / 100;
+    let cashbackAmount = 0;
+    if (data.is_cashback && data.cashback_percentage) {
+      cashbackAmount = (totalCollected * data.cashback_percentage) / 100;
+    }
+    const netPrizePool = totalCollected - platformFeeAmount - cashbackAmount;
+    const totalWinners = Math.floor((data.max_entries * (data.winner_percentage ?? 0)) / 100);
     const prizeDistribution = data.prize_distribution
       ? JSON.stringify(data.prize_distribution)
       : null;
@@ -450,25 +428,26 @@ export const createContest = async (data) => {
       [
         data.match_id,
         data.entry_fee,
-        data.prize_pool,
+        netPrizePool,          
         data.max_entries,
         data.min_entries ?? 0,
-        0,
-        data.contest_type ?? "NORMAL",
+        0,                     
+        data.contest_type,
         data.is_guaranteed ?? 0,
         data.winner_percentage ?? 0,
-        data.total_winners ?? 0,
+        totalWinners,          
         data.first_prize ?? 0,
         prizeDistribution,
         data.is_cashback ?? 0,
         data.cashback_percentage ?? 0,
-        data.cashback_amount ?? 0,
+        cashbackAmount,        
         data.platform_fee_percentage ?? 0,
-        data.platform_fee_amount ?? 0,
+        platformFeeAmount,     
         data.status ?? "UPCOMING",
         new Date()
       ]
     );
+
 
     return { id: res.insertId };
   } catch (err) {

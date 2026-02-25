@@ -97,7 +97,7 @@ export const createContest = validate(Joi.object({
   max_entries: Joi.number().integer().positive().required(),
   min_entries: Joi.number().integer().min(0).default(0),
 
-
+       contest_type: Joi.string().max(20).required(),
   winner_percentage: Joi.number().min(0).max(100).default(0),
   total_winners: Joi.number().integer().min(0).default(0),
 
