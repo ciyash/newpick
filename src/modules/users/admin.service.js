@@ -320,50 +320,16 @@ export const updateTeam = async (id, data, admin, ip) => {
 
 /* ================= PLAYERS ================= */
 
-// export const createPlayer = async (data, admin, ip) => {
-//   try {
-//     const points = Number.isInteger(data.points) ? data.points : 0;
-
-//     const [res] = await db.query(
-//       `INSERT INTO players
-//        (team_id, name, position, points, created_at)
-//        VALUES (?, ?, ?, ?, NOW())`,
-//       [data.team_id, data.name, data.position, points]
-//     );
-
-//     await logAdmin(db, admin, "CREATE_PLAYER", "player", res.insertId, ip);
-
-//     return {
-//       success: true,
-//       id: res.insertId
-//     };
-//   } catch (err) {
-//     // Optional: log error here
-//     throw {
-//       success: false,
-//       message: err.message || "Failed to create player",
-//       error: err
-//     };
-//   }
-// };
-
-
 export const createPlayer = async (data, admin, ip) => {
   try {
-
-    console.log("Incoming data:", data);
-    console.log("Points received:", data.points);
-    console.log("Parsed points:", parseFloat(data.points));
-   const points =
-  data.points !== undefined
-    ? parseFloat(data.points)
-    : 0;
+    const points = Number.isInteger(data.points) ? data.points : 0;
+    const playercredits = Number.isInteger(data.playercredits) ? data.playercredits : 0;
 
     const [res] = await db.query(
       `INSERT INTO players
-       (team_id, name, position, points, created_at)
-       VALUES (?, ?, ?, ?, NOW())`,
-      [data.team_id, data.name, data.position, points]
+       (team_id, name, position, points,playercredits, created_at)
+       VALUES (?, ?, ?, ?,?, NOW())`,
+      [data.team_id, data.name, data.position, points,playercredits]
     );
 
     await logAdmin(db, admin, "CREATE_PLAYER", "player", res.insertId, ip);
@@ -372,8 +338,8 @@ export const createPlayer = async (data, admin, ip) => {
       success: true,
       id: res.insertId
     };
-
   } catch (err) {
+    // Optional: log error here
     throw {
       success: false,
       message: err.message || "Failed to create player",
@@ -381,6 +347,9 @@ export const createPlayer = async (data, admin, ip) => {
     };
   }
 };
+
+
+
 
 
 export const getPlayers = async () => {
@@ -454,7 +423,7 @@ export const createContest = async (data) => {
         data.max_entries,
         data.min_entries ?? 0,
         0,
-        data.contest_type ?? "NORMAL",
+        data.contest_type ,
         data.is_guaranteed ?? 0,
         data.winner_percentage ?? 0,
         data.total_winners ?? 0,
