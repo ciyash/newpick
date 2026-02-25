@@ -85,6 +85,7 @@ import db from "../../config/db.js";
 // };
 
 
+
 export const addDepositService = async (
   userId,
   amount,
@@ -155,21 +156,15 @@ export const addDepositService = async (
       [amount, userId]
     );
 
-    /* ✅ COMMIT WALLET UPDATE FIRST */
-    await conn.commit();
+    /* 🧾 INSERT TRANSACTION HISTORY */
+    await conn.query(
+      `INSERT INTO wallet_transactions
+       (user_id, amount, transtype, wallettype, remark, reference_id)
+       VALUES (?, ?, 'credit', 'deposit', 'Stripe deposit', ?)`,
+      [userId, amount, paymentIntentId]
+    );
 
-    /* 🧾 INSERT TRANSACTION HISTORY (SEPARATE, SAFE) */
-    try {
-      await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, amount, type, wallettype, description, reference_id)
-         VALUES (?, ?, 'credit', 'deposit', 'Stripe deposit', ?)`,
-        [userId, amount, paymentIntentId]
-      );
-    } catch (txErr) {
-      // ⚠️ Transaction history fail ayina wallet undo avvakudadhu
-      console.error("Transaction insert failed:", txErr.message);
-    }
+    await conn.commit();
 
     return {
       success: true,
