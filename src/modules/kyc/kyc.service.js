@@ -1,4 +1,5 @@
 import { createSumsubHeaders, sumsubPost } from "../../utils/sumsub.js";
+import db from "../../config/db.js";
 
 // export const createApplicantService = async (userId) => {
 
@@ -30,7 +31,7 @@ export const createApplicantService = async (userId) => {
   const path = "/resources/applicants?levelName=" + process.env.SUMSUB_LEVEL;
 
   const body = JSON.stringify({
-    externalUserId: String(userId),
+    externalUserId: String(userId),  
     info: { country: "GB" }
   });
 
