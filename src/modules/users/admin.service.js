@@ -407,28 +407,34 @@ export const createContest = async (data) => {
      const totalCollected = data.max_entries * data.entry_fee;
     const platformFeeAmount = (totalCollected * (data.platform_fee_percentage ?? 0)) / 100;
     let cashbackAmount = 0;
-    if (data.is_cashback && data.cashback_percentage) {
-      cashbackAmount = (totalCollected * data.cashback_percentage) / 100;
-    }
-    const netPrizePool = totalCollected - platformFeeAmount - cashbackAmount;
+    let cashback_percentage=0;
+    const is_cashback=1;
+    // const netPrizePool = totalCollected - platformFeeAmount - cashbackAmount;
+    const netAfterFee = totalCollected - platformFeeAmount;
     const totalWinners = Math.floor((data.max_entries * (data.winner_percentage ?? 0)) / 100);
+    const bonusWinners = Math.floor(totalWinners * 0.01);
+    const refundWinners = totalWinners - bonusWinners + 1;
+     cashbackAmount = refundWinners * data.entry_fee;
+     cashback_percentage = (cashbackAmount / totalCollected) * 100
+     const netPrizePool = netAfterFee - cashbackAmount;
     const prizeDistribution = data.prize_distribution
       ? JSON.stringify(data.prize_distribution)
       : null;
 
     const [res] = await db.query(
       `INSERT INTO contest
-       (match_id, entry_fee, prize_pool, max_entries, min_entries, current_entries,
+       (match_id, entry_fee, prize_pool,net_pool_prize, max_entries, min_entries, current_entries,
         contest_type, is_guaranteed, winner_percentage, total_winners,
         first_prize, prize_distribution, is_cashback,
         cashback_percentage, cashback_amount,
         platform_fee_percentage, platform_fee_amount,
         status, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         data.match_id,
         data.entry_fee,
-        netPrizePool,          // calculated
+        netPrizePool, 
+        netAfterFee,         // calculated
         data.max_entries,
         data.min_entries ?? 0,
         0,                     // current entries always start at 0
@@ -439,7 +445,7 @@ export const createContest = async (data) => {
         data.first_prize ?? 0,
         prizeDistribution,
         data.is_cashback ?? 0,
-        data.cashback_percentage ?? 0,
+        cashback_percentage,
         cashbackAmount,        // calculated
         data.platform_fee_percentage ?? 0,
         platformFeeAmount,     // calculated
