@@ -59,7 +59,7 @@ export const getContestsByMatchId = async (req, res) => {
 export const joinContest = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { contestId, userTeamId } = req.body;
+    const { contestId, userTeamId } = req.body; // array
 
     const response = await joinContestService(
       userId,

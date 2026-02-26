@@ -157,7 +157,8 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 };
 
 
-export const joinContestService = async (userId, contestId, userTeamId) => {
+
+export const joinContestService = async (userId, contestId, userTeamIds) => {
   const conn = await db.getConnection();
 
   try {
@@ -175,47 +176,60 @@ export const joinContestService = async (userId, contestId, userTeamId) => {
       throw new Error("Contest not open");
     }
 
-    if (contest.current_entries >= contest.max_entries) {
-      throw new Error("Contest full");
+    // 🧠 Remaining spots check
+    const remainingSpots = contest.max_entries - contest.current_entries;
+
+    if (userTeamIds.length > remainingSpots) {
+      throw new Error("Not enough spots available");
     }
 
-    // 🛑 Already joined check
-    const [[already]] = await conn.execute(
-      `SELECT id FROM contest_entries
+    // 🛑 Already joined check (same contest + same team)
+    const [already] = await conn.execute(
+      `SELECT user_team_id FROM contest_entries
        WHERE contest_id = ? AND user_id = ?`,
       [contestId, userId]
     );
 
-    if (already) throw new Error("Already joined");
+    const alreadyTeamIds = already.map(r => r.user_team_id);
 
-    // 💰 🔥 ENTRY FEE DEDUCTION (BONUS → WINNING → DEPOSIT)
+    for (const teamId of userTeamIds) {
+      if (alreadyTeamIds.includes(teamId)) {
+        throw new Error(`Team ${teamId} already joined`);
+      }
+    }
+
+    // 💰 TOTAL ENTRY FEE (teams count × entry fee)
+    const totalFee = contest.entry_fee * userTeamIds.length;
+
     await deductForContestService(
       userId,
-      contest.entry_fee,
+      totalFee,
       { ip: null, device: "mobile" }
     );
 
-    // 🧑 Insert entry
-    await conn.execute(
-      `INSERT INTO contest_entries
-      (contest_id, user_id, user_team_id, entry_fee, status)
-      VALUES (?, ?, ?, ?, 'joined')`,
-      [contestId, userId, userTeamId, contest.entry_fee]
-    );
+    // 🧑 Insert entries for each team
+    for (const teamId of userTeamIds) {
+      await conn.execute(
+        `INSERT INTO contest_entries
+        (contest_id, user_id, user_team_id, entry_fee, status)
+        VALUES (?, ?, ?, ?, 'joined')`,
+        [contestId, userId, teamId, contest.entry_fee]
+      );
+    }
 
     // 🔢 Increase filled spots
     await conn.execute(
       `UPDATE contest
-       SET current_entries = current_entries + 1
+       SET current_entries = current_entries + ?
        WHERE id = ?`,
-      [contestId]
+      [userTeamIds.length, contestId]
     );
 
     await conn.commit();
 
     return {
       success: true,
-      message: "Contest joined successfully"
+      message: `${userTeamIds.length} team(s) joined successfully`
     };
 
   } catch (err) {
