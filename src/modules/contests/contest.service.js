@@ -242,3 +242,30 @@ export const joinContestService = async (userId, contestId, userTeamIds) => {
 
 
 
+
+export const getMyContestsService = async (userId) => {
+
+  const [rows] = await db.query(`
+    SELECT 
+      c.id AS contest_id,
+      c.match_id,
+      c.entry_fee,
+      c.prize_pool,
+      c.max_entries,
+      c.current_entries,
+      c.contest_type,
+      c.status,
+      c.first_prize,
+      c.total_winners
+
+    FROM contest_entries ce
+    JOIN contest c ON ce.contest_id = c.id
+
+    WHERE ce.user_id = ?
+
+    GROUP BY c.id
+    ORDER BY MAX(ce.id) DESC
+  `, [userId]);
+
+  return rows;
+};

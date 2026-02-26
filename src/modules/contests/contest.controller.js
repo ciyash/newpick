@@ -1,7 +1,8 @@
 import {
   getContestsService,
   joinContestService,
-  getAllContestsService
+  getAllContestsService,
+  getMyContestsService
 
 } from "./contest.service.js";
 
@@ -77,3 +78,24 @@ export const joinContest = async (req, res) => {
 };
 
 
+
+
+export const getMyContests = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const contests = await getMyContestsService(userId);
+
+    res.json({
+      success: true,
+      total: contests.length,
+      data: contests
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};

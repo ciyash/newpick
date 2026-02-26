@@ -20,15 +20,22 @@ import express from "express";
 import {
   getAllContests,
   getContestsByMatchId,
+  getMyContests,
   joinContest   // 🔥 correct name
 } from "./contest.controller.js";
-import { authenticate } from "../../middlewares/auth.middleware.js";
+
 
 const router = express.Router();
+// user contest
+router.post("/join",  joinContest);
+router.get("/my-contests",  getMyContests);
 
-router.get("/", authenticate, getAllContests);
+// admin get contest
+
+router.get("/", getAllContests);
 router.get("/:match_id", getContestsByMatchId);
-router.post("/join", authenticate, joinContest);
+
+
 
 export default router;
 
