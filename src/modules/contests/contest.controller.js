@@ -24,9 +24,19 @@ export const getAllContests = async (req, res) => {
 };
 
 
+
+
 export const getContestsByMatchId = async (req, res) => {
   try {
-    const { match_id } = req.query;
+    // 🔥 params nundi match_id
+    const match_id = Number(req.params.match_id);
+
+    if (!match_id) {
+      return res.status(400).json({
+        success: false,
+        message: "match_id param required"
+      });
+    }
 
     const contests = await getContestsService(match_id);
 
@@ -43,7 +53,6 @@ export const getContestsByMatchId = async (req, res) => {
     });
   }
 };
-
 
 
 

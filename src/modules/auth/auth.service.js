@@ -92,11 +92,180 @@ export const requestSignupOtpService = async (data) => {
 };
 
 
+// export const signupService = async ({ mobile, otp }) => {
+//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+//   /* ================================
+//      1️⃣ OTP CHECK
+//   ================================= */
+//   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
+
+//   if (!savedOtp) throw new Error("OTP expired");
+//   if (String(savedOtp) !== String(otp))
+//     throw new Error("Invalid OTP");
+
+//   /* ================================
+//      2️⃣ SIGNUP DATA FROM REDIS
+//   ================================= */
+//   const signupRaw = await redis.get(
+//     `SIGNUP:${normalizedMobile}`
+//   );
+
+//   if (!signupRaw)
+//     throw new Error("Signup session expired");
+
+//   // ⭐ FIX FOR "[object Object]" ERROR
+//   const signupData =
+//     typeof signupRaw === "string"
+//       ? JSON.parse(signupRaw)
+//       : signupRaw;
+
+//   const {
+//     name,
+//     email,
+//     region,
+//     nickname,
+//     address,
+//     dob,
+//     category,
+//     referralid
+//   } = signupData;
+
+//   const categoryNormalized = String(category)
+//     .toLowerCase()
+//     .trim();
+
+//   /* ================================
+//      3️⃣ GENERATE UNIQUE USERCODE
+//   ================================= */
+//   let usercode;
+//   while (true) {
+//     usercode = generateUserCode();
+
+//     const [[exists]] = await db.query(
+//       "SELECT id FROM users WHERE usercode = ?",
+//       [usercode]
+//     );
+
+//     if (!exists) break;
+//   }
+
+//   /* ================================
+//      4️⃣ GENERATE SEQUENTIAL USERID
+//   ================================= */
+//   const [[lastUser]] = await db.query(
+//     "SELECT userid FROM users ORDER BY id DESC LIMIT 1"
+//   );
+
+//   const nextNumber =
+//     lastUser && lastUser.userid
+//       ? parseInt(
+//           lastUser.userid.replace("PTW", ""),
+//           10
+//         ) + 1
+//       : 1;
+
+//   const userid =
+//     "PTW" + String(nextNumber).padStart(6, "0");
+
+//   /* ================================
+//      5️⃣ REFERRAL VALIDATION (OPTIONAL)
+//   ================================= */
+//   let referralUserCode = null;
+
+//   if (
+//     referralid &&
+//     referralid !== "AAAAA1111"
+//   ) {
+//     const [[refUser]] = await db.query(
+//       "SELECT id FROM users WHERE usercode = ?",
+//       [referralid]
+//     );
+
+//     if (!refUser)
+//       throw new Error("Invalid referral code");
+
+//     referralUserCode = referralid;
+//   }
+
+//   /* ================================
+//      6️⃣ INSERT USER
+//   ================================= */
+ 
+//   const [result] = await db.query(
+//   `INSERT INTO users
+//    (userid,usercode,name,email,mobile,region,address,dob,referalid,nickname,category,emailverify,phoneverify,created_at)
+//    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
+//   [
+//     userid,
+//     usercode,
+//     name,
+//     email,
+//     normalizedMobile,
+//     region,
+//     address || null,
+//     dob,
+//     referralUserCode,
+//     nickname || null,
+//     categoryNormalized
+//   ]
+// );
+
+//   const userId = result.insertId;
+
+//   /* ================================
+//      7️⃣ DEFAULT MONTHLY LIMIT
+//      students → 300
+//      others → 1500
+//   ================================= */
+//   const depositLimit =
+//     categoryNormalized === "students"
+//       ? 300
+//       : 1500;
+
+//   /* ================================
+//      8️⃣ CREATE WALLET
+//   ================================= */
+//   await db.query(
+//     `INSERT INTO wallets
+//      (
+//        user_id,
+//        depositwallet,
+//        earnwallet,
+//        bonusamount,
+//        total_deposits,
+//        total_withdrawals,
+//        deposit_limit,
+//        depositelimitdate
+//      )
+//      VALUES (?, 0, 0, 5, 0, 0, ?, CURDATE())`,
+//     [userId, depositLimit]
+//   );
+
+//   await redis.del(`SIGNUP:${normalizedMobile}`);
+//   await redis.del(
+//     `SIGNUP_OTP:${normalizedMobile}`
+//   );
+
+//   /* ================================
+//      🔟 RESPONSE
+//   ================================= */
+//   return {
+//     success: true,
+//     message: "Signup completed successfully",
+//     data: {
+//       userid,
+//       usercode
+//     }
+//   };
+// };
+
 export const signupService = async ({ mobile, otp }) => {
+
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
   /* ================================
-     1️⃣ OTP CHECK
+     1️⃣ OTP CHECK (REDIS)
   ================================= */
   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
 
@@ -107,14 +276,11 @@ export const signupService = async ({ mobile, otp }) => {
   /* ================================
      2️⃣ SIGNUP DATA FROM REDIS
   ================================= */
-  const signupRaw = await redis.get(
-    `SIGNUP:${normalizedMobile}`
-  );
+  const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
 
   if (!signupRaw)
     throw new Error("Signup session expired");
 
-  // ⭐ FIX FOR "[object Object]" ERROR
   const signupData =
     typeof signupRaw === "string"
       ? JSON.parse(signupRaw)
@@ -131,9 +297,7 @@ export const signupService = async ({ mobile, otp }) => {
     referralid
   } = signupData;
 
-  const categoryNormalized = String(category)
-    .toLowerCase()
-    .trim();
+  const categoryNormalized = String(category).toLowerCase().trim();
 
   /* ================================
      3️⃣ GENERATE UNIQUE USERCODE
@@ -159,72 +323,43 @@ export const signupService = async ({ mobile, otp }) => {
 
   const nextNumber =
     lastUser && lastUser.userid
-      ? parseInt(
-          lastUser.userid.replace("PTW", ""),
-          10
-        ) + 1
+      ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
       : 1;
 
-  const userid =
-    "PTW" + String(nextNumber).padStart(6, "0");
+  const userid = "PTW" + String(nextNumber).padStart(6, "0");
 
   /* ================================
-     5️⃣ REFERRAL VALIDATION (OPTIONAL)
+     5️⃣ INSERT USER
   ================================= */
-  let referralUserCode = null;
-
-  if (
-    referralid &&
-    referralid !== "AAAAA1111"
-  ) {
-    const [[refUser]] = await db.query(
-      "SELECT id FROM users WHERE usercode = ?",
-      [referralid]
-    );
-
-    if (!refUser)
-      throw new Error("Invalid referral code");
-
-    referralUserCode = referralid;
-  }
-
-  /* ================================
-     6️⃣ INSERT USER
-  ================================= */
- 
   const [result] = await db.query(
-  `INSERT INTO users
-   (userid,usercode,name,email,mobile,region,address,dob,referalid,nickname,category,emailverify,phoneverify,created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
-  [
-    userid,
-    usercode,
-    name,
-    email,
-    normalizedMobile,
-    region,
-    address || null,
-    dob,
-    referralUserCode,
-    nickname || null,
-    categoryNormalized
-  ]
-);
+    `INSERT INTO users
+     (userid,usercode,name,email,mobile,region,address,dob,referalid,nickname,category,emailverify,phoneverify,created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW())`,
+    [
+      userid,
+      usercode,
+      name,
+      email,
+      normalizedMobile,
+      region,
+      address || null,
+      dob,
+      referralid || null,
+      nickname || null,
+      categoryNormalized
+    ]
+  );
 
   const userId = result.insertId;
 
   /* ================================
-     7️⃣ DEFAULT MONTHLY LIMIT
-     students → 300
-     others → 1500
+     6️⃣ DEFAULT MONTHLY LIMIT
   ================================= */
   const depositLimit =
-    categoryNormalized === "students"
-      ? 300
-      : 1500;
+    categoryNormalized === "students" ? 300 : 1500;
 
   /* ================================
-     8️⃣ CREATE WALLET
+     7️⃣ CREATE WALLET (JOINING BONUS = 5)
   ================================= */
   await db.query(
     `INSERT INTO wallets
@@ -242,10 +377,32 @@ export const signupService = async ({ mobile, otp }) => {
     [userId, depositLimit]
   );
 
-  await redis.del(`SIGNUP:${normalizedMobile}`);
-  await redis.del(
-    `SIGNUP_OTP:${normalizedMobile}`
+  /* ================================
+     🧾 8️⃣ JOINING BONUS TRANSACTION
+  ================================= */
+
+  const bonusAmount = 5;
+
+  await db.query(
+    `INSERT INTO wallet_transactions
+     (
+       user_id,
+       wallettype,
+       transtype,
+       remark,
+       amount,
+       opening_balance,
+       closing_balance
+     )
+     VALUES (?, 'bonus', 'credit', 'Joining bonus', ?, 0, ?)`,
+    [userId, bonusAmount, bonusAmount]
   );
+
+  /* ================================
+     9️⃣ CLEANUP REDIS
+  ================================= */
+  await redis.del(`SIGNUP:${normalizedMobile}`);
+  await redis.del(`SIGNUP_OTP:${normalizedMobile}`);
 
   /* ================================
      🔟 RESPONSE
@@ -255,15 +412,11 @@ export const signupService = async ({ mobile, otp }) => {
     message: "Signup completed successfully",
     data: {
       userid,
-      usercode
+      usercode,
+      joiningBonus: bonusAmount
     }
   };
 };
-
-
-
- 
-
 export const sendLoginOtpService = async ({ email, mobile }) => {
 
   /* --------------------------------

@@ -27,7 +27,7 @@ import { authenticate } from "../../middlewares/auth.middleware.js";
 const router = express.Router();
 
 router.get("/", authenticate, getAllContests);
-router.get("/:match_id", authenticate, getContestsByMatchId);
+router.get("/:match_id", getContestsByMatchId);
 router.post("/join", authenticate, joinContest);
 
 export default router;

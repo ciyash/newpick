@@ -13,6 +13,7 @@ import matchesRoutes from '../match/match.router.js'
 import { saveFcmToken ,testNotification} from '../../middlewares/send.notification.js';
 import paymentRoutes from '../payment/payment.router.js'
 import uctRoutes from '../uct/uct.route.js'
+import kycRoutes from '../kyc/kyc.route.js'
 
 const app = express.Router();
 
@@ -32,5 +33,6 @@ app.post("/save-fcm-token", authenticate, saveFcmToken);
 app.post("/test-notification", authenticate, testNotification);
 app.use("/payment",authenticate,checkAccountActive, paymentRoutes)
 app.use("/uct",authenticate,checkAccountActive, uctRoutes)
+app.use("/kyc",authenticate,checkAccountActive,kycRoutes)
 
 export default app;     

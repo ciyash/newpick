@@ -13,6 +13,7 @@
   "license": "ISC",
   "dependencies": {
     "@upstash/redis": "^1.36.2",
+    "axios": "^1.13.5",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",

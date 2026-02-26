@@ -3,7 +3,7 @@ import { addMoney,  getMyWallet,getMyTransactions, deleteTransactionsByUser,getM
 import { authenticate } from "../../middlewares/auth.middleware.js";
 
 
-const router = express.Router();
+const router = express.Router();  
 
 router.post("/add-money", authenticate, addMoney);
 
