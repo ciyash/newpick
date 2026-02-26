@@ -1,15 +1,16 @@
 import { createSumsubHeaders,  sumsubPost } from "../../utils/sumsub.js";
 
 import { createApplicantService } from "./kyc.service.js";
+ 
 
 export const getKycSdkToken = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // 🪪 STEP 1 — ensure applicant exists
-    await createApplicantService(userId);
+    // 🪪 ensure applicant exists
+    const applicantId = await createApplicantService(userId);
+    console.log("Applicant ID:", applicantId);
 
-    // 🎥 STEP 2 — get SDK token
     const path =
       `/resources/accessTokens?userId=${userId}&levelName=${process.env.SUMSUB_LEVEL}`;
 
@@ -24,7 +25,7 @@ export const getKycSdkToken = async (req, res) => {
 
     res.json({
       success: true,
-      token: data.token
+      token: data.token || null
     });
 
   } catch (err) {
