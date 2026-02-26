@@ -1,9 +1,4 @@
-import {
-  getContestsService,
-  joinContestService,
-  getAllContestsService,
-  getMyContestsService
-
+import { getContestsService, joinContestService,  getAllContestsService,  getMyContestsService
 } from "./contest.service.js";
 
 export const getAllContests = async (req, res) => {

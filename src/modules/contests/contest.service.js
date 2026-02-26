@@ -268,4 +268,4 @@ export const getMyContestsService = async (userId) => {
   `, [userId]);
 
   return rows;
-};
+};  
