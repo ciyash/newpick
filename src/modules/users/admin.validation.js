@@ -103,7 +103,7 @@ export const createContest = validate(Joi.object({
 
   first_prize: Joi.number().precision(2).min(0).default(0),
 
-  prize_distribution: Joi.string().allow(null, ""),
+ prize_distribution: Joi.object().optional(),
 
   cashback_percentage: Joi.number().min(0).max(100).default(0),
   cashback_amount: Joi.number().precision(2).min(0).default(0),
