@@ -28,7 +28,7 @@ import {
 const router = express.Router();
 // user contest
 router.post("/join",  joinContest);
-router.get("/my-contests",  getMyContests);
+router.get("/my-contests/:match_id",  getMyContests);
 
 // admin get contestss
 

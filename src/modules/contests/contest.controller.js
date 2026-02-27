@@ -75,11 +75,13 @@ export const joinContest = async (req, res) => {
 
 
 
+
 export const getMyContests = async (req, res) => {
   try {
     const userId = req.user.id;
+    const { match_id } = req.params;   // ✅ matchId from params
 
-    const contests = await getMyContestsService(userId);
+    const contests = await getMyContestsService(userId, match_id);
 
     res.json({
       success: true,

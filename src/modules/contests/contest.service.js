@@ -242,8 +242,7 @@ export const joinContestService = async (userId, contestId, userTeamIds) => {
 
 
 
-
-export const getMyContestsService = async (userId) => {
+export const getMyContestsService = async (userId, matchId) => {
 
   const [rows] = await db.query(`
     SELECT 
@@ -262,10 +261,11 @@ export const getMyContestsService = async (userId) => {
     JOIN contest c ON ce.contest_id = c.id
 
     WHERE ce.user_id = ?
+    AND c.match_id = ?   -- ✅ filter by matchId
 
     GROUP BY c.id
     ORDER BY MAX(ce.id) DESC
-  `, [userId]);
+  `, [userId, matchId]);
 
   return rows;
-};  
+};
