@@ -220,7 +220,7 @@ export const updateProfile = async (req, res) => {
 export const getKycSdkToken = async (req, res) => {
   try {
 
-    // ⭐ For signup flow use mobile or tempId
+    // ⭐ For signup flow use mobile 
     const { mobile } = req.query;
 
     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
