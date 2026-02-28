@@ -51,5 +51,26 @@ router.get("/getcontestbyteam/:teamId",adminAuth(),c.getContestsByTeam);
 router.post("/createContestCategory",adminAuth(),v.createContestCategory,c.createContestCategory);
 router.get("/getContestcategory",adminAuth(),c.getContestcategory);
 
+/* Home */
+router.get("/getDashboard",adminAuth(),c.getHome);
+
+
+/* Deposites */
+router.get("/getallDeposites",adminAuth(),c.getallDeposites);
+router.post("/fetchDeposites",adminAuth(),c.fetchDeposites);
+router.get("/fetchDepositesSummary",adminAuth(),c.fetchDepositesSummary);
+
+/* Withdraws */
+router.get("/getallWithdraws",adminAuth(),c.getallWithdraws);
+router.post("/fetchWithdraws",adminAuth(),c.fetchWithdraws);
+router.get("/fetchWithdrawsSummary",adminAuth(),c.fetchWithdrawsSummary);
+
+/* Users */
+router.get("/getallUsers",adminAuth(),c.getallUsers);
+router.post("/fetchUsers",adminAuth(),c.fetchUsers);
+router.post("/fetchUsersByKycStatus",adminAuth(),c.fetchUsersByKycStatus);
+router.post("/fetchUsersByAccountStatus",adminAuth(),c.fetchUsersByAccountStatus);
+
+
 
 export default router;

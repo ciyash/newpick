@@ -24,8 +24,19 @@ const pool = mysql.createPool({
    
   ssl: {
     ca: fs.readFileSync(caPath),
-    rejectUnauthorized: true
-  }  
+    rejectUnauthorized: true 
+  }
 });
+
+
+pool.getConnection()
+  .then((connection) => {
+    console.log(' Database connected successfully');
+    connection.release(); // release back to pool
+  })
+  .catch((err) => {
+    console.error(' Database connection failed:', err.message);
+  });
+
 
 export default pool;

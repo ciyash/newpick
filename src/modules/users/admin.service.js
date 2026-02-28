@@ -403,6 +403,63 @@ export const updatePlayer = async (id, data, admin, ip) => {
 
 export const createContest = async (data) => {
   try {
+
+    const [[existing]] = await db.query(
+      `SELECT id FROM contest 
+       WHERE match_id = ? AND contest_type = ?`,
+      [data.match_id, data.contest_type]
+    );
+
+    if (existing) {
+      throw new Error(`Contest type '${data.contest_type}' already exists for this match`);
+    }
+
+    const [res] = await db.query(
+      `INSERT INTO contest
+        (match_id, contest_type, entry_fee, platform_fee_percentage,
+         prize_pool, net_pool_prize,
+         max_entries, min_entries, current_entries,
+         is_guaranteed,
+         winner_percentage, total_winners,
+         first_prize, prize_distribution,
+         is_cashback, cashback_percentage, cashback_amount,
+         platform_fee_amount,
+         status, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        data.match_id,                  
+        data.contest_type,               
+        data.entry_fee,                   
+        data.platform_fee_percentage,    
+
+        0,       // prize_pool
+        0,       // net_pool_prize
+        0,       // max_entries
+        0,       // min_entries
+        0,       // current_entries
+        0,       // is_guaranteed
+        0,       // winner_percentage
+        0,       // total_winners
+        0,       // first_prize
+        null,    // prize_distribution
+        0,       // is_cashback
+        0,       // cashback_percentage
+        0,       // cashback_amount
+        0,       // platform_fee_amount
+        data.status ?? 'UPCOMING',        
+        new Date(),                       
+      ]
+    );
+
+    return { id: res.insertId };
+  } catch (err) {
+    console.error('Create contest DB error:', err);
+    throw err;
+  }
+};
+
+export const createContestold = async (data) => {
+  try {
    
      const totalCollected = data.max_entries * data.entry_fee;
     const platformFeeAmount = (totalCollected * (data.platform_fee_percentage ?? 0)) / 100;
@@ -490,17 +547,106 @@ export const getContestById = async (id) => {
 
 export const updateContest = async (id, data) => {
   try {
-    const [res] = await db.query(
-      `UPDATE contest SET ? WHERE id = ?`,
-      [data, id]
+    const contestId = parseInt(id, 10);
+    if (isNaN(contestId)) throw new Error('Invalid contest id');
+
+    const [[contest]] = await db.query(
+      `SELECT * FROM contest WHERE id = ?`,
+      [contestId]
+    );
+    if (!contest) throw new Error('Contest not found');
+    const merged = {
+      entry_fee:               Number(data.entry_fee               ?? contest.entry_fee),
+      max_entries:             Number(data.max_entries             ?? contest.max_entries),
+      min_entries:             Number(data.min_entries             ?? contest.min_entries),
+      platform_fee_percentage: Number(data.platform_fee_percentage ?? contest.platform_fee_percentage),
+      winner_percentage:       Number(data.winner_percentage       ?? contest.winner_percentage),
+      first_prize:             Number(data.first_prize             ?? contest.first_prize),
+      is_guaranteed:           Number(data.is_guaranteed           ?? contest.is_guaranteed),
+      is_cashback:             Number(data.is_cashback             ?? contest.is_cashback),
+      contest_type:            data.contest_type ?? contest.contest_type,
+      status:                  data.status       ?? contest.status,
+      prize_distribution:      data.prize_distribution !== undefined
+                                 ? data.prize_distribution
+                                 : contest.prize_distribution,
+    };
+
+    const totalCollected    = merged.max_entries * merged.entry_fee;
+    const platformFeeAmount = (totalCollected * merged.platform_fee_percentage) / 100;
+    const netAfterFee       = totalCollected - platformFeeAmount;
+    const totalWinners      = Math.floor((merged.max_entries * merged.winner_percentage) / 100);
+
+    let cashbackAmount      = 0;
+    let cashback_percentage = 0;
+    if (totalWinners > 0) {
+      const bonusWinners  = Math.floor(totalWinners * 0.01);
+      const refundWinners = totalWinners - bonusWinners + 1;
+      cashbackAmount      = refundWinners * merged.entry_fee;
+      cashback_percentage = totalCollected > 0
+        ? (cashbackAmount / totalCollected) * 100
+        : 0;
+    }
+
+    const netPrizePool = Math.max(0, netAfterFee - cashbackAmount);
+
+    let prizeDistribution = null;
+    if (merged.prize_distribution) {
+      prizeDistribution = typeof merged.prize_distribution === 'object'
+        ? JSON.stringify(merged.prize_distribution)
+        : merged.prize_distribution;
+    }
+
+    const [result] = await db.query(
+      `UPDATE contest SET
+        entry_fee               = ?,
+        max_entries             = ?,
+        min_entries             = ?,
+        contest_type            = ?,
+        platform_fee_percentage = ?,
+        platform_fee_amount     = ?,
+        winner_percentage       = ?,
+        total_winners           = ?,
+        prize_pool              = ?,
+        net_pool_prize          = ?,
+        is_cashback             = ?,
+        cashback_percentage     = ?,
+        cashback_amount         = ?,
+        first_prize             = ?,
+        prize_distribution      = ?,
+        is_guaranteed           = ?,
+        status                  = ?
+       WHERE id = ?`,
+      [
+        merged.entry_fee,
+        merged.max_entries,
+        merged.min_entries,
+        merged.contest_type,
+        merged.platform_fee_percentage,
+        platformFeeAmount,
+        merged.winner_percentage,
+        totalWinners,
+        netPrizePool,
+        netAfterFee,
+        merged.is_cashback,
+        cashback_percentage,
+        cashbackAmount,
+        merged.first_prize,
+        prizeDistribution,
+        merged.is_guaranteed,
+        merged.status,
+        contestId,
+      ]
     );
 
-    if (!res.affectedRows) throw new Error("Contest not found");
-    return true;
+    if (result.affectedRows === 0) throw new Error('Contest update failed');
+
+    return { id: contestId, updated: true };
   } catch (err) {
+    console.error('Update contest DB error:', err);
     throw err;
   }
 };
+
 
 export const getContestsByMatch = async (matchId) => {
   try {
@@ -587,4 +733,362 @@ export const getContestcategory = async () => {
   } catch (err) {
     throw err;
   }
+};
+
+/* ================= Dashboard ================= */
+export const getHomeservice = async () => {
+  try {
+
+    const [[{ totalRegistered }]] = await db.query(`
+      SELECT COUNT(*) AS totalRegistered 
+      FROM users
+    `);
+
+    const [[{ activeUsers }]] = await db.query(`
+      SELECT COUNT(*) AS activeUsers 
+      FROM users 
+      WHERE phoneverify = 1 AND email = 1
+    `);
+
+    const [[{ kycVerified }]] = await db.query(`
+      SELECT COUNT(*) AS kycVerified 
+      FROM users 
+      WHERE iskycverify = 1
+    `);
+
+    const [[{ notKycVerified }]] = await db.query(`
+      SELECT COUNT(*) AS notKycVerified 
+      FROM users 
+      WHERE iskycverify = 0
+    `);
+
+    const [[{ totalAmountReceived }]] = await db.query(`
+      SELECT COALESCE(SUM(amount), 0) AS totalAmountReceived 
+      FROM wallet_transactions 
+      WHERE wallettype IN ('deposit', 'subscribe', 'entry_fee')
+    `);
+
+    const [[{ totalWithdrawAmount }]] = await db.query(`
+      SELECT COALESCE(SUM(amount), 0) AS totalWithdrawAmount 
+      FROM wallet_transactions 
+      WHERE wallettype = 'withdraw'
+    `);
+    const [[{ liveMatches }]] = await db.query(`
+      SELECT COUNT(*) AS liveMatches 
+      FROM matches 
+      WHERE status = 'LIVE'
+    `);
+
+    const [[{ launchedMatches }]] = await db.query(`
+      SELECT COUNT(*) AS launchedMatches 
+      FROM matches 
+      WHERE status = 'UPCOMING'
+    `);
+
+    const [[{ completedMatches }]] = await db.query(`
+      SELECT COUNT(*) AS completedMatches 
+      FROM matches 
+      WHERE status = 'COMPLETED'
+    `);
+
+    const [[{ reviewMatches }]] = await db.query(`
+      SELECT COUNT(*) AS reviewMatches 
+      FROM matches 
+      WHERE status = 'INREVIEW'
+    `);
+
+    const [[{ cancelledMatches }]] = await db.query(`
+      SELECT COUNT(*) AS cancelledMatches 
+      FROM matches 
+      WHERE status = 'ABANDONED'
+    `);
+
+    const [[{ pendingWithdrawRequests }]] = await db.query(`
+      SELECT COUNT(*) AS pendingWithdrawRequests 
+      FROM withdraws 
+      WHERE status = 'pending'
+    `);
+
+    const [[{ approvedWithdrawRequests }]] = await db.query(`
+      SELECT COUNT(*) AS approvedWithdrawRequests 
+      FROM withdraws 
+      WHERE status = 'approved'
+    `);
+
+    const [[{ rejectedWithdrawRequests }]] = await db.query(`
+      SELECT COUNT(*) AS rejectedWithdrawRequests 
+      FROM withdraws 
+      WHERE status = 'rejected'
+    `);
+
+    const [[{ totalTeams }]] = await db.query(`
+      SELECT COUNT(*) AS totalTeams
+      FROM teams
+    `);
+
+    const [[{ totalPlayers }]] = await db.query(`
+      SELECT COUNT(*) AS totalPlayers
+      FROM players
+    `);
+
+    const [[{ totalUserTeams }]] = await db.query(`
+      SELECT COUNT(*) AS totalUserTeams
+      FROM user_teams
+    `);
+
+    const [[{ totalUserTeamPlayers }]] = await db.query(`
+      SELECT COUNT(*) AS totalUserTeamPlayers
+      FROM user_team_players
+    `);
+
+    const [contests] = await db.query(`
+      SELECT
+        c.created_at,
+        c.contest_type,
+        c.max_entries,
+        c.current_entries,
+        c.status,
+       CONCAT(m.hometeamname, ' vs ', m.awayteamname) AS match_name
+      FROM contest c
+      LEFT JOIN matches m ON m.id = c.match_id
+      ORDER BY c.created_at DESC
+    `);
+
+    return {
+      users: {
+        totalRegistered,
+        activeUsers,
+        kycVerified,
+        notKycVerified,
+      },
+      wallet: {
+        totalAmountReceived,
+        totalWithdrawAmount,
+      },
+      matches: {
+        live:      liveMatches,
+        launched:  launchedMatches,
+        completed: completedMatches,
+        inReview:  reviewMatches,
+        cancelled: cancelledMatches,
+        total:     liveMatches + launchedMatches + completedMatches + reviewMatches + cancelledMatches,
+      },
+      withdrawRequests: {
+        pending:  pendingWithdrawRequests,
+        approved: approvedWithdrawRequests,
+        rejected: rejectedWithdrawRequests,
+        total:    pendingWithdrawRequests + approvedWithdrawRequests + rejectedWithdrawRequests,
+      },
+      teams: {
+        totalTeams,
+        totalPlayers,
+      },
+      userTeams: {
+        totalUserTeams,
+        totalUserTeamPlayers,
+      },
+      contests,
+    };
+
+  } catch (err) {
+    throw err;
+  }
+};
+
+/* ================= DEPOSITE ================= */
+
+export const getallDeposites = async () => {
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM deposite ORDER BY id DESC`
+    );
+     if (!rows.length) throw new Error('No deposits found');
+    return rows;
+  } catch (err) {
+    throw err;
+  }
+};
+
+export const fetchDeposites = async (filters = {}) => {
+  const { depositeType, status, minAmount, maxAmount, phone, startDate, endDate,transaction_id  } = filters;
+
+  const conditions = [];
+  const params = [];
+
+  if (depositeType?.trim())  { conditions.push(`depositeType = ?`);  params.push(depositeType.trim()); }
+  if (status?.trim())        { conditions.push(`status = ?`);        params.push(status.trim()); }
+  if (phone?.trim())         { conditions.push(`phone = ?`);         params.push(phone.trim()); }
+  if (minAmount !== undefined && minAmount !== '') { conditions.push(`amount >= ?`); params.push(Number(minAmount)); }
+  if (maxAmount !== undefined && maxAmount !== '') { conditions.push(`amount <= ?`); params.push(Number(maxAmount)); }
+  if (startDate?.trim())     { conditions.push(`createdAt >= ?`);    params.push(new Date(startDate.trim())); }
+  if (endDate?.trim())       { conditions.push(`createdAt <= ?`);    params.push(new Date(endDate.trim())); }
+  if (transaction_id?.trim())  { conditions.push(`transaction_id = ?`);  params.push(transaction_id.trim()); }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const query = `SELECT * FROM deposite ${where} ORDER BY id DESC`;
+
+  const [rows] = await db.query(query, params);
+
+  if (!rows.length) throw new Error('No deposits found');
+
+  return rows;
+};
+
+export const fetchDepositesSummary = async () => {
+  const [rows] = await db.query(`
+    SELECT 
+      status,
+      SUM(amount) AS totalAmount,
+      COUNT(*)    AS totalCount
+    FROM deposite
+    GROUP BY status
+    HAVING status IN ('pending', 'success', 'failed', 'refund')
+    ORDER BY status
+  `);
+
+  const summary = {
+    pending: { totalAmount: 0, totalCount: 0 },
+    success: { totalAmount: 0, totalCount: 0 },
+    failed:  { totalAmount: 0, totalCount: 0 },
+    refund:  { totalAmount: 0, totalCount: 0 },
+  };
+
+  rows.forEach(({ status, totalAmount, totalCount }) => {
+    summary[status] = { totalAmount: Number(totalAmount), totalCount: Number(totalCount) };
+  });
+
+  return summary;
+};
+
+/* ================= WITHDRAW ================= */
+
+export const getallWithdraws = async () => {
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM withdraws ORDER BY id DESC`
+    );
+     if (!rows.length) throw new Error('No withdraws found');
+    return rows;
+  } catch (err) {
+    throw err;
+  }
+};
+
+export const fetchWithdraws = async (filters = {}) => {
+  const { payment_mode, status, minAmount, maxAmount, phone, startDate, endDate, transaction_id } = filters;
+
+  const conditions = [];
+  const params = [];
+
+  if (payment_mode?.trim())   { conditions.push(`payment_mode = ?`);   params.push(payment_mode.trim()); }
+  if (status?.trim())         { conditions.push(`status = ?`);         params.push(status.trim()); }
+  if (phone?.trim())          { conditions.push(`phone = ?`);          params.push(phone.trim()); }
+  if (transaction_id?.trim()) { conditions.push(`transaction_id = ?`); params.push(transaction_id.trim()); }
+  if (minAmount !== undefined && minAmount !== '') { conditions.push(`amount >= ?`); params.push(Number(minAmount)); }
+  if (maxAmount !== undefined && maxAmount !== '') { conditions.push(`amount <= ?`); params.push(Number(maxAmount)); }
+  if (startDate?.trim())      { conditions.push(`createdAt >= ?`);     params.push(new Date(startDate.trim())); }
+  if (endDate?.trim())        { conditions.push(`createdAt <= ?`);     params.push(new Date(endDate.trim())); }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const query = `SELECT * FROM withdraws ${where} ORDER BY id DESC`;
+
+  const [rows] = await db.query(query, params);
+
+  if (!rows.length) throw new Error('No withdraws found');
+
+  return rows;
+};
+
+export const fetchWithdrawsSummary = async () => {
+  const [rows] = await db.query(`
+    SELECT 
+      status,
+      SUM(amount) AS totalAmount,
+      COUNT(*)    AS totalCount
+    FROM withdraws
+    GROUP BY status
+    HAVING status IN ('pending', 'approved', 'rejected')
+    ORDER BY status
+  `);
+
+  const summary = {
+    pending: { totalAmount: 0, totalCount: 0 },
+    approved: { totalAmount: 0, totalCount: 0 },
+    rejected:  { totalAmount: 0, totalCount: 0 },
+  };
+
+  rows.forEach(({ status, totalAmount, totalCount }) => {
+    summary[status] = { totalAmount: Number(totalAmount), totalCount: Number(totalCount) };
+  });
+
+  return summary;
+};
+
+
+/* ================= USERS ================= */
+
+export const getallUsers = async () => {
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM users ORDER BY id DESC`
+    );
+     if (!rows.length) throw new Error('No withdraws found');
+    return rows;
+  } catch (err) {
+    throw err;
+  }
+};
+
+export const fetchUsers = async (filters = {}) => {
+  const { name, usedcode, email, mobile, account_status, kyc_status, userid, referalid } = filters;
+
+  const conditions = [];
+  const params = [];
+
+  if (userid)                { conditions.push(`id = ?`);             params.push(Number(userid)); }
+  if (referalid)             { conditions.push(`referalid = ?`);      params.push(Number(referalid)); }
+  if (name?.trim())          { conditions.push(`name LIKE ?`);        params.push(`%${name.trim()}%`); }
+  if (email?.trim())         { conditions.push(`email = ?`);          params.push(email.trim()); }
+  if (mobile?.trim())        { conditions.push(`mobile = ?`);         params.push(mobile.trim()); }
+  if (usedcode?.trim())      { conditions.push(`usedcode = ?`);       params.push(usedcode.trim()); }
+  if (account_status?.trim()){ conditions.push(`account_status = ?`); params.push(account_status.trim()); }
+  if (kyc_status?.trim())    { conditions.push(`kyc_status = ?`);     params.push(kyc_status.trim()); }
+
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const query = `SELECT * FROM users ${where} ORDER BY id DESC`;
+
+  const [rows] = await db.query(query, params);
+
+  if (!rows.length) throw new Error('No users found');
+
+  return rows;
+};
+
+
+
+export const fetchUsersByKycStatus = async (filters = {}) => {
+  const { kyc_status } = filters;
+
+  const conditions = [`kyc_status = ?`];
+  const params = [kyc_status?.trim() ?? 'not_started'];
+
+  const query = `SELECT * FROM users WHERE ${conditions.join(' AND ')} ORDER BY id DESC`;
+
+  const [rows] = await db.query(query, params);
+  if (!rows.length) throw new Error(`No users found with kyc_status: ${kyc_status}`);
+  return rows;
+};
+
+
+export const fetchUsersByAccountStatus = async (filters = {}) => {
+  const { account_status } = filters;
+
+  const conditions = [`account_status = ?`];
+  const params = [account_status?.trim() ?? 'active'];
+
+  const query = `SELECT * FROM users WHERE ${conditions.join(' AND ')} ORDER BY id DESC`;
+
+  const [rows] = await db.query(query, params);
+  if (!rows.length) throw new Error(`No users found with account_status: ${account_status}`);
+  return rows;
 };
