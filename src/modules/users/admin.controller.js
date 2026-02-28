@@ -341,3 +341,108 @@ export const getContestcategory = async (req, res) => {
     handleError(res, e);
   }
 };
+
+/* ================= Dashboard ================= */ 
+
+export const getHome = async (req, res) => {
+  try {
+    const data = await s.getHomeservice();
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+/* ================= DEPOSITE ================= */ 
+
+export const getallDeposites = async (req, res) => {
+  try {
+    const data = await s.getallDeposites();
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+export const fetchDeposites = async (req, res) => {
+  try {
+    const data = await s.fetchDeposites(req.body);
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+export const fetchDepositesSummary = async (req, res) => {
+  try {
+    const data = await s.fetchDepositesSummary();
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+/* ================= WITHDRAW ================= */
+
+export const getallWithdraws = async (req, res) => {
+  try {
+    const data = await s.getallWithdraws();
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+export const fetchWithdraws = async (req, res) => {
+  try {
+    const data = await s.fetchWithdraws(req.body);
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+export const fetchWithdrawsSummary = async (req, res) => {
+  try {
+    const data = await s.fetchWithdrawsSummary();
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+
+
+/* ================= Users ================= */
+
+export const getallUsers = async (req, res) => {
+  try {
+    const data = await s.getallUsers();
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+export const fetchUsers = async (req, res) => {
+  try {
+    const data = await s.fetchUsers(req.body);
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+export const fetchUsersByKycStatus = async (req, res) => {
+  try {
+    const data = await s.fetchUsersByKycStatus(req.body);
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+export const fetchUsersByAccountStatus = async (req, res) => {
+  try {
+    const data = await s.fetchUsersByAccountStatus(req.body);
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};

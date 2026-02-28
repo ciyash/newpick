@@ -88,7 +88,21 @@ export const updatePlayer = validate(Joi.object({
 
 /* ================= CONTEST ================= */
 
-export const createContest = validate(Joi.object({
+export const createContest = validate(
+  Joi.object({
+    match_id:                Joi.number().integer().positive().required(),
+    contest_type:            Joi.string().max(20).required(),
+    entry_fee:               Joi.number().precision(2).positive().required(),
+    platform_fee_percentage: Joi.number().min(0).max(100).required(),
+
+    // optional with default
+    status: Joi.string()
+      .valid('UPCOMING', 'LIVE', 'FULL', 'COMPLETED', 'CANCELLED')
+      .default('UPCOMING'),
+  })
+);
+
+export const createContestold = validate(Joi.object({
   match_id: Joi.number().required(),
 
   entry_fee: Joi.number().precision(2).positive().required(),
@@ -116,39 +130,33 @@ export const createContest = validate(Joi.object({
     .default("UPCOMING")
 }));
 
-export const updateContest = validate(Joi.object({
-  entry_fee: Joi.number().precision(2).positive(),
-  prize_pool: Joi.number().precision(2).positive(),
+export const updateContest = validate(
+  Joi.object({
+    entry_fee:               Joi.number().precision(2).positive(),
+    max_entries:             Joi.number().integer().positive(),
+    min_entries:             Joi.number().integer().min(0),
+    current_entries:         Joi.number().integer().min(0),
 
-  max_entries: Joi.number().integer().positive(),
-  min_entries: Joi.number().integer().min(0),
-  current_entries: Joi.number().integer().min(0),
+    contest_type:            Joi.string().valid('NORMAL', 'GUARANTEED', 'CASHBACK'),
+    is_guaranteed:           Joi.number().valid(0, 1),
 
-  contest_type: Joi.string().valid("NORMAL", "GUARANTEED", "CASHBACK"),
-  is_guaranteed: Joi.number().valid(0, 1),
+    winner_percentage:       Joi.number().min(0).max(100),
+    total_winners:           Joi.number().integer().min(0),
 
-  winner_percentage: Joi.number().min(0).max(100),
-  total_winners: Joi.number().integer().min(0),
+    first_prize:             Joi.number().precision(2).min(0),
+     prize_distribution: Joi.object().optional(),
+    is_cashback:             Joi.number().valid(0, 1),
+    cashback_percentage:     Joi.number().min(0).max(100),
+    cashback_amount:         Joi.number().precision(2).min(0),
 
-  first_prize: Joi.number().precision(2).min(0),
-  prize_distribution: Joi.string().allow(null, ""),
+    platform_fee_percentage: Joi.number().min(0).max(100),
+    platform_fee_amount:     Joi.number().precision(2).min(0),
 
-  is_cashback: Joi.number().valid(0, 1),
-  cashback_percentage: Joi.number().min(0).max(100),
-  cashback_amount: Joi.number().precision(2).min(0),
-
-  platform_fee_percentage: Joi.number().min(0).max(100),
-  platform_fee_amount: Joi.number().precision(2).min(0),
-
-  status: Joi.string().valid(
-    "UPCOMING",
-    "LIVE",
-    "FULL",
-    "COMPLETED",
-    "CANCELLED"
-  )
-}).min(1));
-
+    status: Joi.string().valid(
+      'UPCOMING', 'LIVE', 'FULL', 'COMPLETED', 'CANCELLED'
+    ),
+  }).min(1) // at least one field required
+);
 
 
 /* ================= CONTEST CATEGORY ================= */
@@ -157,20 +165,8 @@ export const createContestCategory = validate(
   Joi.object({
     name: Joi.string().trim().min(2).max(100).required(),
 
-    percentage: Joi.number()
-      .min(0)
-      .max(100)
-      .precision(2)
-      .required(),
-
-    entryfee: Joi.number()
-      .positive()
-      .precision(2)
-      .required(),
-
-      platformfee: Joi.number()
-      .positive()
-      .precision(2)
-      .required()
+    percentage:  Joi.number().min(0).max(100).precision(2).default(0),
+    entryfee:    Joi.number().min(0).precision(2).default(0),
+    platformfee: Joi.number().min(0).precision(2).default(0),
   })
 );
