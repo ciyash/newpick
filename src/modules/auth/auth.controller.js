@@ -5,8 +5,8 @@ import { signupService,sendLoginOtpService, loginService,requestSignupOtpService
 import { getClientIp } from "../../utils/ip.js";
 import redis from "../../config/redis.js";
 import { createApplicantService } from "../kyc/kyc.service.js";  
-import { createSumsubHeaders } from "../../utils/sumsub.js";
-
+import { createSumsubHeaders, sumsubPost } from "../../utils/sumsub.js";
+ 
 
 export const signup = async (req, res) => {
   try {
