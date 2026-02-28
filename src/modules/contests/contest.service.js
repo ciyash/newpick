@@ -246,7 +246,13 @@ export const joinContestService = async (userId, amount, meta = {}) => {
   try {
     await conn.beginTransaction();
 
-    // 🔒 Lock wallet
+    // ✅ Validate amount
+    const entryAmount = parseFloat(amount);
+    if (isNaN(entryAmount) || entryAmount <= 0) {
+      throw new Error("Invalid contest amount");
+    }
+
+    // 🔒 Lock wallet row
     const [[wallet]] = await conn.query(
       `SELECT depositwallet, earnwallet, bonusamount, is_frozen
        FROM wallets
@@ -258,23 +264,34 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     if (!wallet) throw new Error("Wallet not found");
     if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
 
-    let remaining = amount;
+    // ✅ Handle NULL values
+    const bonusBalance = parseFloat(wallet.bonusamount) || 0;
+    const earnBalance = parseFloat(wallet.earnwallet) || 0;
+    const depositBalance = parseFloat(wallet.depositwallet) || 0;
 
-    // ⭐ BONUS → EARN → DEPOSIT
-    const bonusUse = Math.min(wallet.bonusamount, remaining);
+    let remaining = entryAmount;
+
+    /* =====================================
+       ⭐ Deduction Order: BONUS → EARN → DEPOSIT
+    ===================================== */
+
+    const bonusUse = Math.min(bonusBalance, remaining);
     remaining -= bonusUse;
 
-    const earnUse = Math.min(wallet.earnwallet, remaining);
+    const earnUse = Math.min(earnBalance, remaining);
     remaining -= earnUse;
 
-    const depositUse = Math.min(wallet.depositwallet, remaining);
+    const depositUse = Math.min(depositBalance, remaining);
     remaining -= depositUse;
+
+    // ✅ Fix floating precision
+    remaining = Number(remaining.toFixed(2));
 
     if (remaining > 0) {
       throw new Error("Insufficient balance");
     }
 
-    // 🔄 Update balances
+    // 🔄 Update wallet balances
     await conn.query(
       `UPDATE wallets SET
          bonusamount = bonusamount - ?,
@@ -287,60 +304,42 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     const referenceId = `CONTEST-${userId}-${Date.now()}`;
 
     /* ===============================
-       ⭐ WALLET TRANSACTIONS
+       ⭐ WALLET TRANSACTIONS LOG
     =============================== */
 
-    if (bonusUse > 0) {
-      await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
-         VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          "Contest Join",
-          bonusUse,
-          referenceId,
-          meta.ip || null,
-          meta.device || null
-        ]
-      );
-    }
+    const insertTxn = async (type, usedAmount) => {
+      if (usedAmount <= 0) return;
 
-    if (earnUse > 0) {
       await conn.query(
         `INSERT INTO wallet_transactions
          (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
-         VALUES (?, 'earn', 'debit', ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, 'debit', ?, ?, ?, ?, ?)`,
         [
           userId,
+          type,
           "Contest Join",
-          earnUse,
+          usedAmount,
           referenceId,
           meta.ip || null,
           meta.device || null
         ]
       );
-    }
+    };
 
-    if (depositUse > 0) {
-      await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
-         VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          "Contest Join",
-          depositUse,
-          referenceId,
-          meta.ip || null,
-          meta.device || null
-        ]
-      );
-    }
+    await insertTxn("bonus", bonusUse);
+    await insertTxn("earn", earnUse);
+    await insertTxn("deposit", depositUse);
 
     await conn.commit();
 
-    return true;
+    return {
+      success: true,
+      deducted: {
+        bonus: bonusUse,
+        earn: earnUse,
+        deposit: depositUse
+      }
+    };
 
   } catch (err) {
     await conn.rollback();
@@ -349,6 +348,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     conn.release();
   }
 };
+
 
 export const getMyContestsService = async (userId, matchId) => {
 

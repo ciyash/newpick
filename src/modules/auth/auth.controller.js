@@ -39,7 +39,7 @@ export const verifySignupOtp = async (req, res) => {
   }
 };
 
-
+   
 
 
 export const sendLoginOtp = async (req, res) => {
@@ -62,7 +62,7 @@ export const sendLoginOtp = async (req, res) => {
 };
 
 
-
+ 
 export const verifyEmail = async (req, res) => {
   try {
     const { token } = req.query;
@@ -255,3 +255,4 @@ export const getKycSdkToken = async (req, res) => {
     });
   }
 };
+
