@@ -383,7 +383,7 @@ export const signupService = async ({ mobile, otp }) => {
 
   const bonusAmount = 5;
 
-  await db.query(
+  await db.query( 
     `INSERT INTO wallet_transactions
      (
        user_id,
@@ -418,7 +418,7 @@ export const signupService = async ({ mobile, otp }) => {
   };
 };
 export const sendLoginOtpService = async ({ email, mobile }) => {
-
+console.log(process.env.DB_HOST, process.env.DB_USER);
   /* --------------------------------
      1️⃣ FETCH USER
   -------------------------------- */

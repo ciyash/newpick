@@ -121,6 +121,22 @@ const PACK_CONFIG = {
 
 //     if (hasActive) {
 
+//       // 🔥 allow queue only last 5 days before expiry
+//       const expiryDate = new Date(user.subscribeenddate);
+//       const diffTime = expiryDate - now;
+//       const diffDays = diffTime / (1000 * 60 * 60 * 24);
+
+//       if (diffDays > 5) {
+//         throw new Error(
+//           "Next subscription allowed only within 5 days before expiry"
+//         );
+//       }
+
+//       // 🔴 Prevent multiple queued subscriptions
+//       if (user.nextsubscribe === 1) {
+//         throw new Error("Next subscription already queued");
+//       }
+
 //       // 🟡 ADD AS NEXT SUBSCRIPTION
 //       startDate = new Date(user.subscribeenddate);
 //       endDate = new Date(startDate);
@@ -129,10 +145,11 @@ const PACK_CONFIG = {
 //       await conn.query(
 //         `UPDATE users SET
 //           nextsubscribe = 1,
+//           nextsubscribepack = ?,
 //           nextsubscribestartdate = ?,
 //           nextsubscribeenddate = ?
 //          WHERE id = ?`,
-//         [startDate, endDate, userId]
+//         [pack, startDate, endDate, userId]
 //       );
 
 //     } else {
@@ -273,7 +290,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     }
 
     /* ================================
-       4️⃣ UPDATE WALLET
+       4️⃣ UPDATE WALLET BALANCES
     ================================= */
     await conn.query(
       `UPDATE wallets SET
@@ -284,29 +301,67 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       [bonusUse, earnUse, depositUse, userId]
     );
 
+    const referenceId = `SUB-${userId}-${Date.now()}`;
+
     /* ================================
-       5️⃣ WALLET TRANSACTION ENTRY
+       5️⃣ WALLET TRANSACTIONS (DEBIT)
     ================================= */
-    await conn.query(
-      `INSERT INTO wallet_transactions
-       (user_id, wallettype, transtype, remark, amount,
-        reference_id, ip_address, device)
-       VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
-      [
-        userId,
-        `Subscription purchase (${pack})`,
-        price,
-        `SUB-${userId}-${Date.now()}`,
-        meta.ip || null,
-        meta.device || null
-      ]
-    );
+
+    // BONUS debit
+    if (bonusUse > 0) {
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
+         VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          `Subscription purchase (${pack})`,
+          bonusUse,
+          referenceId,
+          meta.ip || null,
+          meta.device || null
+        ]
+      );
+    }
+
+    // EARN debit
+    if (earnUse > 0) {
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
+         VALUES (?, 'earn', 'debit', ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          `Subscription purchase (${pack})`,
+          earnUse,
+          referenceId,
+          meta.ip || null,
+          meta.device || null
+        ]
+      );
+    }
+
+    // DEPOSIT debit
+    if (depositUse > 0) {
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
+         VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          `Subscription purchase (${pack})`,
+          depositUse,
+          referenceId,
+          meta.ip || null,
+          meta.device || null
+        ]
+      );
+    }
 
     /* ================================
        6️⃣ ACTIVATE OR QUEUE SUB
     ================================= */
     const now = new Date();
-
     const hasActive =
       user.subscribe === 1 &&
       user.subscribeenddate &&
@@ -315,24 +370,17 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     let startDate, endDate;
 
     if (hasActive) {
-
-      // 🔥 allow queue only last 5 days before expiry
       const expiryDate = new Date(user.subscribeenddate);
-      const diffTime = expiryDate - now;
-      const diffDays = diffTime / (1000 * 60 * 60 * 24);
+      const diffDays = (expiryDate - now) / (1000 * 60 * 60 * 24);
 
       if (diffDays > 5) {
-        throw new Error(
-          "Next subscription allowed only within 5 days before expiry"
-        );
+        throw new Error("Next subscription allowed only within 5 days before expiry");
       }
 
-      // 🔴 Prevent multiple queued subscriptions
       if (user.nextsubscribe === 1) {
         throw new Error("Next subscription already queued");
       }
 
-      // 🟡 ADD AS NEXT SUBSCRIPTION
       startDate = new Date(user.subscribeenddate);
       endDate = new Date(startDate);
       endDate.setMonth(endDate.getMonth() + config.months);
@@ -348,8 +396,6 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       );
 
     } else {
-
-      // 🟢 START IMMEDIATELY
       startDate = now;
       endDate = new Date(now);
       endDate.setMonth(endDate.getMonth() + config.months);
@@ -376,7 +422,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     );
 
     /* ================================
-       ⭐ FIRST SUB BONUS
+       ⭐ FIRST SUB BONUS CREDIT
     ================================= */
     if (user.subscription_bonus_given === 0) {
       await conn.query(
@@ -384,6 +430,18 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
          SET bonusamount = bonusamount + ?
          WHERE user_id = ?`,
         [config.bonus, userId]
+      );
+
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount, reference_id)
+         VALUES (?, 'bonus', 'credit', ?, ?, ?)`,
+        [
+          userId,
+          "Subscription Bonus",
+          config.bonus,
+          `SUBBONUS-${userId}-${Date.now()}`
+        ]
       );
 
       await conn.query(

@@ -1,8 +1,4 @@
-import {
-  getContestsService,
-  joinContestService,
-  getAllContestsService
-
+import { getContestsService, joinContestService,  getAllContestsService,  getMyContestsService
 } from "./contest.service.js";
 
 export const getAllContests = async (req, res) => {
@@ -37,7 +33,7 @@ export const getContestsByMatchId = async (req, res) => {
         message: "match_id param required"
       });
     }
-
+ 
     const contests = await getContestsService(match_id);
 
     res.status(200).json({
@@ -77,3 +73,26 @@ export const joinContest = async (req, res) => {
 };
 
 
+
+
+
+export const getMyContests = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { match_id } = req.params;   // ✅ matchId from params
+
+    const contests = await getMyContestsService(userId, match_id);
+
+    res.json({
+      success: true,
+      total: contests.length,
+      data: contests
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
