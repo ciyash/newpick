@@ -483,7 +483,73 @@ console.log(process.env.DB_HOST, process.env.DB_USER);
 };
 
 
-export const loginService = async ({ email, mobile, otp }) => {
+// export const loginService = async ({ email, mobile, otp }) => {
+
+//   const [users] = await db.query(
+//     `SELECT id, usercode, email, mobile, name,
+//             loginotp, loginotpexpires, account_status
+//      FROM users
+//      WHERE (email = ? OR mobile = ?)
+//      LIMIT 1`,
+//     [email || null, mobile || null]
+//   );
+
+//   if (!users.length) {
+//     throw new Error("User not found");
+//   }
+
+//   const user = users[0];
+
+//   /* -----------------------------
+//      🔴 BLOCK DELETED ACCOUNT
+//   ----------------------------- */
+//   if (user.account_status === "deleted") {
+//     throw new Error("This account has been deleted");
+//   }
+
+//   /* -----------------------------
+//      🔴 BLOCK PAUSED ACCOUNT
+//   ----------------------------- */
+//   if (user.account_status === "paused") {
+//     throw new Error("Your account is temporarily paused");
+//   }
+
+//   /* -----------------------------
+//      OTP VALIDATION
+//   ----------------------------- */
+//   if (!user.loginotp) {
+//     throw new Error("OTP not requested");
+//   }
+
+//   if (user.loginotp !== otp) {
+//     throw new Error("Invalid OTP");
+//   }
+
+//   if (new Date(user.loginotpexpires) < new Date()) {
+//     throw new Error("OTP expired");
+//   }
+
+//   /* -----------------------------
+//      CLEAR OTP
+//   ----------------------------- */
+//   await db.query(
+//     `UPDATE users
+//      SET loginotp = NULL,
+//          loginotpexpires = NULL
+//      WHERE id = ?`,
+//     [user.id]
+//   );
+
+//   return {
+//     id: user.id,
+//     usercode: user.usercode,
+//     email: user.email,
+//     mobile: user.mobile,
+//     name: user.name
+//   };
+// };
+
+export const loginService = async ({ email, mobile, otp }, ipAddress) => {
 
   const [users] = await db.query(
     `SELECT id, usercode, email, mobile, name,
@@ -530,16 +596,21 @@ export const loginService = async ({ email, mobile, otp }) => {
   }
 
   /* -----------------------------
-     CLEAR OTP
+     ⭐ CLEAR OTP + UPDATE LOGIN INFO
   ----------------------------- */
   await db.query(
     `UPDATE users
      SET loginotp = NULL,
-         loginotpexpires = NULL
+         loginotpexpires = NULL,
+         last_login = NOW(),        -- ⭐ NEW
+         last_login_ip = ?          -- ⭐ NEW
      WHERE id = ?`,
-    [user.id]
+    [ipAddress || null, user.id]
   );
 
+  /* -----------------------------
+     RETURN USER DATA
+  ----------------------------- */
   return {
     id: user.id,
     usercode: user.usercode,
@@ -548,7 +619,6 @@ export const loginService = async ({ email, mobile, otp }) => {
     name: user.name
   };
 };
-
 
 export const pauseAccountService = async (userId, durationKey) => {
   const days = PAUSE_PLANS[durationKey];
