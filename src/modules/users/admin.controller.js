@@ -1,60 +1,56 @@
 import * as s from "./admin.service.js";
 
-
-
-/* ================= ERROR HELPER ================= */ 
+// ERROR HELPER 
 
 const handleError = (res, error) => {
   console.error(error);
 
-  const msg = error.message || "";
+  const msg  = error?.message || "Internal server error";
+  const code = error?.code    || "";
 
-  if (msg.includes("already exists")) {
+  
+  if (msg.includes("already exists") || code === "ER_DUP_ENTRY") {
     return res.status(409).json({ success: false, message: msg });
   }
 
+  
   if (
-    msg.includes("not found") ||
-    msg.includes("No contests")
+    msg.includes("required")          ||
+    msg.includes("Invalid")           ||
+    msg.includes("invalid")           ||
+    msg.includes("No data to update")
+  ) {
+    return res.status(400).json({ success: false, message: msg });
+  }
+
+  
+  if (
+    msg.includes("not found")  ||
+    msg.includes("No deposits")||
+    msg.includes("No withdraws")||
+    msg.includes("No users")   ||
+    msg.includes("No matches") ||
+    msg.includes("No contests")||
+    msg.includes("No players") ||
+    msg.includes("No series")
   ) {
     return res.status(404).json({ success: false, message: msg });
   }
 
-  return res.status(500).json({
-    success: false,
-    message: msg
-  });
+  
+  return res.status(500).json({ success: false, message: msg });
 };
 
-/* ================= ADMIN ================= */
+// ADMIN
 
 export const createAdmin = async (req, res) => {
   try {
     const data = await s.createAdmin(req.body, req.admin, req.ip);
-
-    return res.status(201).json({
-      success: true,
-      message: "Admin created successfully",
-      data
-    });
-  } catch (error) {
-    // Duplicate admin
-    if (error.message === "Admin already exists") {
-      return res.status(409).json({
-        success: false,
-        message: error.message
-      });
-    }
-
-    // Unknown error
-    console.error("Create admin error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error"
-    });
+    res.status(201).json({ success: true, message: "Admin created successfully", data });
+  } catch (e) {
+    handleError(res, e);                                    
   }
 };
-
 
 export const getAdmins = async (req, res) => {
   try {
@@ -77,18 +73,18 @@ export const getAdminById = async (req, res) => {
 export const updateAdmin = async (req, res) => {
   try {
     await s.updateAdmin(req.params.id, req.body, req.admin, req.ip);
-    res.json({ success: true });
+    res.json({ success: true, message: "Admin updated successfully" });
   } catch (e) {
     handleError(res, e);
   }
 };
 
-/* ================= SERIES ================= */
+// SERIES 
 
 export const createSeries = async (req, res) => {
   try {
     const data = await s.createSeries(req.body, req.admin, req.ip);
-    res.status(201).json({ success: true, data });
+    res.status(201).json({ success: true, message: "Series created successfully", data });
   } catch (e) {
     handleError(res, e);
   }
@@ -115,18 +111,18 @@ export const getSeriesById = async (req, res) => {
 export const updateSeries = async (req, res) => {
   try {
     await s.updateSeries(req.params.id, req.body, req.admin, req.ip);
-    res.json({ success: true });
+    res.json({ success: true, message: "Series updated successfully" });
   } catch (e) {
     handleError(res, e);
   }
 };
 
-/* ================= MATCH ================= */
+// MATCH 
 
 export const createMatch = async (req, res) => {
   try {
     const data = await s.createMatch(req.body, req.admin, req.ip);
-    res.status(201).json({ success: true, data });
+    res.status(201).json({ success: true, message: "Match created successfully", data });
   } catch (e) {
     handleError(res, e);
   }
@@ -162,18 +158,18 @@ export const getMatchBySeries = async (req, res) => {
 export const updateMatch = async (req, res) => {
   try {
     await s.updateMatch(req.params.id, req.body, req.admin, req.ip);
-    res.json({ success: true });
+    res.json({ success: true, message: "Match updated successfully" });
   } catch (e) {
     handleError(res, e);
   }
 };
 
-/* ================= TEAM ================= */
+// TEAM 
 
 export const createTeam = async (req, res) => {
   try {
     const data = await s.createTeam(req.body, req.admin, req.ip);
-    res.status(201).json({ success: true, data });
+    res.status(201).json({ success: true, message: "Team created successfully", data });
   } catch (e) {
     handleError(res, e);
   }
@@ -200,18 +196,18 @@ export const getTeamById = async (req, res) => {
 export const updateTeam = async (req, res) => {
   try {
     await s.updateTeam(req.params.id, req.body, req.admin, req.ip);
-    res.json({ success: true });
+    res.json({ success: true, message: "Team updated successfully" });
   } catch (e) {
     handleError(res, e);
   }
 };
 
-/* ================= PLAYER ================= */
+// PLAYER 
 
 export const createPlayer = async (req, res) => {
   try {
     const data = await s.createPlayer(req.body, req.admin, req.ip);
-    res.status(201).json({ success: true, data });
+    res.status(201).json({ success: true, message: "Player created successfully", data });
   } catch (e) {
     handleError(res, e);
   }
@@ -247,18 +243,18 @@ export const getPlayerByTeam = async (req, res) => {
 export const updatePlayer = async (req, res) => {
   try {
     await s.updatePlayer(req.params.id, req.body, req.admin, req.ip);
-    res.json({ success: true });
+    res.json({ success: true, message: "Player updated successfully" });
   } catch (e) {
     handleError(res, e);
   }
 };
 
-/* ================= CONTEST ================= */
+// CONTEST 
 
 export const createContest = async (req, res) => {
   try {
     const data = await s.createContest(req.body);
-    res.status(201).json({ success: true, data });
+    res.status(201).json({ success: true, message: "Contest created successfully", data });
   } catch (e) {
     handleError(res, e);
   }
@@ -273,7 +269,6 @@ export const getContests = async (req, res) => {
   }
 };
 
-
 export const getContestById = async (req, res) => {
   try {
     const data = await s.getContestById(req.params.id);
@@ -286,7 +281,7 @@ export const getContestById = async (req, res) => {
 export const updateContest = async (req, res) => {
   try {
     await s.updateContest(req.params.id, req.body);
-    res.json({ success: true });
+    res.json({ success: true, message: "Contest updated successfully" });
   } catch (e) {
     handleError(res, e);
   }
@@ -319,15 +314,12 @@ export const getContestsByTeam = async (req, res) => {
   }
 };
 
+//CONTEST CATEGORY 
 
-/* ================= CONTEST CATEGORY ================= */ 
 export const createContestCategory = async (req, res) => {
   try {
     const data = await s.createContestCategory(req.body);
-    res.status(201).json({
-      success: true,
-      data
-    });
+    res.status(201).json({ success: true, message: "Contest category created successfully", data });
   } catch (e) {
     handleError(res, e);
   }
@@ -342,7 +334,7 @@ export const getContestcategory = async (req, res) => {
   }
 };
 
-/* ================= Dashboard ================= */ 
+//home
 
 export const getHome = async (req, res) => {
   try {
@@ -353,7 +345,7 @@ export const getHome = async (req, res) => {
   }
 };
 
-/* ================= DEPOSITE ================= */ 
+//deposites
 
 export const getallDeposites = async (req, res) => {
   try {
@@ -363,6 +355,7 @@ export const getallDeposites = async (req, res) => {
     handleError(res, e);
   }
 };
+
 export const fetchDeposites = async (req, res) => {
   try {
     const data = await s.fetchDeposites(req.body);
@@ -381,7 +374,7 @@ export const fetchDepositesSummary = async (req, res) => {
   }
 };
 
-/* ================= WITHDRAW ================= */
+//withdraws
 
 export const getallWithdraws = async (req, res) => {
   try {
@@ -400,6 +393,7 @@ export const fetchWithdraws = async (req, res) => {
     handleError(res, e);
   }
 };
+
 export const fetchWithdrawsSummary = async (req, res) => {
   try {
     const data = await s.fetchWithdrawsSummary();
@@ -409,9 +403,7 @@ export const fetchWithdrawsSummary = async (req, res) => {
   }
 };
 
-
-
-/* ================= Users ================= */
+//users
 
 export const getallUsers = async (req, res) => {
   try {
@@ -421,6 +413,7 @@ export const getallUsers = async (req, res) => {
     handleError(res, e);
   }
 };
+
 export const fetchUsers = async (req, res) => {
   try {
     const data = await s.fetchUsers(req.body);
@@ -429,6 +422,7 @@ export const fetchUsers = async (req, res) => {
     handleError(res, e);
   }
 };
+
 export const fetchUsersByKycStatus = async (req, res) => {
   try {
     const data = await s.fetchUsersByKycStatus(req.body);
