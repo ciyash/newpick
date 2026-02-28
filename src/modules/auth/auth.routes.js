@@ -5,13 +5,15 @@ import {
   sendLoginOtp,
   verifySignupOtp,
   adminLogin,
-  updateProfile
+  updateProfile,
+  getKycSdkToken
 } from "../auth/auth.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 
 const router = Router();
 
-router.post("/signup", signup);
+router.post("/signup",signup);
+router.get("/kyc-token",getKycSdkToken)
 router.post("/verify-signup", verifySignupOtp);
 router.post("/login/send-otp", sendLoginOtp);
 router.post("/login", login);
