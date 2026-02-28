@@ -1,18 +1,21 @@
 import db from "../../config/db.js";
 
-
-// export const addDepositService = async (userId, amount) => {
+// export const addDepositService = async (
+//   userId,
+//   amount,
+//   paymentIntentId = null
+// ) => {
 
 //   if (!amount || amount < 10)
 //     throw new Error("Minimum deposit £10");
 
 //   const yearMonth = new Date().toISOString().slice(0, 7);
 //   const conn = await db.getConnection();
- 
+
 //   try {
 //     await conn.beginTransaction();
 
-    
+//     /* 🧑 GET WALLET LIMIT */
 //     const [[wallet]] = await conn.query(
 //       `SELECT deposit_limit
 //        FROM wallets
@@ -25,7 +28,7 @@ import db from "../../config/db.js";
 
 //     const MONTHLY_LIMIT = Number(wallet.deposit_limit);
 
-//     /* MONTHLY TRACKING */
+//     /* 📅 MONTHLY TRACKING */
 //     const [[row]] = await conn.query(
 //       `SELECT total_added
 //        FROM monthly_deposits
@@ -43,7 +46,7 @@ import db from "../../config/db.js";
 //     if (amount > remaining)
 //       throw new Error(`You can add only £${remaining}`);
 
-//     /* UPDATE MONTHLY TABLE */
+//     /* 📅 UPDATE MONTHLY TABLE */
 //     if (row) {
 //       await conn.query(
 //         `UPDATE monthly_deposits
@@ -59,7 +62,7 @@ import db from "../../config/db.js";
 //       );
 //     }
 
-//     /* UPDATE WALLET */
+//     /* 💰 UPDATE WALLET BALANCE */
 //     await conn.query(
 //       `UPDATE wallets
 //        SET depositwallet = depositwallet + ?
@@ -67,24 +70,30 @@ import db from "../../config/db.js";
 //       [amount, userId]
 //     );
 
+//     /* 🧾 INSERT TRANSACTION HISTORY */
+//     await conn.query(
+//       `INSERT INTO wallet_transactions
+//        (user_id, amount, transtype, wallettype, remark, reference_id)
+//        VALUES (?, ?, 'credit', 'deposit', 'Stripe deposit', ?)`,
+//       [userId, amount, paymentIntentId]
+//     );
+
 //     await conn.commit();
 
 //     return {
 //       success: true,
-//       monthlyLimit: MONTHLY_LIMIT,
-//       addedThisMonth: alreadyAdded + amount,
+//       addedAmount: amount,
 //       remainingMonthlyLimit: remaining - amount
 //     };
 
 //   } catch (err) {
 //     await conn.rollback();
 //     throw err;
+
 //   } finally {
 //     conn.release();
 //   }
 // };
-
-
 
 export const addDepositService = async (
   userId,
@@ -100,6 +109,16 @@ export const addDepositService = async (
 
   try {
     await conn.beginTransaction();
+
+    /* 🧑 GET USER DETAILS (for deposite table) */
+    const [[user]] = await conn.query(
+      `SELECT name, email, mobile
+       FROM users
+       WHERE id = ?`,
+      [userId]
+    );
+
+    if (!user) throw new Error("User not found");
 
     /* 🧑 GET WALLET LIMIT */
     const [[wallet]] = await conn.query(
@@ -156,12 +175,29 @@ export const addDepositService = async (
       [amount, userId]
     );
 
-    /* 🧾 INSERT TRANSACTION HISTORY */
+    /* 🧾 WALLET TRANSACTION HISTORY */
     await conn.query(
       `INSERT INTO wallet_transactions
        (user_id, amount, transtype, wallettype, remark, reference_id)
        VALUES (?, ?, 'credit', 'deposit', 'Stripe deposit', ?)`,
       [userId, amount, paymentIntentId]
+    );
+
+    /* 🧾 INSERT INTO DEPOSITE TABLE 🔥 */
+    await conn.query(
+      `INSERT INTO deposite
+       (createdAt, amount, depositeType, status,
+        userId, phone, email, name, transaction_id)
+       VALUES (NOW(), ?, 'Stripe', 'success',
+               ?, ?, ?, ?, ?)`,
+      [
+        amount,
+        userId,
+        user.mobile,
+        user.email,
+        user.name,
+        paymentIntentId
+      ]
     );
 
     await conn.commit();
@@ -180,7 +216,6 @@ export const addDepositService = async (
     conn.release();
   }
 };
-
 
 export const getMyWalletService = async (userId) => {
   const [[wallet]] = await db.query(

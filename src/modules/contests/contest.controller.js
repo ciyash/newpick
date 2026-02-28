@@ -33,7 +33,7 @@ export const getContestsByMatchId = async (req, res) => {
         message: "match_id param required"
       });
     }
-
+ 
     const contests = await getContestsService(match_id);
 
     res.status(200).json({
