@@ -417,6 +417,7 @@ export const signupService = async ({ mobile, otp }) => {
     }
   };
 };
+
 export const sendLoginOtpService = async ({ email, mobile }) => {
 console.log(process.env.DB_HOST, process.env.DB_USER);
   /* --------------------------------
@@ -480,8 +481,6 @@ console.log(process.env.DB_HOST, process.env.DB_USER);
     otp   // ❌ remove in production
   };
 };
-
-
 
 
 export const loginService = async ({ email, mobile, otp }) => {
