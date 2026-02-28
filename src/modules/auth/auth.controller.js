@@ -4,7 +4,8 @@ import { signupSchema, loginSchema,sendOtpSchema, verifyOtpSchema } from "../aut
 import { signupService,sendLoginOtpService, loginService,requestSignupOtpService,adminLoginService, updateProfileService } from "../auth/auth.service.js";
 import { getClientIp } from "../../utils/ip.js";
 import redis from "../../config/redis.js";
-import { createApplicantService } from "../kyc/kyc.service.js";
+import { createApplicantService } from "../kyc/kyc.service.js";  
+import { createSumsubHeaders } from "../../utils/sumsub.js";
 
 
 export const signup = async (req, res) => {
