@@ -1,4 +1,4 @@
-
+import { getMatchesByTypeService } from "./match.service.js";
 import  db  from "../../config/db.js";
 
 export const getAllMatches = async (req, res) => {
@@ -92,6 +92,29 @@ export const getMatchFullDetails = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error"
+    });
+  }
+};
+
+
+
+
+export const getMatchesByType = async (req, res) => {
+  try {
+    const { type } = req.params;
+
+    const matches = await getMatchesByTypeService(type);
+
+    res.json({
+      success: true,
+      total: matches.length,
+      data: matches
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
     });
   }
 };

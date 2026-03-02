@@ -1,14 +1,16 @@
 import express from "express";
 
-import { getAllMatches, getMatchFullDetails } from "./match.controller.js";
+import { getAllMatches, getMatchesByType, getMatchFullDetails } from "./match.controller.js";
 
-import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
+
 
 const router = express.Router();
 
-router.get("/all", authenticate, checkAccountActive, getAllMatches);
+router.get("/all", getAllMatches);
 
-router.get("/:id", authenticate, checkAccountActive, getMatchFullDetails);
+router.get("/:id", getMatchFullDetails);
+
+router.get("/matches/:type", getMatchesByType);
 
 export default router  
- //
+ 

@@ -240,19 +240,45 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //   }
 // };
 
+
 export const joinContestService = async (userId, amount, meta = {}) => {
   const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    // ✅ Validate amount
+    const { contestId, userTeamId } = meta;
+
+    if (!contestId || !userTeamId) {
+      throw new Error("ContestId and TeamId required");
+    }
+
+    /* =========================================
+       🛑 CHECK DUPLICATE ENTRY
+    ========================================= */
+
+    const [[already]] = await conn.query(
+      `SELECT id 
+       FROM contest_entries
+       WHERE contest_id = ?
+       AND user_id = ?
+       AND user_team_id = ?`,
+      [contestId, userId, userTeamId]
+    );
+
+    if (already) {
+      throw new Error("Team already joined this contest");
+    }
+
+    /* =========================================
+       💰 WALLET DEDUCTION LOGIC (your code)
+    ========================================= */
+
     const entryAmount = parseFloat(amount);
     if (isNaN(entryAmount) || entryAmount <= 0) {
       throw new Error("Invalid contest amount");
     }
 
-    // 🔒 Lock wallet row
     const [[wallet]] = await conn.query(
       `SELECT depositwallet, earnwallet, bonusamount, is_frozen
        FROM wallets
@@ -264,34 +290,23 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     if (!wallet) throw new Error("Wallet not found");
     if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
 
-    // ✅ Handle NULL values
-    const bonusBalance = parseFloat(wallet.bonusamount) || 0;
-    const earnBalance = parseFloat(wallet.earnwallet) || 0;
-    const depositBalance = parseFloat(wallet.depositwallet) || 0;
-
     let remaining = entryAmount;
 
-    /* =====================================
-       ⭐ Deduction Order: BONUS → EARN → DEPOSIT
-    ===================================== */
-
-    const bonusUse = Math.min(bonusBalance, remaining);
+    const bonusUse = Math.min(wallet.bonusamount || 0, remaining);
     remaining -= bonusUse;
 
-    const earnUse = Math.min(earnBalance, remaining);
+    const earnUse = Math.min(wallet.earnwallet || 0, remaining);
     remaining -= earnUse;
 
-    const depositUse = Math.min(depositBalance, remaining);
+    const depositUse = Math.min(wallet.depositwallet || 0, remaining);
     remaining -= depositUse;
 
-    // ✅ Fix floating precision
     remaining = Number(remaining.toFixed(2));
 
     if (remaining > 0) {
       throw new Error("Insufficient balance");
     }
 
-    // 🔄 Update wallet balances
     await conn.query(
       `UPDATE wallets SET
          bonusamount = bonusamount - ?,
@@ -301,44 +316,33 @@ export const joinContestService = async (userId, amount, meta = {}) => {
       [bonusUse, earnUse, depositUse, userId]
     );
 
-    const referenceId = `CONTEST-${userId}-${Date.now()}`;
+    /* =========================================
+       🧑 INSERT CONTEST ENTRY
+    ========================================= */
 
-    /* ===============================
-       ⭐ WALLET TRANSACTIONS LOG
-    =============================== */
+    await conn.query(
+      `INSERT INTO contest_entries
+       (contest_id, user_id, user_team_id, entry_fee, status)
+       VALUES (?, ?, ?, ?, 'joined')`,
+      [contestId, userId, userTeamId, entryAmount]
+    );
 
-    const insertTxn = async (type, usedAmount) => {
-      if (usedAmount <= 0) return;
+    /* =========================================
+       🔢 UPDATE CONTEST FILLED SPOTS
+    ========================================= */
 
-      await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
-         VALUES (?, ?, 'debit', ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          type,
-          "Contest Join",
-          usedAmount,
-          referenceId,
-          meta.ip || null,
-          meta.device || null
-        ]
-      );
-    };
-
-    await insertTxn("bonus", bonusUse);
-    await insertTxn("earn", earnUse);
-    await insertTxn("deposit", depositUse);
+    await conn.query(
+      `UPDATE contest
+       SET current_entries = current_entries + 1
+       WHERE id = ?`,
+      [contestId]
+    );
 
     await conn.commit();
 
     return {
       success: true,
-      deducted: {
-        bonus: bonusUse,
-        earn: earnUse,
-        deposit: depositUse
-      }
+      message: "Contest joined successfully"
     };
 
   } catch (err) {
@@ -377,4 +381,6 @@ export const getMyContestsService = async (userId, matchId) => {
 
   return rows;
 };
+
+
 
