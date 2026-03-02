@@ -52,18 +52,26 @@ export const getContestsByMatchId = async (req, res) => {
 
 
 
+
 export const joinContest = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { contestId, userTeamId } = req.body; // array
+
+    const { contestId, userTeamId, entryFee } = req.body;
 
     const response = await joinContestService(
       userId,
-      contestId,
-      userTeamId
+      entryFee,   // ✅ correct amount
+      {
+        contestId,
+        userTeamId,
+        ip: req.ip,
+        device: req.headers["user-agent"]
+      }
     );
 
     res.status(200).json(response);
+
   } catch (error) {
     res.status(400).json({
       success: false,
