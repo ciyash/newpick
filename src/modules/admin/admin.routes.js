@@ -47,7 +47,7 @@ router.get("/getcontestbyteam/:teamId",     adminAuth(),             c.getContes
 
 //contest category
 router.post("/createcontestcategory", adminAuth(), v.createContestCategory, c.createContestCategory);
-router.get("/getcontestcategory",     adminAuth(),  c.getContestcategory);
+router.get("/getcontestcategory",     adminAuth(),  c.getContestCategories);
 
 //dashboard
 router.get("/getdashboard",           adminAuth(), c.getHome);
