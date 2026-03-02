@@ -28,8 +28,8 @@ export const getAllSeries = async (req, res) => {
             m.start_time,
             m.status,
             m.matchdate,
-            ht.name AS home_team_name,
-            at.name AS away_team_name
+            ht.short_name AS home_team_name,
+            at.short_name AS away_team_name
 
           FROM matches m
           JOIN teams ht ON m.home_team_id = ht.id
