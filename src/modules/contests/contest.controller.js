@@ -61,7 +61,7 @@ export const joinContest = async (req, res) => {
 
     const response = await joinContestService(
       userId,
-      entryFee,   // ✅ correct amount
+      entryFee,   // ✅ correct
       {
         contestId,
         userTeamId,
