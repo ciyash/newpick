@@ -47,13 +47,35 @@ export const updateSeries = validate(Joi.object({
 }).min(1)); 
 /* ================= MATCH ================= */
 
-export const createMatch = validate(Joi.object({
-  series_id:    Joi.number().integer().positive().required(),
-  home_team_id: Joi.number().integer().positive().required(),
-  away_team_id: Joi.number().integer().positive().required(),
-  start_time:   Joi.date().greater("now").required() 
-}));
+export const createMatch = validate(
+  Joi.object({
+    series_id: Joi.number().integer().positive().required(),
 
+    home_team_id: Joi.number().integer().positive().required(),
+
+    away_team_id: Joi.number().integer().positive().required(),
+
+    // DATE column
+    matchdate: Joi.string()
+      .pattern(/^\d{4}-\d{2}-\d{2}$/)
+      .required(),
+
+    // TIME column (NOT Joi.date())
+    start_time: Joi.string()
+      .pattern(/^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/)
+      .required()
+  }).custom((value, helpers) => {
+    const matchDateTime = new Date(
+      `${value.matchdate}T${value.start_time}`
+    );
+
+    if (matchDateTime <= new Date()) {
+      return helpers.message("Match must be scheduled in the future");
+    }
+
+    return value;
+  })
+);
 
 export const updateMatch = validate(Joi.object({
   start_time:   Joi.date(),

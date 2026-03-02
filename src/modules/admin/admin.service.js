@@ -326,6 +326,139 @@ export const createMatch = async (data, admin, ip) => {
 
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
+  const { series_id, home_team_id, away_team_id, start_time,matchdate } = data;
+  if (Number(home_team_id) === Number(away_team_id)) {
+    throw new Error("Home and away teams must be different");
+  }
+console.log("DATA RECEIVED:", data);
+console.log("start_time:", start_time);
+console.log("matchdate:", matchdate);
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[series]] = await conn.query(
+      `SELECT seriesid FROM series WHERE seriesid = ?`, [series_id]
+    );
+      const [[seriename]] = await conn.query(
+      `SELECT name AS seriesname FROM series WHERE seriesid = ?`,
+      [series_id]
+    );
+    if (!series) throw new Error("Invalid series_id — series not found");
+
+    const [[homeTeam]] = await conn.query(
+      `SELECT id FROM teams WHERE id = ?`, [home_team_id]
+    );
+      const [[homeTeamname]] = await conn.query(
+      `SELECT name AS teamname FROM teams WHERE id = ?`,
+      [home_team_id]
+    );
+    if (!homeTeam) throw new Error("Invalid home_team_id — team not found");
+
+    const [[awayTeam]] = await conn.query(
+      `SELECT id FROM teams WHERE id = ?`, [away_team_id]
+    );
+     const [[awayTeamname]] = await conn.query(
+      `SELECT name AS teamname FROM teams WHERE id = ?`,
+      [away_team_id]
+    );
+    if (!awayTeam) throw new Error("Invalid away_team_id — team not found");
+
+     const [[existing]] = await conn.query(
+      `SELECT id FROM matches
+       WHERE series_id = ?
+       AND home_team_id = ?
+       AND away_team_id = ?
+       AND start_time = ?
+       AND matchdate = ?`,
+      [
+        series_id,
+        home_team_id,
+        away_team_id,
+          start_time,
+          matchdate
+      ]
+    );
+
+    if (existing) {
+      throw new Error("A match with the same teams, series, time and date already exists");
+    }
+
+    // const [result] = await conn.query(
+    //   `INSERT INTO matches
+    //    (series_id, home_team_id, away_team_id, start_time, matchdate, status, created_at)
+    //    VALUES (?, ?, ?, ?, ?, 'UPCOMING', NOW())`,
+    //   [
+    //     series_id,
+    //     home_team_id,
+    //     away_team_id,
+    //    start_time,
+    //       matchdate
+    //   ]
+    // );
+    const [result] = await conn.query(
+  `INSERT INTO matches
+   (series_id, seriesname,
+    home_team_id, hometeamname,
+    away_team_id, awayteamname,
+    matchdate, start_time,
+    status, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'UPCOMING', NOW())`,
+  [
+    series_id,
+    seriename.seriesname,
+    home_team_id,
+    homeTeamname.teamname,
+    away_team_id,
+    awayTeamname.teamname,
+    matchdate,
+   start_time
+   
+  ]
+);
+    if (result.affectedRows === 0) throw new Error("Failed to create match");
+
+    const matchId = result.insertId;
+
+    // ── Auto-create contests for all categories ──────────────
+    const [categories] = await conn.query(
+      `SELECT id, name, entryfee, platformfee FROM contestcategory`
+    );
+
+    if (!categories.length) throw new Error("No contest categories found — cannot auto-create contests");
+
+    for (const category of categories) {
+      await conn.query(
+        `INSERT INTO contest
+          (match_id, contest_type, entry_fee, platform_fee_percentage,
+           prize_pool, net_pool_prize, max_entries, min_entries, current_entries,
+           is_guaranteed, winner_percentage, total_winners,
+           first_prize, prize_distribution,
+           is_cashback, cashback_percentage, cashback_amount,
+           platform_fee_amount, status, created_at)
+         VALUES (?,?,?,?,0,0,0,0,0,0,0,0,0,null,0,0,0,0,'UPCOMING',NOW())`,
+        [matchId, category.name, category.entryfee, category.platformfee]
+      );
+    }
+    // ─────────────────────────────────────────────────────────
+
+    await logAdmin(conn, admin, "CREATE_MATCH", "match", matchId, ip || null);
+    await conn.commit();
+
+    return { id: matchId };
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+export const createMatchold = async (data, admin, ip) => {
+
+  if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
+
   const { series_id, home_team_id, away_team_id, start_time } = data;
   if (Number(home_team_id) === Number(away_team_id)) {
     throw new Error("Home and away teams must be different");
@@ -339,18 +472,23 @@ export const createMatch = async (data, admin, ip) => {
       `SELECT seriesid FROM series WHERE seriesid = ?`,
       [series_id]
     );
+  
+    
     if (!series) throw new Error("Invalid series_id — series not found");
 
     const [[homeTeam]] = await conn.query(
       `SELECT id FROM teams WHERE id = ?`,
       [home_team_id]
     );
+   
     if (!homeTeam) throw new Error("Invalid home_team_id — team not found");
 
     const [[awayTeam]] = await conn.query(
       `SELECT id FROM teams WHERE id = ?`,
       [away_team_id]
     );
+    
+   
     if (!awayTeam) throw new Error("Invalid away_team_id — team not found");
 
     const [[existing]] = await conn.query(
@@ -745,13 +883,21 @@ export const updateTeam = async (id, data, admin, ip) => {
 
 //players
 export const createPlayer = async (data, admin, ip) => {
+  console.log("createPlayer data:", data);
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
-  const points        = data.points        ?? 0;
-  const playercredits = data.playercredits ?? 0;
+
+  
+  if (data.points === undefined || data.points === null) throw new Error("points is required");
+  if (data.playercredits === undefined || data.playercredits === null) throw new Error("playercredits is required");
+  if (isNaN(Number(data.points))) throw new Error("points must be a valid number");
+  if (isNaN(Number(data.playercredits))) throw new Error("playercredits must be a valid number");
+  const points        = Number(data.points);
+  const playercredits = Number(data.playercredits);
 
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
+
     const [[team]] = await conn.query(
       `SELECT id FROM teams WHERE id = ?`,
       [data.team_id]
@@ -785,7 +931,6 @@ export const createPlayer = async (data, admin, ip) => {
     conn.release();
   }
 };
-
 const VALID_POSITIONS = ["GK", "DEF", "MID", "FWD"];
 const PLAYER_COLUMNS = `
   p.id,
