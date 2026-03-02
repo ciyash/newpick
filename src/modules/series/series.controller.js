@@ -31,7 +31,7 @@ export const getAllSeries = async (req, res) => {
             m.series_id,
             m.start_time,
             m.status,
-
+            m.matchdate,
             ht.name AS home_team_name,
             at.name AS away_team_name
 

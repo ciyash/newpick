@@ -49,10 +49,11 @@ export const getContestsService = async (matchId) => {
     SELECT *
     FROM contest
     WHERE match_id = ?
-    ORDER BY entry_fee ASC
+    ORDER BY entry_fee DESC
   `, [matchId]);
 
   return rows.map(c => ({
+
     id: c.id,
     matchId: c.match_id,
 
@@ -82,10 +83,12 @@ export const getContestsService = async (matchId) => {
     status: c.status,
     createdAt: c.created_at,
 
-    // 🔥 EXTRA useful field
-    remainingSpots: c.max_entries - c.current_entries
+    // 🔥 FIXED remaining spots (no negative)
+    remainingSpots: Math.max(c.max_entries - c.current_entries, 0)
+
   }));
 };
+
 
 
 export const deductForContestService = async (userId, entryFee, meta = {}) => {
@@ -272,13 +275,52 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     }
 
     /* =========================================
-       💰 WALLET LOCK
+       💰 ENTRY AMOUNT
     ========================================= */
 
     const entryAmount = parseFloat(amount);
-    if (isNaN(entryAmount) || entryAmount <= 0) {
+
+    if (isNaN(entryAmount) || entryAmount < 0) {
       throw new Error("Invalid contest amount");
     }
+
+    /* =========================================
+       🎉 FREE CONTEST (ENTRY = 0)
+       👉 NO WALLET DEDUCTION
+    ========================================= */
+
+    if (entryAmount === 0) {
+
+      await conn.query(
+        `INSERT INTO contest_entries
+         (contest_id, user_id, user_team_id, entry_fee, status)
+         VALUES (?, ?, ?, 0, 'joined')`,
+        [contestId, userId, userTeamId]
+      );
+
+      await conn.query(
+        `UPDATE contest
+         SET current_entries = current_entries + 1
+         WHERE id = ?`,
+        [contestId]
+      );
+
+      await conn.commit();
+
+      return {
+        success: true,
+        message: "Joined free contest successfully",
+        deduction: {
+          bonusUsed: 0,
+          earnUsed: 0,
+          depositUsed: 0
+        }
+      };
+    }
+
+    /* =========================================
+       💰 WALLET LOCK (FOR PAID CONTEST)
+    ========================================= */
 
     const [[wallet]] = await conn.query(
       `SELECT depositwallet, earnwallet, bonusamount, is_frozen
@@ -294,7 +336,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     let remaining = entryAmount;
 
     /* =========================================
-       🎁 BONUS — MAX 5% OF ENTRY
+       🎁 BONUS — MAX 5%
     ========================================= */
 
     const maxBonusAllowed = Number((entryAmount * 0.05).toFixed(2));
@@ -308,7 +350,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     remaining -= bonusUse;
 
     /* =========================================
-       🏆 EARN WALLET (WINNINGS)
+       🏆 EARN WALLET
     ========================================= */
 
     const earnUse = Math.min(wallet.earnwallet || 0, remaining);
