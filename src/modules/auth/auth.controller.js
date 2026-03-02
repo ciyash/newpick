@@ -4,7 +4,9 @@ import { signupSchema, loginSchema,sendOtpSchema, verifyOtpSchema } from "../aut
 import { signupService,sendLoginOtpService, loginService,requestSignupOtpService,adminLoginService, updateProfileService } from "../auth/auth.service.js";
 import { getClientIp } from "../../utils/ip.js";
 import redis from "../../config/redis.js";
-
+import { createApplicantService } from "../kyc/kyc.service.js";  
+import { createSumsubHeaders, sumsubPost } from "../../utils/sumsub.js";
+ 
 
 export const signup = async (req, res) => {
   try {
@@ -37,7 +39,7 @@ export const verifySignupOtp = async (req, res) => {
   }
 };
 
-
+   
 
 
 export const sendLoginOtp = async (req, res) => {
@@ -60,7 +62,7 @@ export const sendLoginOtp = async (req, res) => {
 };
 
 
-
+ 
 export const verifyEmail = async (req, res) => {
   try {
     const { token } = req.query;
@@ -93,15 +95,52 @@ export const verifyEmail = async (req, res) => {
 
 
 
+// export const login = async (req, res) => {
+//   try {
+//     await loginSchema.validateAsync(req.body);
+
+//     const user = await loginService(req.body);
+
+//     const token = jwt.sign(
+//       {
+//         id: user.id,        // DB primary key
+//         usercode: user.usercode
+//       },
+//       process.env.JWT_SECRET,
+//       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+//     );
+
+//     res.status(200).json({
+//       success: true,
+//       message: "Login successful",
+//       token,
+//       data: {
+//         usercode: user.usercode,
+//         email: user.email,
+//         name: user.name
+//       }
+//     });
+//   } catch (err) {
+//     res.status(400).json({
+//       success: false,
+//       message: err.message
+//     });
+//   }
+// };
+
+//admin login
+
 export const login = async (req, res) => {
   try {
     await loginSchema.validateAsync(req.body);
 
-    const user = await loginService(req.body);
+    const ipAddress = getClientIp(req);
+
+    const user = await loginService(req.body, ipAddress);
 
     const token = jwt.sign(
       {
-        id: user.id,        // DB primary key
+        id: user.id,
         usercode: user.usercode
       },
       process.env.JWT_SECRET,
@@ -112,12 +151,9 @@ export const login = async (req, res) => {
       success: true,
       message: "Login successful",
       token,
-      data: {
-        usercode: user.usercode,
-        email: user.email,
-        name: user.name
-      }
+      data: user
     });
+
   } catch (err) {
     res.status(400).json({
       success: false,
@@ -125,8 +161,6 @@ export const login = async (req, res) => {
     });
   }
 };
-
-//admin login
 
 export const adminLogin = async (req, res) => {
   try {
@@ -162,7 +196,7 @@ export const adminLogin = async (req, res) => {
     });
   }
 };
-
+ 
 
 export const updateProfile = async (req, res) => {
   try {
@@ -188,7 +222,7 @@ export const updateProfile = async (req, res) => {
 export const getKycSdkToken = async (req, res) => {
   try {
 
-    // ⭐ For signup flow use mobile or tempId
+    // ⭐ For signup flow use mobile 
     const { mobile } = req.query;
 
     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
@@ -221,3 +255,4 @@ export const getKycSdkToken = async (req, res) => {
     });
   }
 };
+
