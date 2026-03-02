@@ -245,6 +245,7 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 
 
 
+
 export const joinContestService = async (userId, amount, meta = {}) => {
   const conn = await db.getConnection();
 
@@ -258,20 +259,30 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     }
 
     /* =========================================
-       🛑 CHECK DUPLICATE ENTRY
+       🧠 TEAM IDS ARRAY
     ========================================= */
 
-    const [[already]] = await conn.query(
-      `SELECT id 
-       FROM contest_entries
-       WHERE contest_id = ?
-       AND user_id = ?
-       AND user_team_id = ?`,
-      [contestId, userId, userTeamId]
-    );
+    const teamIds = Array.isArray(userTeamId)
+      ? userTeamId
+      : [userTeamId];
 
-    if (already) {
-      throw new Error("Team already joined this contest");
+    /* =========================================
+       🛑 CHECK DUPLICATE ENTRY FOR EACH TEAM
+    ========================================= */
+
+    for (const teamId of teamIds) {
+      const [[already]] = await conn.query(
+        `SELECT id 
+         FROM contest_entries
+         WHERE contest_id = ?
+         AND user_id = ?
+         AND user_team_id = ?`,
+        [contestId, userId, teamId]
+      );
+
+      if (already) {
+        throw new Error(`Team ${teamId} already joined`);
+      }
     }
 
     /* =========================================
@@ -284,42 +295,42 @@ export const joinContestService = async (userId, amount, meta = {}) => {
       throw new Error("Invalid contest amount");
     }
 
+    const totalEntry = entryAmount * teamIds.length;
+
     /* =========================================
-       🎉 FREE CONTEST (ENTRY = 0)
-       👉 NO WALLET DEDUCTION
+       🎉 FREE CONTEST
     ========================================= */
 
     if (entryAmount === 0) {
 
-      await conn.query(
-        `INSERT INTO contest_entries
-         (contest_id, user_id, user_team_id, entry_fee, status)
-         VALUES (?, ?, ?, 0, 'joined')`,
-        [contestId, userId, userTeamId]
-      );
+      for (const teamId of teamIds) {
 
-      await conn.query(
-        `UPDATE contest
-         SET current_entries = current_entries + 1
-         WHERE id = ?`,
-        [contestId]
-      );
+        await conn.query(
+          `INSERT INTO contest_entries
+           (contest_id, user_id, user_team_id, entry_fee, status)
+           VALUES (?, ?, ?, 0, 'joined')`,
+          [contestId, userId, teamId]
+        );
+
+        await conn.query(
+          `UPDATE contest
+           SET current_entries = current_entries + 1
+           WHERE id = ?`,
+          [contestId]
+        );
+      }
 
       await conn.commit();
 
       return {
         success: true,
         message: "Joined free contest successfully",
-        deduction: {
-          bonusUsed: 0,
-          earnUsed: 0,
-          depositUsed: 0
-        }
+        teamsJoined: teamIds.length
       };
     }
 
     /* =========================================
-       💰 WALLET LOCK (FOR PAID CONTEST)
+       💰 WALLET LOCK
     ========================================= */
 
     const [[wallet]] = await conn.query(
@@ -333,13 +344,13 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     if (!wallet) throw new Error("Wallet not found");
     if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
 
-    let remaining = entryAmount;
+    let remaining = totalEntry;
 
     /* =========================================
        🎁 BONUS — MAX 5%
     ========================================= */
 
-    const maxBonusAllowed = Number((entryAmount * 0.05).toFixed(2));
+    const maxBonusAllowed = Number((totalEntry * 0.05).toFixed(2));
 
     const bonusUse = Math.min(
       wallet.bonusamount || 0,
@@ -383,33 +394,34 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     );
 
     /* =========================================
-       🧑 INSERT CONTEST ENTRY
+       🧑 INSERT ENTRIES FOR ALL TEAMS
     ========================================= */
 
-    await conn.query(
-      `INSERT INTO contest_entries
-       (contest_id, user_id, user_team_id, entry_fee, status)
-       VALUES (?, ?, ?, ?, 'joined')`,
-      [contestId, userId, userTeamId, entryAmount]
-    );
+    for (const teamId of teamIds) {
 
-    /* =========================================
-       🔢 UPDATE CONTEST FILLED SPOTS
-    ========================================= */
+      await conn.query(
+        `INSERT INTO contest_entries
+         (contest_id, user_id, user_team_id, entry_fee, status)
+         VALUES (?, ?, ?, ?, 'joined')`,
+        [contestId, userId, teamId, entryAmount]
+      );
 
-    await conn.query(
-      `UPDATE contest
-       SET current_entries = current_entries + 1
-       WHERE id = ?`,
-      [contestId]
-    );
+      await conn.query(
+        `UPDATE contest
+         SET current_entries = current_entries + 1
+         WHERE id = ?`,
+        [contestId]
+      );
+    }
 
     await conn.commit();
 
     return {
       success: true,
       message: "Contest joined successfully",
+      teamsJoined: teamIds.length,
       deduction: {
+        totalEntry,
         bonusUsed: bonusUse,
         earnUsed: earnUse,
         depositUsed: depositUse
