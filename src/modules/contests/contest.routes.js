@@ -30,6 +30,8 @@ const router = express.Router();
 router.post("/join",  joinContest);
 router.get("/my-contests/:match_id",  getMyContests);
 
+
+
 // admin get contestss
 
 router.get("/", getAllContests);

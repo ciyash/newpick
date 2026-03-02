@@ -14,10 +14,11 @@ const router = Router();
 
 router.post("/signup",signup);
 router.get("/kyc-token",getKycSdkToken)
+
 router.post("/verify-signup", verifySignupOtp);
 router.post("/login/send-otp", sendLoginOtp);
 router.post("/login", login);
-router.post("/admin/login", adminLogin);
+router.post("/admin/login", adminLogin);   
 router.patch("/update-profile",authenticate,checkAccountActive,updateProfile);
 
 export default router;

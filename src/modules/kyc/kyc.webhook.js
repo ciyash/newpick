@@ -1,19 +1,18 @@
 import db from "../../config/db.js";
 
 
-
 export const sumsubWebhook = async (req, res) => {
   try {
-    const { applicantId, reviewResult } = req.body;
+    const { mobile, reviewResult } = req.body;
 
-    if (!applicantId) {
-      return res.status(400).send("Applicant ID missing");
+    if (!mobile) {
+      return res.status(400).send("Mobile  missing");
     }
 
     let status = "pending";
 
     if (reviewResult?.reviewAnswer === "GREEN") {
-      status = "approved";
+      status = "approved";  
     } else if (reviewResult?.reviewAnswer === "RED") {
       status = "rejected";
     }
