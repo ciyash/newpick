@@ -496,7 +496,10 @@ console.log(process.env.DB_HOST, process.env.DB_USER);
 
 
 
+
 export const loginService = async ({ email, mobile, otp }, ipAddress) => {
+
+  /* ================= FIND USER ================= */
 
   const [users] = await db.query(
     `SELECT id, usercode, email, mobile, name,
@@ -513,51 +516,49 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
 
   const user = users[0];
 
-  /* -----------------------------
-     🔴 BLOCK DELETED ACCOUNT
-  ----------------------------- */
+  /* ================= ACCOUNT STATUS ================= */
+
   if (user.account_status === "deleted") {
     throw new Error("This account has been deleted");
   }
 
-  /* -----------------------------
-     🔴 BLOCK PAUSED ACCOUNT
-  ----------------------------- */
   if (user.account_status === "paused") {
     throw new Error("Your account is temporarily paused");
   }
 
-  /* -----------------------------
-     OTP VALIDATION
-  ----------------------------- */
-  if (!user.loginotp) {
-    throw new Error("OTP not requested");
-  }
+  /* ================= OTP VALIDATION ================= */
 
-  if (user.loginotp !== otp) {
-    throw new Error("Invalid OTP");
-  }
+  if (!user.loginotp) throw new Error("OTP not requested");
+
+  if (user.loginotp !== otp) throw new Error("Invalid OTP");
 
   if (new Date(user.loginotpexpires) < new Date()) {
     throw new Error("OTP expired");
   }
 
-  /* -----------------------------
-     ⭐ CLEAR OTP + UPDATE LOGIN INFO
-  ----------------------------- */
+  /* ==========================================
+     ⭐ SHIFT LOGIN TIMES (BANK STYLE LOGIC)
+     current_login → last_login
+     NOW() → current_login
+  ========================================== */
+
   await db.query(
     `UPDATE users
      SET loginotp = NULL,
          loginotpexpires = NULL,
-         last_login = NOW(),        -- ⭐ NEW
-         last_login_ip = ?          -- ⭐ NEW
+
+         last_login = current_login,
+         current_login = NOW(),
+
+         last_login_ip = current_login_ip,
+         current_login_ip = ?
+
      WHERE id = ?`,
     [ipAddress || null, user.id]
   );
 
-  /* -----------------------------
-     RETURN USER DATA
-  ----------------------------- */
+  /* ================= RETURN USER ================= */
+
   return {
     id: user.id,
     usercode: user.usercode,
