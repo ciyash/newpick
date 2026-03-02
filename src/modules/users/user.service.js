@@ -121,7 +121,6 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 // };
 
 
-
 export const getUserProfileService = async (userId) => {
 
   /* ================= USER DETAILS ================= */
@@ -139,7 +138,9 @@ export const getUserProfileService = async (userId) => {
         dob,
         created_at,
         last_login,
-        last_login_ip
+        current_login,      -- ⭐ ADD THIS
+        last_login_ip,
+        current_login_ip    -- ⭐ ADD THIS
      FROM users
      WHERE id = ?`,
     [userId]
@@ -158,47 +159,14 @@ export const getUserProfileService = async (userId) => {
     [userId]
   );
 
-  /* ================= TOTAL WALLET CALCULATION ================= */
-
   const totalWallet =
     Number(wallet.depositwallet) +
     Number(wallet.earnwallet) +
     Number(wallet.bonusamount);
 
-  /* ================= MONTHLY DEPOSIT ================= */
-
-  const yearMonth = new Date().toISOString().slice(0, 7);
-
-  const [[monthly]] = await db.query(
-    `SELECT total_added
-     FROM monthly_deposits
-     WHERE user_id = ? AND ym = ?`,
-    [userId, yearMonth]
-  );
-
-  const added = monthly ? Number(monthly.total_added) : 0;
-
-  /* ================= WITHDRAW HISTORY ================= */
-
-  const [withdrawals] = await db.query(
-    `SELECT amount, status, created_at
-     FROM withdraws
-     WHERE user_id = ?
-     ORDER BY created_at DESC
-     LIMIT 3`,
-    [userId]
-  );
-
-  /* ================= SUBSCRIPTION ================= */
-
-  const subscription = await getSubscriptionStatusService(userId);
-
   /* ================= RETURN PROFILE ================= */
 
   return {
-
-    /* ===== PERSONAL DETAILS ===== */
-
     personal: {
       userid: user.userid,
       usercode: user.usercode,
@@ -211,43 +179,29 @@ export const getUserProfileService = async (userId) => {
       dob: user.dob,
       memberSince: user.created_at,
 
+      // ⭐ PREVIOUS LOGIN
       lastLoginDate: user.last_login
         ? new Date(user.last_login).toLocaleString("en-IN")
+        : "First login",
+
+      lastLoginIp: user.last_login_ip || null,
+
+      // ⭐ CURRENT LOGIN (NEW)
+      currentLoginDate: user.current_login
+        ? new Date(user.current_login).toLocaleString("en-IN")
         : null,
 
-      lastLoginIp: user.last_login_ip || null
+      currentLoginIp: user.current_login_ip || null
     },
-
-    /* ===== WALLET ===== */
 
     wallet: {
       depositWallet: Number(wallet.depositwallet),
       withdrawWallet: Number(wallet.earnwallet),
       bonusWallet: Number(wallet.bonusamount),
-
-      // ⭐ NEW TOTAL BALANCE
-      totalWallet: totalWallet
-    },
-
-    /* ===== LIMITS ===== */
-
-    depositLimits: {
-      monthlyLimit: Number(wallet.deposit_limit),
-      addedThisMonth: added,
-      remainingThisMonth: wallet.deposit_limit - added
-    },
-
-    /* ===== PAYMENTS & WITHDRAWALS ===== */
-
-    withdrawals,
-
-    /* ===== SUBSCRIPTION ===== */
-
-    subscription
+      totalWallet
+    }
   };
 };
-
-
 
 export const reduceMonthlyLimitService = async (userId, newLimit) => {
 
