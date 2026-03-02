@@ -105,18 +105,8 @@ export const signupService = async ({ mobile, otp }) => {
   if (String(savedOtp) !== String(otp))
     throw new Error("Invalid OTP");
 
-  /* ================================
-     2️⃣ KYC CHECK
-  ================================= */
-  // const verified = await redis.get(`KYC_VERIFIED:${normalizedMobile}`);
-  // if (!verified)
-  //   throw new Error("Complete age verification first");
 
-  /* ================================
-
-   3️⃣ SIGNUP DATA (SAFE)
-================================= */
-const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
+  const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
 if (!signupRaw)
   throw new Error("Signup session expired");
 
@@ -133,7 +123,7 @@ try {
 
   const {
     name, email, region, nickname,
-    address, dob, category, referralid
+    address, dob, category, referralid 
   } = signupData;
 
   const categoryNormalized = String(category).toLowerCase().trim();
