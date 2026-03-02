@@ -241,6 +241,7 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 // };
 
 
+
 export const joinContestService = async (userId, amount, meta = {}) => {
   const conn = await db.getConnection();
 
@@ -271,7 +272,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     }
 
     /* =========================================
-       💰 WALLET DEDUCTION LOGIC (your code)
+       💰 WALLET LOCK
     ========================================= */
 
     const entryAmount = parseFloat(amount);
@@ -292,11 +293,30 @@ export const joinContestService = async (userId, amount, meta = {}) => {
 
     let remaining = entryAmount;
 
-    const bonusUse = Math.min(wallet.bonusamount || 0, remaining);
+    /* =========================================
+       🎁 BONUS — MAX 5% OF ENTRY
+    ========================================= */
+
+    const maxBonusAllowed = Number((entryAmount * 0.05).toFixed(2));
+
+    const bonusUse = Math.min(
+      wallet.bonusamount || 0,
+      maxBonusAllowed,
+      remaining
+    );
+
     remaining -= bonusUse;
+
+    /* =========================================
+       🏆 EARN WALLET (WINNINGS)
+    ========================================= */
 
     const earnUse = Math.min(wallet.earnwallet || 0, remaining);
     remaining -= earnUse;
+
+    /* =========================================
+       💳 DEPOSIT WALLET
+    ========================================= */
 
     const depositUse = Math.min(wallet.depositwallet || 0, remaining);
     remaining -= depositUse;
@@ -306,6 +326,10 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     if (remaining > 0) {
       throw new Error("Insufficient balance");
     }
+
+    /* =========================================
+       🔻 UPDATE WALLET
+    ========================================= */
 
     await conn.query(
       `UPDATE wallets SET
@@ -342,7 +366,12 @@ export const joinContestService = async (userId, amount, meta = {}) => {
 
     return {
       success: true,
-      message: "Contest joined successfully"
+      message: "Contest joined successfully",
+      deduction: {
+        bonusUsed: bonusUse,
+        earnUsed: earnUse,
+        depositUsed: depositUse
+      }
     };
 
   } catch (err) {

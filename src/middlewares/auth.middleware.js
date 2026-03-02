@@ -88,37 +88,53 @@ export const checkAccountActive = async (req, res, next) => {
   }
 };
 
+export const requireKyc = async (req, res, next) => {
 
-export const checkAgeVerified = async (req, res, next) => {
-  try {
-    const userId = req.user.id;
+  const [[user]] = await db.query(
+    "SELECT age_verified FROM users WHERE id=?",
+    [req.user.id]
+  );
 
-    const [[user]] = await db.query(
-      `SELECT age_verified FROM users WHERE id = ?`,
-      [userId]
-    );
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: "User not found"
-      });
-    }
-
-    if (!user.age_verified) {
-      return res.status(403).json({
-        success: false,
-        message: "Age verification required"
-      });
-    }
-
-    next();
-
-  } catch (err) {
-    return res.status(500).json({
+  if (!user.age_verified) {
+    return res.status(403).json({
       success: false,
-      message: "Age verification check failed"
+      message: "Complete KYC first"
     });
   }
+
+  next();
 };
+
+// export const checkAgeVerified = async (req, res, next) => {
+//   try {
+//     const userId = req.user.id;
+
+//     const [[user]] = await db.query(
+//       `SELECT age_verified FROM users WHERE id = ?`,
+//       [userId]
+//     );
+
+//     if (!user) {
+//       return res.status(401).json({
+//         success: false,
+//         message: "User not found"
+//       });
+//     }
+
+//     if (!user.age_verified) {
+//       return res.status(403).json({
+//         success: false,
+//         message: "Age verification required"
+//       });
+//     }
+
+//     next();
+
+//   } catch (err) {
+//     return res.status(500).json({
+//       success: false,
+//       message: "Age verification check failed"
+//     });
+//   }
+// };
 
