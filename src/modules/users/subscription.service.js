@@ -445,7 +445,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       deduction: {
         earnUsed: earnUse,
         depositUsed: depositUse
-      }
+      }  
     };
 
   } catch (err) {
