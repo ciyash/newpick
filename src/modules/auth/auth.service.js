@@ -305,7 +305,7 @@ console.log(process.env.DB_HOST, process.env.DB_USER);
       success: true,
       message: "OTP already sent",
       otp: user.loginotp   // ❌ remove in production
-    };
+    };  
   }
 
   /* --------------------------------
