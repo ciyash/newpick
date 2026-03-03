@@ -247,7 +247,7 @@ export const getMyTeams = async (req, res) => {
 
     const userId = req.user.id;
     const { matchId } = req.params;
-    const { contestId } = req.query; // optional
+    const { contestId } = req.query; 
 
     const teams = await getMyTeamsWithPlayersService(
       userId,
