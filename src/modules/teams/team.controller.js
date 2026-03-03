@@ -1,5 +1,5 @@
 import db from "../../config/db.js";
-import { createTeamService,  getAvailableTeamsForContestService,   getTeamPlayersService, updateTeamService } from "./team.service.js";
+import { createTeamService,  getMyTeamsWithPlayersService, getTeamPlayersService, updateTeamService } from "./team.service.js";
 
 
 export const getAllTeams = async (req, res) => {
@@ -217,66 +217,31 @@ export const createTeam = async (req, res) => {
 };
 
 
-// export const getMyTeams = async (req, res) => {
-//   try {
-
-//     const userId = req.user.id;
-
-//     // 🔥 PARAMS nundi matchId theeyali
-//     const { matchId } = req.params;
-
-//     const teams = await getMyTeamsWithPlayersService(userId, matchId);
-
-//     res.status(200).json({
-//       success: true,
-//       total: teams.length,
-//       data: teams
-//     });
-
-//   } catch (error) {
-//     res.status(400).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
-
-export const getAvailableTeamsForContest = async (req, res) => {
+export const getMyTeams = async (req, res) => {
   try {
-    const userId = req.user.id;   // from JWT middleware
-    const { contestId } = req.params;
-    const { matchId } = req.query;
 
-    if (!contestId || !matchId) {
-      return res.status(400).json({
-        success: false,
-        message: "contestId and matchId are required"
-      });
-    }
+    const userId = req.user.id;
 
-    const teams = await getAvailableTeamsForContestService(
-      userId,
-      matchId,
-      contestId
-    );
+    // 🔥 PARAMS nundi matchId theeyali
+    const { matchId } = req.params;
 
-    return res.json({
+    const teams = await getMyTeamsWithPlayersService(userId, matchId);
+
+    res.status(200).json({
       success: true,
       total: teams.length,
-      teams,
-      message:
-        teams.length === 0
-          ? "All your teams already joined this contest"
-          : "Available teams fetched successfully"
+      data: teams
     });
 
   } catch (error) {
-    return res.status(400).json({
+    res.status(400).json({
       success: false,
       message: error.message
     });
   }
 };
+
+
 
 export const getTeamPlayers = async (req, res) => {
   try {

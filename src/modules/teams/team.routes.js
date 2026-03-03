@@ -1,5 +1,5 @@
 import express from "express";
-import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById,createTeam,getTeamPlayers, getMyTeamsWithPlayers, updateTeam, getAvailableTeamsForContest} from "./team.controller.js"
+import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById,createTeam,getMyTeams,getTeamPlayers, getMyTeamsWithPlayers, updateTeam} from "./team.controller.js"
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 
 const router = express.Router();
@@ -16,10 +16,7 @@ router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById)
 
 router.post("/create", authenticate, checkAccountActive, createTeam);  
 
-// router.get("/user-my-teams/:matchId", authenticate, checkAccountActive, getMyTeams); 
-
-router.get("/user-my-teams/:matchId", authenticate, checkAccountActive,getAvailableTeamsForContest); 
-
+router.get("/user-my-teams/:matchId", authenticate, checkAccountActive, getMyTeams);
 
 router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers);
 
