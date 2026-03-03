@@ -217,15 +217,42 @@ export const createTeam = async (req, res) => {
 };
 
 
+// export const getMyTeams = async (req, res) => {
+//   try {
+
+//     const userId = req.user.id;
+
+//     // 🔥 PARAMS nundi matchId theeyali
+//     const { matchId } = req.params;
+
+//     const teams = await getMyTeamsWithPlayersService(userId, matchId);
+
+//     res.status(200).json({
+//       success: true,
+//       total: teams.length,
+//       data: teams
+//     });
+
+//   } catch (error) {
+//     res.status(400).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
 export const getMyTeams = async (req, res) => {
   try {
 
     const userId = req.user.id;
-
-    // 🔥 PARAMS nundi matchId theeyali
     const { matchId } = req.params;
+    const { contestId } = req.query;   // 🔥 optional
 
-    const teams = await getMyTeamsWithPlayersService(userId, matchId);
+    const teams = await getMyTeamsWithPlayersService(
+      userId,
+      matchId,
+      contestId
+    );
 
     res.status(200).json({
       success: true,
@@ -240,8 +267,6 @@ export const getMyTeams = async (req, res) => {
     });
   }
 };
-
-
 
 export const getTeamPlayers = async (req, res) => {
   try {
