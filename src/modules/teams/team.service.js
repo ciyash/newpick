@@ -586,10 +586,14 @@ export const getMyTeamsWithPlayersService = async (
   contestId = null
 ) => {
 
-  let filterCondition = `ut.user_id = ? AND ut.match_id = ?`;
+  let filterCondition = `
+    ut.user_id = ?
+    AND ut.match_id = ?
+  `;
+
   let params = [userId, matchId];
 
-  // 🔥 If contestId provided → exclude joined teams
+  // 🔥 Contest filtering logic
   if (contestId) {
     filterCondition += `
       AND ut.id NOT IN (
@@ -634,7 +638,7 @@ export const getMyTeamsWithPlayersService = async (
   );
 
   if (!rows.length) {
-    return [];   // 🔥 important change (don't throw error)
+    return []; // important change
   }
 
   const teams = {};
@@ -649,8 +653,7 @@ export const getMyTeamsWithPlayersService = async (
         captain: null,
         viceCaptain: null,
         players: [],
-        totalPlayers: 0,
-        realTeamsBreakdown: {}
+        totalPlayers: 0
       };
     }
 
@@ -662,10 +665,7 @@ export const getMyTeamsWithPlayersService = async (
       playerType: row.player_type,
       image: row.playerimage,
       isCaptain: row.is_captain === 1,
-      isViceCaptain: row.is_vice_captain === 1,
-      realTeamId: row.real_team_id,
-      realTeamName: row.real_team_name,
-      realTeamShortName: row.real_team_short_name
+      isViceCaptain: row.is_vice_captain === 1
     };
 
     if (player.isCaptain) teams[row.team_id].captain = player;
