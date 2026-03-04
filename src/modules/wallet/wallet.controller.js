@@ -1,3 +1,5 @@
+import db from "../../config/db.js";
+
 import {addDepositService,  getMyWalletService,getMyTransactionsService, deleteTransactionsByUserCodeService, getMyAnalyticsService} from "./wallet.service.js";
 
 export const addMoney = async (req, res) => {
@@ -78,11 +80,18 @@ export const deleteTransactionsByUser = async (req, res) => {
 export const getMyAnalytics = async (req, res) => {
   try {
 
+    if (!req.user || !req.user.id) {
+      throw new Error("User not authenticated");
+    }
+
     const userId = req.user.id;
 
     const data = await getMyAnalyticsService(userId);
 
-    res.status(200).json(data);
+    res.status(200).json({
+      success: true,
+      ...data
+    });
 
   } catch (error) {
     res.status(400).json({
@@ -92,3 +101,61 @@ export const getMyAnalytics = async (req, res) => {
   }
 };
 
+// export const getMyAnalytics = async (req, res) => {
+//   try {
+
+//     const userId = req.user.id;
+
+//     const data = await getMyAnalyticsService(userId);
+
+//     res.status(200).json(data);
+
+//   } catch (error) {
+//     res.status(400).json({
+//       success: false,
+//       message: error.message
+//     });
+//   }
+// };
+
+export const downloadAnalyticsStatement = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+
+    const [transactions] = await db.query(
+      `SELECT 
+        wallettype,
+        transtype,
+        amount,
+        created_at
+      FROM wallet_transactions
+      WHERE user_id = ?
+      ORDER BY created_at DESC`,
+      [userId]
+    );
+
+    const [entries] = await db.query(
+      `SELECT 
+        ce.entry_fee,
+        ce.joined_at,
+        c.match_id
+      FROM contest_entries ce
+      JOIN contest c ON ce.contest_id = c.id
+      WHERE ce.user_id = ?`,
+      [userId]
+    );
+
+    res.status(200).json({
+      success: true,
+      transactions,
+      contest_entries: entries
+    });
+
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
