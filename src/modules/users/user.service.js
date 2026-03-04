@@ -140,7 +140,9 @@ export const getUserProfileService = async (userId) => {
         last_login,
         current_login,
         last_login_ip,
-        current_login_ip
+        current_login_ip,
+        issofverify,
+        kyc_status
      FROM users
      WHERE id = ?`,
     [userId]
@@ -157,7 +159,8 @@ export const getUserProfileService = async (userId) => {
         depositwallet,
         earnwallet,
         bonusamount,
-        deposit_limit
+        deposit_limit,
+        limit_reduced_once
      FROM wallets
      WHERE user_id = ?`,
     [userId]
