@@ -1,6 +1,7 @@
 import express from "express";
 import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById,createTeam,getMyTeams,getTeamPlayers, getMyTeamsWithPlayers, updateTeam} from "./team.controller.js"
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
+import { createTeamRateLimit } from "../../middlewares/rateLimit.middleware.js";
 
 const router = express.Router();
 
@@ -14,7 +15,9 @@ router.get("/team-players/team/:id", authenticate, checkAccountActive, getPlayer
 
 router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById); // 
 
-router.post("/create", authenticate, checkAccountActive, createTeam);  
+// user created teams
+
+router.post("/create",createTeamRateLimit, authenticate, checkAccountActive, createTeam);  
 
 router.get("/user-my-teams/:matchId", authenticate, checkAccountActive, getMyTeams);
 

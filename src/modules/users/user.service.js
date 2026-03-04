@@ -138,13 +138,17 @@ export const getUserProfileService = async (userId) => {
         dob,
         created_at,
         last_login,
-        current_login,      -- ⭐ ADD THIS
+        current_login,
         last_login_ip,
-        current_login_ip    -- ⭐ ADD THIS
+        current_login_ip
      FROM users
      WHERE id = ?`,
     [userId]
   );
+
+  if (!user) {
+    throw new Error("User not found");
+  }
 
   /* ================= WALLET ================= */
 
@@ -159,14 +163,56 @@ export const getUserProfileService = async (userId) => {
     [userId]
   );
 
-  const totalWallet =
-    Number(wallet.depositwallet) +
-    Number(wallet.earnwallet) +
-    Number(wallet.bonusamount);
+  const safeWallet = wallet || {
+    depositwallet: 0,
+    earnwallet: 0,
+    bonusamount: 0,
+    deposit_limit: 0
+  };
+
+  const depositWallet = Number(safeWallet.depositwallet);
+  const withdrawWallet = Number(safeWallet.earnwallet);
+  const bonusWallet = Number(safeWallet.bonusamount);
+
+  const totalWallet = depositWallet + withdrawWallet + bonusWallet;
+
+  /* ================= MONTHLY DEPOSIT ================= */
+
+  const yearMonth = new Date().toISOString().slice(0, 7);
+
+  const [[monthly]] = await db.query(
+    `SELECT total_added
+     FROM monthly_deposits
+     WHERE user_id = ? AND ym = ?`,
+    [userId, yearMonth]
+  );
+
+  const addedThisMonth = monthly ? Number(monthly.total_added) : 0;
+
+  const monthlyLimit = Number(safeWallet.deposit_limit);
+  const remainingThisMonth = Math.max(monthlyLimit - addedThisMonth, 0);
+
+  /* ================= WITHDRAW HISTORY ================= */
+
+  const [withdrawals] = await db.query(
+    `SELECT amount, status, created_at
+     FROM withdraws
+     WHERE user_id = ?
+     ORDER BY created_at DESC
+     LIMIT 3`,
+    [userId]
+  );
+
+  /* ================= SUBSCRIPTION ================= */
+
+  const subscription = await getSubscriptionStatusService(userId);
 
   /* ================= RETURN PROFILE ================= */
 
   return {
+
+    /* ===== PERSONAL DETAILS ===== */
+
     personal: {
       userid: user.userid,
       usercode: user.usercode,
@@ -179,14 +225,14 @@ export const getUserProfileService = async (userId) => {
       dob: user.dob,
       memberSince: user.created_at,
 
-      // ⭐ PREVIOUS LOGIN
+      // Previous Login
       lastLoginDate: user.last_login
         ? new Date(user.last_login).toLocaleString("en-IN")
         : "First login",
 
       lastLoginIp: user.last_login_ip || null,
 
-      // ⭐ CURRENT LOGIN (NEW)
+      // Current Login
       currentLoginDate: user.current_login
         ? new Date(user.current_login).toLocaleString("en-IN")
         : null,
@@ -194,12 +240,30 @@ export const getUserProfileService = async (userId) => {
       currentLoginIp: user.current_login_ip || null
     },
 
+    /* ===== WALLET ===== */
+
     wallet: {
-      depositWallet: Number(wallet.depositwallet),
-      withdrawWallet: Number(wallet.earnwallet),
-      bonusWallet: Number(wallet.bonusamount),
+      depositWallet,
+      withdrawWallet,
+      bonusWallet,
       totalWallet
-    }
+    },
+
+    /* ===== LIMITS ===== */
+
+    depositLimits: {
+      monthlyLimit,
+      addedThisMonth,
+      remainingThisMonth
+    },
+
+    /* ===== PAYMENTS & WITHDRAWALS ===== */
+
+    withdrawals: withdrawals || [],
+
+    /* ===== SUBSCRIPTION ===== */
+
+    subscription
   };
 };
 

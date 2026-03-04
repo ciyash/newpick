@@ -31,6 +31,7 @@ export const getMatchesByTypeService = async (type) => {
         hometeamname,
         awayteamname,
         start_time,
+        matchdate,
         status
      FROM matches
      WHERE status IN (?)

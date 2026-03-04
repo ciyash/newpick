@@ -218,6 +218,7 @@ const PACK_CONFIG = {
 //   }
 // };
 
+
 export const buySubscriptionService = async (userId, pack, meta = {}) => {
   let conn;
 
@@ -271,60 +272,40 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
 
     /* ================================
        ⭐ WALLET DEDUCTION
-       BONUS → EARN → DEPOSIT
+       EARN → DEPOSIT ONLY
+       (BONUS NOT USED)
     ================================= */
     let remaining = price;
 
-    const maxBonusAllowed = price * 0.05;
-    const bonusUse = Math.min(wallet.bonusamount, maxBonusAllowed);
-    remaining -= bonusUse;
-
-    const earnUse = Math.min(wallet.earnwallet, remaining);
+    const earnUse = Math.min(Number(wallet.earnwallet || 0), remaining);
     remaining -= earnUse;
 
-    const depositUse = Math.min(wallet.depositwallet, remaining);
+    const depositUse = Math.min(Number(wallet.depositwallet || 0), remaining);
     remaining -= depositUse;
+
+    remaining = Number(remaining.toFixed(2));
 
     if (remaining > 0) {
       throw new Error("Insufficient balance for subscription");
     }
 
     /* ================================
-       4️⃣ UPDATE WALLET BALANCES
+       4️⃣ UPDATE WALLET
     ================================= */
     await conn.query(
       `UPDATE wallets SET
-         bonusamount = bonusamount - ?,
          earnwallet = earnwallet - ?,
          depositwallet = depositwallet - ?
        WHERE user_id = ?`,
-      [bonusUse, earnUse, depositUse, userId]
+      [earnUse, depositUse, userId]
     );
 
     const referenceId = `SUB-${userId}-${Date.now()}`;
 
     /* ================================
-       5️⃣ WALLET TRANSACTIONS (DEBIT)
+       5️⃣ WALLET TRANSACTIONS
     ================================= */
 
-    // BONUS debit
-    if (bonusUse > 0) {
-      await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
-         VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          `Subscription purchase (${pack})`,
-          bonusUse,
-          referenceId,
-          meta.ip || null,
-          meta.device || null
-        ]
-      );
-    }
-
-    // EARN debit
     if (earnUse > 0) {
       await conn.query(
         `INSERT INTO wallet_transactions
@@ -341,7 +322,6 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       );
     }
 
-    // DEPOSIT debit
     if (depositUse > 0) {
       await conn.query(
         `INSERT INTO wallet_transactions
@@ -359,7 +339,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     }
 
     /* ================================
-       6️⃣ ACTIVATE OR QUEUE SUB
+       6️⃣ ACTIVATE OR QUEUE
     ================================= */
     const now = new Date();
     const hasActive =
@@ -412,7 +392,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     }
 
     /* ================================
-       ⭐ INCREMENT COUNT
+       7️⃣ INCREMENT COUNT
     ================================= */
     await conn.query(
       `UPDATE users
@@ -425,6 +405,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
        ⭐ FIRST SUB BONUS CREDIT
     ================================= */
     if (user.subscription_bonus_given === 0) {
+
       await conn.query(
         `UPDATE wallets
          SET bonusamount = bonusamount + ?
@@ -460,7 +441,11 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
         ? "Subscription added to queue"
         : "Subscription activated",
       startDate,
-      endDate
+      endDate,
+      deduction: {
+        earnUsed: earnUse,
+        depositUsed: depositUse
+      }  
     };
 
   } catch (err) {

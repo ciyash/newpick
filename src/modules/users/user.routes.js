@@ -14,6 +14,7 @@ import { saveFcmToken ,testNotification} from '../../middlewares/send.notificati
 import paymentRoutes from '../payment/payment.router.js'
 import uctRoutes from '../uct/uct.route.js'
 import kycRoutes from '../kyc/kyc.route.js'
+import withdrawRoutes from '../withdraw/withdraw.routes.js'
 
 const app = express.Router();
 
@@ -34,5 +35,6 @@ app.post("/test-notification", authenticate, testNotification);
 app.use("/payment",authenticate,checkAccountActive, paymentRoutes)
 app.use("/uct",authenticate,checkAccountActive, uctRoutes)
 app.use("/kyc",authenticate,checkAccountActive,kycRoutes)
+app.use("/withdraw", withdrawRoutes);
 
 export default app;     

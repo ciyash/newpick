@@ -36,9 +36,7 @@ router.get("/my-contests/:match_id",  getMyContests);
 
 router.get("/", getAllContests);
 router.get("/:match_id", getContestsByMatchId);
-  
-
-
+      
 export default router;
 
 
