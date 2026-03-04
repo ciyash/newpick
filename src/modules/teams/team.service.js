@@ -1,8 +1,6 @@
 import db from "../../config/db.js";
 
 
-
-
 // export const createTeamService = async (
 //   userId,
 //   matchId,
@@ -17,9 +15,34 @@ import db from "../../config/db.js";
 //     await conn.beginTransaction();
 
 //     /* ================================
-//        1️⃣ BASIC VALIDATIONS
+//        0️⃣ MATCH STATUS & DEADLINE CHECK
 //     ================================= */
 
+//     const [[match]] = await conn.query(
+//       `SELECT status, start_time
+//        FROM matches
+//        WHERE id = ?`,
+//       [matchId]
+//     );
+
+//     if (!match) {
+//       throw new Error("Match not found");
+//     }
+
+//     const now = new Date();
+
+//     // ❌ If match started or completed → block
+//     // if (
+//     //   match.status !== "upcoming" ||
+//     //   now >= new Date(match.start_time)
+//     // ) {
+//     //   throw new Error("Team creation closed for this match");
+//     // }
+
+//     /* ================================
+//        1️⃣ BASIC VALIDATIONS
+//     ================================= */
+//  //
 //     if (!Array.isArray(players) || players.length !== 11) {
 //       throw new Error("Team must have exactly 11 players");
 //     }
@@ -87,13 +110,14 @@ import db from "../../config/db.js";
 //     }
 
 //     /* ================================
-//        🔥 4️⃣ MAX 20 TEAMS CHECK
+//        4️⃣ MAX 20 TEAMS CHECK (PER MATCH)
 //     ================================= */
 
 //     const [[count]] = await conn.query(
 //       `SELECT COUNT(*) AS total
 //        FROM user_teams
-//        WHERE user_id = ? AND match_id = ?`,
+//        WHERE user_id = ? AND match_id = ?
+//        FOR UPDATE`,
 //       [userId, matchId]
 //     );
 
@@ -150,7 +174,6 @@ import db from "../../config/db.js";
 //   }
 // };
 
-
 export const createTeamService = async (
   userId,
   matchId,
@@ -162,10 +185,11 @@ export const createTeamService = async (
   const conn = await db.getConnection();
 
   try {
+
     await conn.beginTransaction();
 
     /* ================================
-       0️⃣ MATCH STATUS & DEADLINE CHECK
+       0️⃣ MATCH CHECK
     ================================= */
 
     const [[match]] = await conn.query(
@@ -181,18 +205,15 @@ export const createTeamService = async (
 
     const now = new Date();
 
-    // ❌ If match started or completed → block
-    // if (
-    //   match.status !== "upcoming" ||
-    //   now >= new Date(match.start_time)
-    // ) {
+    // Optional match deadline check
+    // if (match.status !== "upcoming" || now >= new Date(match.start_time)) {
     //   throw new Error("Team creation closed for this match");
     // }
 
     /* ================================
        1️⃣ BASIC VALIDATIONS
     ================================= */
- //
+
     if (!Array.isArray(players) || players.length !== 11) {
       throw new Error("Team must have exactly 11 players");
     }
@@ -209,21 +230,25 @@ export const createTeamService = async (
        2️⃣ CHECK PLAYERS EXIST
     ================================= */
 
-    const [existing] = await conn.query(
+    const [existingPlayers] = await conn.query(
       `SELECT id FROM players WHERE id IN (?)`,
       [players]
     );
 
-    if (existing.length !== players.length) {
+    if (existingPlayers.length !== players.length) {
       throw new Error("Some players not found");
     }
 
     /* ================================
        3️⃣ DUPLICATE TEAM CHECK
+       SAME PLAYERS + SAME C + SAME VC
     ================================= */
 
+    const newPlayersSorted = [...players].sort((a, b) => a - b);
+
     const [existingTeams] = await conn.query(
-      `SELECT id FROM user_teams
+      `SELECT id
+       FROM user_teams
        WHERE user_id = ? AND match_id = ?`,
       [userId, matchId]
     );
@@ -237,30 +262,33 @@ export const createTeamService = async (
         [team.id]
       );
 
-      const existingSet = new Set(
-        teamPlayers.map(p =>
-          `${p.player_id}-${p.is_captain}-${p.is_vice_captain}`
-        )
-      );
+      const existingPlayersSorted = teamPlayers
+        .map(p => p.player_id)
+        .sort((a, b) => a - b);
 
-      const newSet = new Set(
-        players.map(id => {
-          const c = id === captainId ? 1 : 0;
-          const v = id === viceCaptainId ? 1 : 0;
-          return `${id}-${c}-${v}`;
-        })
-      );
+      const existingCaptain = teamPlayers.find(
+        p => p.is_captain === 1
+      )?.player_id;
 
-      if (
-        existingSet.size === newSet.size &&
-        [...existingSet].every(x => newSet.has(x))
-      ) {
+      const existingViceCaptain = teamPlayers.find(
+        p => p.is_vice_captain === 1
+      )?.player_id;
+
+      const samePlayers =
+        JSON.stringify(existingPlayersSorted) ===
+        JSON.stringify(newPlayersSorted);
+
+      const sameCaptain = existingCaptain === captainId;
+
+      const sameViceCaptain = existingViceCaptain === viceCaptainId;
+
+      if (samePlayers && sameCaptain && sameViceCaptain) {
         throw new Error("Duplicate team not allowed");
       }
     }
 
     /* ================================
-       4️⃣ MAX 20 TEAMS CHECK (PER MATCH)
+       4️⃣ MAX 20 TEAMS CHECK
     ================================= */
 
     const [[count]] = await conn.query(
@@ -317,10 +345,14 @@ export const createTeamService = async (
     };
 
   } catch (err) {
+
     await conn.rollback();
     throw err;
+
   } finally {
+
     conn.release();
+
   }
 };
 

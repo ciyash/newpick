@@ -6,6 +6,7 @@ const PACK_CONFIG = {
 };
 
 
+
 // export const buySubscriptionService = async (userId, pack, meta = {}) => {
 //   let conn;
 
@@ -59,19 +60,18 @@ const PACK_CONFIG = {
 
 //     /* ================================
 //        ⭐ WALLET DEDUCTION
-//        BONUS → EARN → DEPOSIT
+//        EARN → DEPOSIT ONLY
+//        (BONUS NOT USED)
 //     ================================= */
 //     let remaining = price;
 
-//     const maxBonusAllowed = price * 0.05;
-//     const bonusUse = Math.min(wallet.bonusamount, maxBonusAllowed);
-//     remaining -= bonusUse;
-
-//     const earnUse = Math.min(wallet.earnwallet, remaining);
+//     const earnUse = Math.min(Number(wallet.earnwallet || 0), remaining);
 //     remaining -= earnUse;
 
-//     const depositUse = Math.min(wallet.depositwallet, remaining);
+//     const depositUse = Math.min(Number(wallet.depositwallet || 0), remaining);
 //     remaining -= depositUse;
+
+//     remaining = Number(remaining.toFixed(2));
 
 //     if (remaining > 0) {
 //       throw new Error("Insufficient balance for subscription");
@@ -82,36 +82,54 @@ const PACK_CONFIG = {
 //     ================================= */
 //     await conn.query(
 //       `UPDATE wallets SET
-//          bonusamount = bonusamount - ?,
 //          earnwallet = earnwallet - ?,
 //          depositwallet = depositwallet - ?
 //        WHERE user_id = ?`,
-//       [bonusUse, earnUse, depositUse, userId]
+//       [earnUse, depositUse, userId]
 //     );
 
+//     const referenceId = `SUB-${userId}-${Date.now()}`;
+
 //     /* ================================
-//        5️⃣ WALLET TRANSACTION ENTRY
+//        5️⃣ WALLET TRANSACTIONS
 //     ================================= */
-//     await conn.query(
-//       `INSERT INTO wallet_transactions
-//        (user_id, wallettype, transtype, remark, amount,
-//         reference_id, ip_address, device)
-//        VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
-//       [
-//         userId,
-//         `Subscription purchase (${pack})`,
-//         price,
-//         `SUB-${userId}-${Date.now()}`,
-//         meta.ip || null,
-//         meta.device || null
-//       ]
-//     );
+
+//     if (earnUse > 0) {
+//       await conn.query(
+//         `INSERT INTO wallet_transactions
+//          (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
+//          VALUES (?, 'earn', 'debit', ?, ?, ?, ?, ?)`,
+//         [
+//           userId,
+//           `Subscription purchase (${pack})`,
+//           earnUse,
+//           referenceId,
+//           meta.ip || null,
+//           meta.device || null
+//         ]
+//       );
+//     }
+
+//     if (depositUse > 0) {
+//       await conn.query(
+//         `INSERT INTO wallet_transactions
+//          (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
+//          VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
+//         [
+//           userId,
+//           `Subscription purchase (${pack})`,
+//           depositUse,
+//           referenceId,
+//           meta.ip || null,
+//           meta.device || null
+//         ]
+//       );
+//     }
 
 //     /* ================================
-//        6️⃣ ACTIVATE OR QUEUE SUB
+//        6️⃣ ACTIVATE OR QUEUE
 //     ================================= */
 //     const now = new Date();
-
 //     const hasActive =
 //       user.subscribe === 1 &&
 //       user.subscribeenddate &&
@@ -120,24 +138,17 @@ const PACK_CONFIG = {
 //     let startDate, endDate;
 
 //     if (hasActive) {
-
-//       // 🔥 allow queue only last 5 days before expiry
 //       const expiryDate = new Date(user.subscribeenddate);
-//       const diffTime = expiryDate - now;
-//       const diffDays = diffTime / (1000 * 60 * 60 * 24);
+//       const diffDays = (expiryDate - now) / (1000 * 60 * 60 * 24);
 
 //       if (diffDays > 5) {
-//         throw new Error(
-//           "Next subscription allowed only within 5 days before expiry"
-//         );
+//         throw new Error("Next subscription allowed only within 5 days before expiry");
 //       }
 
-//       // 🔴 Prevent multiple queued subscriptions
 //       if (user.nextsubscribe === 1) {
 //         throw new Error("Next subscription already queued");
 //       }
 
-//       // 🟡 ADD AS NEXT SUBSCRIPTION
 //       startDate = new Date(user.subscribeenddate);
 //       endDate = new Date(startDate);
 //       endDate.setMonth(endDate.getMonth() + config.months);
@@ -153,8 +164,6 @@ const PACK_CONFIG = {
 //       );
 
 //     } else {
-
-//       // 🟢 START IMMEDIATELY
 //       startDate = now;
 //       endDate = new Date(now);
 //       endDate.setMonth(endDate.getMonth() + config.months);
@@ -171,7 +180,7 @@ const PACK_CONFIG = {
 //     }
 
 //     /* ================================
-//        ⭐ INCREMENT COUNT
+//        7️⃣ INCREMENT COUNT
 //     ================================= */
 //     await conn.query(
 //       `UPDATE users
@@ -181,14 +190,27 @@ const PACK_CONFIG = {
 //     );
 
 //     /* ================================
-//        ⭐ FIRST SUB BONUS
+//        ⭐ FIRST SUB BONUS CREDIT
 //     ================================= */
 //     if (user.subscription_bonus_given === 0) {
+
 //       await conn.query(
 //         `UPDATE wallets
 //          SET bonusamount = bonusamount + ?
 //          WHERE user_id = ?`,
 //         [config.bonus, userId]
+//       );
+
+//       await conn.query(
+//         `INSERT INTO wallet_transactions
+//          (user_id, wallettype, transtype, remark, amount, reference_id)
+//          VALUES (?, 'bonus', 'credit', ?, ?, ?)`,
+//         [
+//           userId,
+//           "Subscription Bonus",
+//           config.bonus,
+//           `SUBBONUS-${userId}-${Date.now()}`
+//         ]
 //       );
 
 //       await conn.query(
@@ -207,7 +229,11 @@ const PACK_CONFIG = {
 //         ? "Subscription added to queue"
 //         : "Subscription activated",
 //       startDate,
-//       endDate
+//       endDate,
+//       deduction: {
+//         earnUsed: earnUse,
+//         depositUsed: depositUse
+//       }  
 //     };
 
 //   } catch (err) {
@@ -217,7 +243,6 @@ const PACK_CONFIG = {
 //     if (conn) conn.release();
 //   }
 // };
-
 
 export const buySubscriptionService = async (userId, pack, meta = {}) => {
   let conn;
@@ -229,6 +254,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     /* ================================
        1️⃣ LOCK USER
     ================================= */
+
     const [[user]] = await conn.query(
       `SELECT
         subscribe,
@@ -251,12 +277,16 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     /* ================================
        2️⃣ VALIDATE PACK
     ================================= */
+
     const config = PACK_CONFIG[pack];
     if (!config) throw new Error("Invalid pack");
+
+    const price = config.price;
 
     /* ================================
        3️⃣ LOCK WALLET
     ================================= */
+
     const [[wallet]] = await conn.query(
       `SELECT depositwallet, earnwallet, bonusamount, is_frozen
        FROM wallets
@@ -266,82 +296,61 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     );
 
     if (!wallet) throw new Error("Wallet not found");
-    if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
 
-    const price = config.price;
+    if (wallet.is_frozen === 1) {
+      throw new Error("Wallet frozen");
+    }
 
     /* ================================
        ⭐ WALLET DEDUCTION
-       EARN → DEPOSIT ONLY
-       (BONUS NOT USED)
+       DEPOSIT WALLET ONLY
     ================================= */
-    let remaining = price;
 
-    const earnUse = Math.min(Number(wallet.earnwallet || 0), remaining);
-    remaining -= earnUse;
+    const depositBalance = Number(wallet.depositwallet || 0);
 
-    const depositUse = Math.min(Number(wallet.depositwallet || 0), remaining);
-    remaining -= depositUse;
-
-    remaining = Number(remaining.toFixed(2));
-
-    if (remaining > 0) {
-      throw new Error("Insufficient balance for subscription");
+    if (depositBalance < price) {
+      throw new Error("Insufficient deposit balance for subscription");
     }
+
+    const depositUse = price;
 
     /* ================================
        4️⃣ UPDATE WALLET
     ================================= */
+
     await conn.query(
-      `UPDATE wallets SET
-         earnwallet = earnwallet - ?,
-         depositwallet = depositwallet - ?
+      `UPDATE wallets
+       SET depositwallet = depositwallet - ?
        WHERE user_id = ?`,
-      [earnUse, depositUse, userId]
+      [depositUse, userId]
     );
 
     const referenceId = `SUB-${userId}-${Date.now()}`;
 
     /* ================================
-       5️⃣ WALLET TRANSACTIONS
+       5️⃣ WALLET TRANSACTION
     ================================= */
 
-    if (earnUse > 0) {
-      await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
-         VALUES (?, 'earn', 'debit', ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          `Subscription purchase (${pack})`,
-          earnUse,
-          referenceId,
-          meta.ip || null,
-          meta.device || null
-        ]
-      );
-    }
-
-    if (depositUse > 0) {
-      await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
-         VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          `Subscription purchase (${pack})`,
-          depositUse,
-          referenceId,
-          meta.ip || null,
-          meta.device || null
-        ]
-      );
-    }
+    await conn.query(
+      `INSERT INTO wallet_transactions
+       (user_id, wallettype, transtype, remark, amount, reference_id, ip_address, device)
+       VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?)`,
+      [
+        userId,
+        `Subscription purchase (${pack})`,
+        depositUse,
+        referenceId,
+        meta.ip || null,
+        meta.device || null
+      ]
+    );
 
     /* ================================
        6️⃣ ACTIVATE OR QUEUE
     ================================= */
+
     const now = new Date();
+
     const hasActive =
       user.subscribe === 1 &&
       user.subscribeenddate &&
@@ -350,11 +359,16 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     let startDate, endDate;
 
     if (hasActive) {
+
       const expiryDate = new Date(user.subscribeenddate);
-      const diffDays = (expiryDate - now) / (1000 * 60 * 60 * 24);
+
+      const diffDays =
+        (expiryDate - now) / (1000 * 60 * 60 * 24);
 
       if (diffDays > 5) {
-        throw new Error("Next subscription allowed only within 5 days before expiry");
+        throw new Error(
+          "Next subscription allowed only within 5 days before expiry"
+        );
       }
 
       if (user.nextsubscribe === 1) {
@@ -362,6 +376,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       }
 
       startDate = new Date(user.subscribeenddate);
+
       endDate = new Date(startDate);
       endDate.setMonth(endDate.getMonth() + config.months);
 
@@ -376,7 +391,9 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       );
 
     } else {
+
       startDate = now;
+
       endDate = new Date(now);
       endDate.setMonth(endDate.getMonth() + config.months);
 
@@ -392,8 +409,9 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     }
 
     /* ================================
-       7️⃣ INCREMENT COUNT
+       7️⃣ INCREMENT SUB COUNT
     ================================= */
+
     await conn.query(
       `UPDATE users
        SET subscription_count = subscription_count + 1
@@ -404,6 +422,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     /* ================================
        ⭐ FIRST SUB BONUS CREDIT
     ================================= */
+
     if (user.subscription_bonus_given === 0) {
 
       await conn.query(
@@ -443,19 +462,21 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       startDate,
       endDate,
       deduction: {
-        earnUsed: earnUse,
         depositUsed: depositUse
-      }  
+      }
     };
 
   } catch (err) {
+
     if (conn) await conn.rollback();
     throw err;
+
   } finally {
+
     if (conn) conn.release();
+
   }
 };
-
 export const getSubscriptionStatusService = async (userId) => {
   const [[user]] = await db.query(
     `SELECT
@@ -498,3 +519,4 @@ export const getSubscriptionStatusService = async (userId) => {
 };
   
 
+  
