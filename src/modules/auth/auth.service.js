@@ -108,18 +108,28 @@ export const signupService = async ({ mobile, otp }) => {
   /* ================================
      2️⃣ KYC CHECK
   ================================= */
-  const verified = await redis.get(`KYC_VERIFIED:${normalizedMobile}`);
-  if (!verified)
-    throw new Error("Complete age verification first");
+  // const verified = await redis.get(`KYC_VERIFIED:${normalizedMobile}`);
+  // if (!verified)
+  //   throw new Error("Complete age verification first");
 
   /* ================================
-     3️⃣ SIGNUP DATA
-  ================================= */
-  const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
-  if (!signupRaw)
-    throw new Error("Signup session expired");
 
-  const signupData = JSON.parse(signupRaw);
+   3️⃣ SIGNUP DATA (SAFE)
+================================= */
+const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
+if (!signupRaw)
+  throw new Error("Signup session expired");
+
+let signupData;
+
+try {
+  signupData =
+    typeof signupRaw === "string"
+      ? JSON.parse(signupRaw)
+      : signupRaw;
+} catch (err) {
+  throw new Error("Invalid signup session data");
+}
 
   const {
     name, email, region, nickname,
@@ -261,6 +271,8 @@ export const signupService = async ({ mobile, otp }) => {
     }
   };
 };
+
+
 
 export const sendLoginOtpService = async ({ email, mobile }) => {
 console.log(process.env.DB_HOST, process.env.DB_USER);

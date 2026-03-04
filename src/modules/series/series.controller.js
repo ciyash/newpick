@@ -1,8 +1,4 @@
-// controllers/series.controller.js
-
 import  db  from "../../config/db.js";
-
-
 
 export const getAllSeries = async (req, res) => {
   try {
@@ -23,7 +19,7 @@ export const getAllSeries = async (req, res) => {
 
     // 2️⃣ For each series → get matches WITH TEAM NAMES
     const result = await Promise.all(
-      seriesRows.map(async (series) => {
+      seriesRows.map(async (series) => { 
         const [matches] = await db.execute(
           `
           SELECT 
@@ -31,9 +27,9 @@ export const getAllSeries = async (req, res) => {
             m.series_id,
             m.start_time,
             m.status,
-
-            ht.name AS home_team_name,
-            at.name AS away_team_name
+            m.matchdate,
+            ht.short_name AS home_team_name,
+            at.short_name AS away_team_name
 
           FROM matches m
           JOIN teams ht ON m.home_team_id = ht.id
