@@ -227,6 +227,11 @@ export const getUserProfileService = async (userId) => {
       category: user.category,
       dob: user.dob,
       memberSince: user.created_at,
+       SOFverify: user.issofverify,
+        KYCverify: user.kyc_status,
+        Walletlimit:wallet.limit_reduced_once,
+
+
 
       // Previous Login
       lastLoginDate: user.last_login
