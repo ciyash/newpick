@@ -422,7 +422,7 @@ console.log("matchdate:", matchdate);
 
     // ── Auto-create contests for all categories ──────────────
     const [categories] = await conn.query(
-      `SELECT id, name, entryfee, platformfee FROM contestcategory`
+      `SELECT id, name, entryfee, platformfee,percentage FROM contestcategory`
     );
 
     if (!categories.length) throw new Error("No contest categories found — cannot auto-create contests");
@@ -436,8 +436,8 @@ console.log("matchdate:", matchdate);
            first_prize, prize_distribution,
            is_cashback, cashback_percentage, cashback_amount,
            platform_fee_amount, status, created_at)
-         VALUES (?,?,?,?,0,0,0,0,0,0,0,0,0,null,0,0,0,0,'UPCOMING',NOW())`,
-        [matchId, category.name, category.entryfee, category.platformfee]
+         VALUES (?,?,?,?,0,0,0,0,0,0,?,0,0,null,0,0,0,0,'UPCOMING',NOW())`,
+        [matchId, category.name, category.entryfee, category.platformfee,category.percentage]
       );
     }
     // ─────────────────────────────────────────────────────────
