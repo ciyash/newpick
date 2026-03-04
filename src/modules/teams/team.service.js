@@ -174,6 +174,7 @@ import db from "../../config/db.js";
 //   }
 // };
 
+
 export const createTeamService = async (
   userId,
   matchId,
@@ -205,13 +206,13 @@ export const createTeamService = async (
 
     const now = new Date();
 
-    // Optional match deadline check
+    // Optional
     // if (match.status !== "upcoming" || now >= new Date(match.start_time)) {
     //   throw new Error("Team creation closed for this match");
     // }
 
     /* ================================
-       1️⃣ BASIC VALIDATIONS
+       1️⃣ VALIDATIONS
     ================================= */
 
     if (!Array.isArray(players) || players.length !== 11) {
@@ -224,6 +225,14 @@ export const createTeamService = async (
 
     if (captainId === viceCaptainId) {
       throw new Error("Captain and VC must be different");
+    }
+
+    if (!players.includes(captainId)) {
+      throw new Error("Captain must be part of team");
+    }
+
+    if (!players.includes(viceCaptainId)) {
+      throw new Error("Vice captain must be part of team");
     }
 
     /* ================================
@@ -240,52 +249,14 @@ export const createTeamService = async (
     }
 
     /* ================================
-       3️⃣ DUPLICATE TEAM CHECK
-       SAME PLAYERS + SAME C + SAME VC
+       3️⃣ TEAM SIGNATURE
     ================================= */
 
-    const newPlayersSorted = [...players].sort((a, b) => a - b);
+    const sortedPlayers = [...players].sort((a, b) => a - b);
 
-    const [existingTeams] = await conn.query(
-      `SELECT id
-       FROM user_teams
-       WHERE user_id = ? AND match_id = ?`,
-      [userId, matchId]
-    );
-
-    for (const team of existingTeams) {
-
-      const [teamPlayers] = await conn.query(
-        `SELECT player_id, is_captain, is_vice_captain
-         FROM user_team_players
-         WHERE user_team_id = ?`,
-        [team.id]
-      );
-
-      const existingPlayersSorted = teamPlayers
-        .map(p => p.player_id)
-        .sort((a, b) => a - b);
-
-      const existingCaptain = teamPlayers.find(
-        p => p.is_captain === 1
-      )?.player_id;
-
-      const existingViceCaptain = teamPlayers.find(
-        p => p.is_vice_captain === 1
-      )?.player_id;
-
-      const samePlayers =
-        JSON.stringify(existingPlayersSorted) ===
-        JSON.stringify(newPlayersSorted);
-
-      const sameCaptain = existingCaptain === captainId;
-
-      const sameViceCaptain = existingViceCaptain === viceCaptainId;
-
-      if (samePlayers && sameCaptain && sameViceCaptain) {
-        throw new Error("Duplicate team not allowed");
-      }
-    }
+    const teamSignature =
+      sortedPlayers.join(",") +
+      `|C${captainId}|VC${viceCaptainId}`;
 
     /* ================================
        4️⃣ MAX 20 TEAMS CHECK
@@ -309,14 +280,27 @@ export const createTeamService = async (
        5️⃣ INSERT TEAM
     ================================= */
 
-    const [teamResult] = await conn.execute(
-      `INSERT INTO user_teams
-       (user_id, match_id, team_name, locked)
-       VALUES (?, ?, ?, 0)`,
-      [userId, matchId, teamName]
-    );
+    let teamId;
 
-    const teamId = teamResult.insertId;
+    try {
+
+      const [teamResult] = await conn.execute(
+        `INSERT INTO user_teams
+         (user_id, match_id, team_name, team_signature, locked)
+         VALUES (?, ?, ?, ?, 0)`,
+        [userId, matchId, teamName, teamSignature]
+      );
+
+      teamId = teamResult.insertId;
+
+    } catch (err) {
+
+      if (err.code === "ER_DUP_ENTRY") {
+        throw new Error("Duplicate team not allowed");
+      }
+
+      throw err;
+    }
 
     /* ================================
        6️⃣ INSERT TEAM PLAYERS
@@ -465,8 +449,6 @@ export const getMyTeamsMatchIdPlayersService = async (userId, matchId) => {
   return Object.values(teams);
 };
 
-
-//
 export const getTeamPlayersService = async (teamId) => {
 
   const [rows] = await db.query(
@@ -486,8 +468,6 @@ export const getTeamPlayersService = async (teamId) => {
 
   return rows;
 };
-
-
 
 
 // export const getMyTeamsWithPlayersService = async (userId) => {
