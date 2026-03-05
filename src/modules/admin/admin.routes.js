@@ -1,10 +1,10 @@
 import { Router } from "express";
 import * as c from "./admin.controller.js";
 import * as v from "./admin.validation.js";
-import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
+import { adminAuth, adminLimiter } from "../../middlewares/adminAuth.middleware.js";
 
 const router = Router();
-
+router.use(adminLimiter);
 //admin
 router.post("/createemployee",        adminAuth(["super_admin"]), v.createAdmin,  c.createAdmin);
 router.get("/getemployee",            adminAuth(["super_admin"]),                 c.getAdmins);
