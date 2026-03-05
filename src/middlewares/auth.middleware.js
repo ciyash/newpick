@@ -1,14 +1,20 @@
 import jwt from "jsonwebtoken";
 import db from "../config/db.js";
+
+/* ================= TOKEN ERROR MESSAGES ================= */
+
 const TOKEN_ERRORS = {
   TokenExpiredError: "Session expired, please login again",
   JsonWebTokenError: "Invalid token",
   NotBeforeError:    "Token not yet active",
 };
 
+/* ================= AUTHENTICATE ================= */
+
 export const authenticate = (req, res, next) => {
   try {
 
+    /* ── Extract Token ── */
     const authHeader = req.headers.authorization;
     if (!authHeader?.startsWith("Bearer ")) {
       return res.status(401).json({ success: false, message: "Authorization header missing or malformed" });
@@ -16,6 +22,7 @@ export const authenticate = (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
 
+    /* ── Verify Token ── */
     let decoded;
     try {
       decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
@@ -24,10 +31,12 @@ export const authenticate = (req, res, next) => {
       return res.status(401).json({ success: false, message });
     }
 
+    /* ── Validate Payload ── */
     if (!decoded?.id || !decoded?.email) {
       return res.status(401).json({ success: false, message: "Invalid token payload" });
     }
- 
+
+    /* ── Attach User to Request ── */
     req.user = decoded;
     next();
 
@@ -37,7 +46,7 @@ export const authenticate = (req, res, next) => {
   }
 };
 
-
+/* ================= CHECK ACCOUNT ACTIVE ================= */
 
 export const checkAccountActive = async (req, res, next) => {
   try {
@@ -91,7 +100,6 @@ export const checkAccountActive = async (req, res, next) => {
 };
 
 /* ================= REQUIRE KYC ================= */
-
 export const requireKyc = async (req, res, next) => {
   try {
 
@@ -99,7 +107,6 @@ export const requireKyc = async (req, res, next) => {
       "SELECT age_verified FROM users WHERE id = ?",
       [req.user.id]
     );
-
     if (!user) {
       return res.status(404).json({ success: false, message: "User not found" });
     }

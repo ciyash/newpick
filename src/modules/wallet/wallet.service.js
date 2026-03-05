@@ -95,7 +95,7 @@ import db from "../../config/db.js";
 //   }
 // };
 
-export const addDepositService = async (
+export const addDepositServicchandu = async (
   userId,
   amount,
   paymentIntentId = null
@@ -217,6 +217,221 @@ export const addDepositService = async (
   }
 };
 
+
+export const addDepositService = async (userId, amount, paymentIntentId = null) => {
+
+  /* ─── 1️⃣ Validate Inputs ─── */
+  // ✅ userId check — never trust caller
+  if (!userId) throw new Error("Invalid user");
+
+  // ✅ Sanitize amount — round to 2 decimal places
+  // ❌ BEFORE: raw amount — floating point issues possible
+  const sanitizedAmount = Math.round(Number(amount) * 100) / 100;
+
+  if (isNaN(sanitizedAmount) || sanitizedAmount <= 0) throw new Error("Invalid deposit amount");
+  if (sanitizedAmount < 10)   throw new Error("Minimum deposit is £10");
+  if (sanitizedAmount > 5000) throw new Error("Maximum single deposit is £5000");
+
+  // ✅ Only enforce paymentIntentId in production
+  if (!paymentIntentId && process.env.NODE_ENV === "production") {
+    throw new Error("Invalid payment reference");
+  }
+
+  const yearMonth = new Date().toISOString().slice(0, 7);  // "2026-03"
+  const conn      = await db.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    /* ─── 2️⃣ Acquire Named Lock — race condition fix ─── */
+    // ✅ MySQL built-in lock — no extra table needed
+    // ✅ All concurrent deposits queue here — one runs at a time
+    // ❌ BEFORE: no lock — 4 concurrent deposits read same company balance
+    const [[lockResult]] = await conn.query(
+      `SELECT GET_LOCK('company_balance_lock', 10) AS locked`
+    );
+    if (!lockResult?.locked) throw new Error("Server busy, please try again");
+
+    /* ─── 3️⃣ Duplicate Payment Check ─── */
+    // ✅ Prevents double deposit if webhook fires twice
+    // ❌ BEFORE: no check — same paymentIntentId could insert twice
+    if (paymentIntentId) {
+      const [[existing]] = await conn.query(
+        `SELECT id FROM wallet_transactions
+         WHERE reference_id = ?
+         LIMIT 1`,
+        [paymentIntentId]
+      );
+      if (existing) throw new Error("Payment already processed");
+    }
+
+    /* ─── 4️⃣ Get User Details ─── */
+    const [[user]] = await conn.query(
+      `SELECT name, email, mobile
+       FROM users
+       WHERE id = ?`,
+      [userId]
+    );
+    if (!user) throw new Error("User not found");
+
+    /* ─── 5️⃣ Get Wallet — FOR UPDATE locks row ─── */
+    // ✅ depositwallet = user opening balance — single source of truth
+    // ✅ FOR UPDATE — locks wallet row, prevents concurrent wallet updates
+    // ❌ BEFORE: queried wallet_transactions for user balance — race condition
+    const [[wallet]] = await conn.query(
+      `SELECT deposit_limit, depositwallet
+       FROM wallets
+       WHERE user_id = ?
+       FOR UPDATE`,
+      [userId]
+    );
+    if (!wallet) throw new Error("Wallet not found");
+
+    const MONTHLY_LIMIT = Number(wallet.deposit_limit);
+
+    // ✅ User opening from locked wallet row — guaranteed accurate
+    const userOpening = Number(wallet.depositwallet);
+    const userClosing = userOpening + sanitizedAmount;   // deposit credit → plus
+
+    /* ─── 6️⃣ Monthly Limit Check ─── */
+    const [[monthRow]] = await conn.query(
+      `SELECT total_added
+       FROM monthly_deposits
+       WHERE user_id = ? AND ym = ?
+       FOR UPDATE`,
+      [userId, yearMonth]
+    );
+
+    const alreadyAdded = monthRow ? Number(monthRow.total_added) : 0;
+    const remaining    = MONTHLY_LIMIT - alreadyAdded;
+
+    if (remaining <= 0) {
+      throw new Error(`Monthly deposit limit of £${MONTHLY_LIMIT} reached`);
+    }
+    if (sanitizedAmount > remaining) {
+      throw new Error(
+        `Only £${remaining} remaining in your monthly limit. ` +
+        `Already deposited £${alreadyAdded} this month.`
+      );
+    }
+
+    /* ─── 7️⃣ Get Company Last Balance ─── */
+    // ✅ Named lock above guarantees no concurrent insert between
+    //    this read and the insert below — safe!
+    // ✅ closing_balance column = company only (never 0 after first bonus)
+    // ❌ BEFORE: no lock — concurrent deposits read same closing_balance
+    const [[companyLast]] = await conn.query(
+      `SELECT closing_balance
+       FROM wallet_transactions
+       WHERE closing_balance != 0
+       ORDER BY id DESC
+       LIMIT 1`
+    );
+    const companyOpening = Number(companyLast?.closing_balance || 0);
+    const companyClosing = companyOpening + sanitizedAmount;   // deposit asset → plus
+
+    /* ─── 8️⃣ Update Monthly Deposits ─── */
+    if (monthRow) {
+      await conn.query(
+        `UPDATE monthly_deposits
+         SET total_added = total_added + ?
+         WHERE user_id = ? AND ym = ?`,
+        [sanitizedAmount, userId, yearMonth]
+      );
+    } else {
+      await conn.query(
+        `INSERT INTO monthly_deposits (user_id, ym, total_added)
+         VALUES (?, ?, ?)`,
+        [userId, yearMonth, sanitizedAmount]
+      );
+    }
+
+    /* ─── 9️⃣ Update Wallet Balance ─── */
+    // ✅ Also update total_deposits for audit trail
+    // ❌ BEFORE: total_deposits not updated
+    await conn.query(
+      `UPDATE wallets
+       SET depositwallet  = depositwallet  + ?,
+           total_deposits = total_deposits + ?
+       WHERE user_id = ?`,
+      [sanitizedAmount, sanitizedAmount, userId]
+    );
+
+    /* ─── 🔟 Insert Wallet Transaction — one row, both sides ─── */
+    // ✅ ONE ROW = user side + company side together
+    // ✅ No FK issue — user_id = real userId always
+    // user side    → useropeningbalance, userclosingbalance
+    // company side → opening_balance,    closing_balance
+    await conn.query(
+      `INSERT INTO wallet_transactions
+       (user_id, wallettype, transtype, remark,
+        amount,
+        useropeningbalance, userclosingbalance,
+        opening_balance,    closing_balance,
+        reference_id)
+       VALUES (?, 'deposit', 'credit', 'Stripe deposit',
+        ?,
+        ?, ?,
+        ?, ?,
+        ?)`,
+      [
+        userId,
+        sanitizedAmount,
+        userOpening,    userClosing,      // user side
+        companyOpening, companyClosing,   // company side
+        paymentIntentId
+      ]
+    );
+
+    /* ─── 1️⃣1️⃣ Insert into Deposit Table ─── */
+    await conn.query(
+      `INSERT INTO deposite
+       (createdAt, amount, depositeType, status,
+        userId, phone, email, name, transaction_id)
+       VALUES (NOW(), ?, 'Stripe', 'success',
+               ?, ?, ?, ?, ?)`,
+      [
+        sanitizedAmount,
+        userId,
+        user.mobile,
+        user.email,
+        user.name,
+        paymentIntentId
+      ]
+    );
+
+    await conn.commit();
+
+    /* ─── Release Lock after commit ─── */
+    // ✅ Always release after commit
+    await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
+
+    return {
+      success:               true,
+      addedAmount:           sanitizedAmount,
+      newBalance:            userClosing,
+      remainingMonthlyLimit: Math.max(0, remaining - sanitizedAmount)
+    };
+
+  } catch (err) {
+    await conn.rollback();
+
+  
+    await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
+
+    // ✅ Dev logging — no sensitive data in production logs
+    if (process.env.NODE_ENV !== "production") {
+      console.error(
+        `[addDepositService] userId=${userId} amount=${sanitizedAmount} error=${err.message}`
+      );
+    }
+    throw err;
+
+  } finally {
+    conn.release();
+  }
+};
+
 export const getMyWalletService = async (userId) => {
   const [[wallet]] = await db.query(
     `SELECT depositwallet, earnwallet, bonusamount
@@ -263,7 +478,7 @@ export const getMyTransactionsService = async (userId) => {
 };
 
 
-// 1️⃣ FIRST define helper
+// 1 FIRST define helper
 export const createWalletTransaction = async ({
   conn,
   userId,
@@ -316,7 +531,7 @@ export const createWalletTransaction = async ({
 
 export const deleteTransactionsByUserCodeService = async (userid) => {
 
-  // 🔍 Convert userid → id
+  //  Convert userid → id
   const [[user]] = await db.query(
     `SELECT id FROM users WHERE userid = ?`,
     [userid]
@@ -324,7 +539,7 @@ export const deleteTransactionsByUserCodeService = async (userid) => {
 
   if (!user) throw new Error("User not found");
 
-  // 🗑 Delete using numeric ID
+  //  Delete using numeric ID
   const [result] = await db.query(
     `DELETE FROM wallet_transactions
      WHERE user_id = ?`,
