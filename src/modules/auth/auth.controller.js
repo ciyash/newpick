@@ -3,7 +3,9 @@ import db from "../../config/db.js";
 import { signupSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../auth/auth.validation.js";
 import {
   signupService, sendLoginOtpService, loginService,
-  requestSignupOtpService, adminLoginService, updateProfileService
+  requestSignupOtpService, adminLoginService, updateProfileService,
+  sendEmailVerificationService,
+  verifyEmailLinkService
 } from "../auth/auth.service.js";
 import { getClientIp } from "../../utils/ip.js";
 import redis from "../../config/redis.js";
@@ -172,6 +174,7 @@ export const updateProfile = async (req, res) => {
 /* ================= KYC SDK TOKEN ================= */
 
 // ⭐ Sumsub section — maintained by another team, no changes made
+
 export const getKycSdkToken = async (req, res) => {
   try {
     const { mobile }       = req.query;
@@ -191,5 +194,32 @@ export const getKycSdkToken = async (req, res) => {
   } catch (err) {
     const status = err.message === "Signup session expired" ? 400 : 500;
     res.status(status).json({ success: false, message: err.message });
+  }
+};
+
+
+export const sendEmailVerification = async (req, res) => {
+  try {
+
+    const result = await sendEmailVerificationService(req.body.email);
+
+    res.json(result);
+
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+};
+
+export const verifyEmailLink = async (req, res) => {
+  try {
+
+    const { token } = req.query;
+
+    const result = await verifyEmailLinkService(token);
+
+    res.json(result);
+
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 };

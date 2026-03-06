@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import redis from "../../config/redis.js";
 import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
+import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
 
 /* ================= PAUSE PLANS ================= */
 
@@ -106,13 +107,185 @@ export const requestSignupOtpService = async (data) => {
 
 /* ================= VERIFY SIGNUP OTP ================= */
 
+// export const signupService = async ({ mobile, otp }) => {
+
+//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+//   /* ─── 1 OTP Check ─── */
+//   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
+//   if (!savedOtp)                        throw new Error("OTP expired");
+//   if (String(savedOtp) !== String(otp)) throw new Error("Invalid OTP");
+
+//   /* ─── 2 Get Signup Session ─── */
+//   const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
+//   if (!signupRaw) throw new Error("Signup session expired");
+
+//   let signupData;
+//   try {
+//     signupData = typeof signupRaw === "string" ? JSON.parse(signupRaw) : signupRaw;
+//   } catch {
+//     throw new Error("Invalid signup session data");
+//   }
+
+//   const { name, email, region, nickname, address, dob, category, referralid } = signupData;
+//   const categoryNormalized = String(category).toLowerCase().trim();
+
+//   /* ─── 3 Transaction — all or nothing ─── */
+//   const conn = await db.getConnection();
+//   try {
+//     await conn.beginTransaction();
+//     /* ─── 4 Generate Unique Usercode ─── */
+//     let usercode;
+//     while (true) {
+//       usercode = generateUserCode();
+//       const [[exists]] = await conn.query(
+//         "SELECT id FROM users WHERE usercode = ?", [usercode]
+//       );
+//       if (!exists) break;
+//     }
+//     /* ─── 5 Generate Userid — FOR UPDATE prevents race condition ─── */
+//     const [[lastUser]] = await conn.query(
+//       "SELECT userid FROM users ORDER BY id DESC LIMIT 1 FOR UPDATE"
+//     );
+//     const nextNumber = lastUser?.userid
+//       ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
+//       : 1;
+//     const userid = "PTW" + String(nextNumber).padStart(6, "0");
+
+//     /* ─── 6 Insert User ─── */
+//     const [result] = await conn.query(
+//       `INSERT INTO users
+//        (userid, usercode, name, email, mobile, region, address,
+//         dob, referalid, nickname, category, email_verify, mobile_verify,
+//         created_at, age_verified)
+//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW(), 1)`,
+//       [
+//         userid, usercode, name, email,
+//         normalizedMobile, region, address || null,
+//         dob, referralid || null, nickname || null,
+//         categoryNormalized
+//       ]
+//     );
+//     const userId = result.insertId;
+
+//     /* ─── 7 Create Wallet ─── */
+//     const depositLimit = categoryNormalized === "students" ? 300 : 1500;
+//     const joiningBonus = 5;
+
+//     await conn.query(
+//       `INSERT INTO wallets
+//        (user_id, depositwallet, earnwallet, bonusamount,
+//         total_deposits, total_withdrawals, deposit_limit, depositelimitdate)
+//        VALUES (?, 0, 0, ?, 0, 0, ?, CURDATE())`,
+//       [userId, joiningBonus, depositLimit]
+//     );
+
+//     /* ─── 8 Joining Bonus Transaction ─── */
+  
+//     const { userOpening: joinUserOpening, companyOpening: joinCompanyOpening }
+//       = await getLastBalance(conn, userId);
+
+//     const joinUserClosing    = joinUserOpening    + joiningBonus;  // credit → plus
+//     const joinCompanyClosing = joinCompanyOpening - joiningBonus;  // expense → minus
+
+//     await conn.query(
+//       `INSERT INTO wallet_transactions
+//        (user_id, wallettype, transtype, remark,
+//         amount,
+//         useropeningbalance, userclosingbalance,
+//         opening_balance,    closing_balance)
+//        VALUES (?, 'bonus', 'credit', 'Joining bonus',
+//         ?,
+//         ?, ?,
+//         ?, ?)`,
+//       [
+//         userId,
+//         joiningBonus,
+//         joinUserOpening,    joinUserClosing,      // user side
+//         joinCompanyOpening, joinCompanyClosing     // company side
+//       ]
+//     );
+
+//     /* ─── 9 Referral System ─── */
+//     if (referralid) {
+//       const [[referrer]] = await conn.query(
+//         "SELECT id FROM users WHERE usercode = ?", [referralid]
+//       );
+
+//       if (referrer) {
+
+//         // Create referral mapping
+//         await conn.query(
+//           `INSERT IGNORE INTO referral_rewards (referrer_id, referred_id) VALUES (?, ?)`,
+//           [referrer.id, userId]
+//         );
+
+//         const referralSignupBonus = 3;
+
+//         // Update referred user wallet
+//         await conn.query(
+//           `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
+//           [referralSignupBonus, userId]
+//         );
+
+      
+//         const { userOpening: refUserOpening, companyOpening: refCompanyOpening }
+//           = await getLastBalance(conn, userId);
+
+//         const refUserClosing    = refUserOpening    + referralSignupBonus;  // credit → plus
+//         const refCompanyClosing = refCompanyOpening - referralSignupBonus;  // expense → minus
+
+//         await conn.query(
+//           `INSERT INTO wallet_transactions
+//            (user_id, wallettype, transtype, remark,
+//             amount,
+//             useropeningbalance, userclosingbalance,
+//             opening_balance,    closing_balance)
+//            VALUES (?, 'bonus', 'credit', 'Referral signup bonus',
+//             ?,
+//             ?, ?,
+//             ?, ?)`,
+//           [
+//             userId,
+//             referralSignupBonus,
+//             refUserOpening,    refUserClosing,       // user side
+//             refCompanyOpening, refCompanyClosing      // company side
+//           ]
+//         );
+//       }
+//     }
+
+//     await conn.commit();
+
+//     /* ─── Cleanup Redis — parallel for speed ─── */
+//     await Promise.all([
+//       redis.del(`SIGNUP:${normalizedMobile}`),
+//       redis.del(`SIGNUP_OTP:${normalizedMobile}`),
+//       redis.del(`KYC_VERIFIED:${normalizedMobile}`)
+//     ]);
+
+//     return {
+//       success: true,
+//       message: "Signup completed successfully",
+//       data: { userid, usercode, joiningBonus }
+//     };
+
+//   } catch (err) {
+//     await conn.rollback();
+//     throw err;
+//   } finally {
+//     conn.release();
+//   }
+// };
+
+
 export const signupService = async ({ mobile, otp }) => {
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
   /* ─── 1 OTP Check ─── */
   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
-  if (!savedOtp)                        throw new Error("OTP expired");
+  if (!savedOtp) throw new Error("OTP expired");
   if (String(savedOtp) !== String(otp)) throw new Error("Invalid OTP");
 
   /* ─── 2 Get Signup Session ─── */
@@ -121,54 +294,79 @@ export const signupService = async ({ mobile, otp }) => {
 
   let signupData;
   try {
-    signupData = typeof signupRaw === "string" ? JSON.parse(signupRaw) : signupRaw;
+    signupData =
+      typeof signupRaw === "string" ? JSON.parse(signupRaw) : signupRaw;
   } catch {
     throw new Error("Invalid signup session data");
   }
 
-  const { name, email, region, nickname, address, dob, category, referralid } = signupData;
+  const { name, email, region, nickname, address, dob, category, referralid } =
+    signupData;
+
   const categoryNormalized = String(category).toLowerCase().trim();
 
-  /* ─── 3 Transaction — all or nothing ─── */
   const conn = await db.getConnection();
+
   try {
     await conn.beginTransaction();
-    /* ─── 4 Generate Unique Usercode ─── */
+
+    /* ─── Generate Unique Usercode ─── */
     let usercode;
+
     while (true) {
       usercode = generateUserCode();
+
       const [[exists]] = await conn.query(
-        "SELECT id FROM users WHERE usercode = ?", [usercode]
+        "SELECT id FROM users WHERE usercode = ?",
+        [usercode]
       );
+
       if (!exists) break;
     }
-    /* ─── 5 Generate Userid — FOR UPDATE prevents race condition ─── */
+
+    /* ─── Generate Userid ─── */
+
     const [[lastUser]] = await conn.query(
       "SELECT userid FROM users ORDER BY id DESC LIMIT 1 FOR UPDATE"
     );
+
     const nextNumber = lastUser?.userid
       ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
       : 1;
+
     const userid = "PTW" + String(nextNumber).padStart(6, "0");
 
-    /* ─── 6 Insert User ─── */
+    /* ─── Insert User ─── */
+
     const [result] = await conn.query(
       `INSERT INTO users
        (userid, usercode, name, email, mobile, region, address,
-        dob, referalid, nickname, category, emailverify, phoneverify,
+        dob, referalid, nickname, category,
+        email_verify, mobile_verify,
         created_at, age_verified)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW(), 1)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, NOW(), 1)`,
       [
-        userid, usercode, name, email,
-        normalizedMobile, region, address || null,
-        dob, referralid || null, nickname || null,
-        categoryNormalized
+        userid,
+        usercode,
+        name,
+        email,
+        normalizedMobile,
+        region,
+        address || null,
+        dob,
+        referralid || null,
+        nickname || null,
+        categoryNormalized,
       ]
     );
+
     const userId = result.insertId;
 
-    /* ─── 7 Create Wallet ─── */
-    const depositLimit = categoryNormalized === "students" ? 300 : 1500;
+    /* ─── Create Wallet ─── */
+
+    const depositLimit =
+      categoryNormalized === "students" ? 300 : 1500;
+
     const joiningBonus = 5;
 
     await conn.query(
@@ -179,76 +377,85 @@ export const signupService = async ({ mobile, otp }) => {
       [userId, joiningBonus, depositLimit]
     );
 
-    /* ─── 8 Joining Bonus Transaction ─── */
-  
-    const { userOpening: joinUserOpening, companyOpening: joinCompanyOpening }
-      = await getLastBalance(conn, userId);
+    /* ─── Joining Bonus Transaction ─── */
 
-    const joinUserClosing    = joinUserOpening    + joiningBonus;  // credit → plus
-    const joinCompanyClosing = joinCompanyOpening - joiningBonus;  // expense → minus
+    const {
+      userOpening: joinUserOpening,
+      companyOpening: joinCompanyOpening,
+    } = await getLastBalance(conn, userId);
+
+    const joinUserClosing = joinUserOpening + joiningBonus;
+    const joinCompanyClosing = joinCompanyOpening - joiningBonus;
 
     await conn.query(
       `INSERT INTO wallet_transactions
        (user_id, wallettype, transtype, remark,
         amount,
         useropeningbalance, userclosingbalance,
-        opening_balance,    closing_balance)
+        opening_balance, closing_balance)
        VALUES (?, 'bonus', 'credit', 'Joining bonus',
-        ?,
-        ?, ?,
-        ?, ?)`,
+        ?, ?, ?, ?, ?)`,
       [
         userId,
         joiningBonus,
-        joinUserOpening,    joinUserClosing,      // user side
-        joinCompanyOpening, joinCompanyClosing     // company side
+        joinUserOpening,
+        joinUserClosing,
+        joinCompanyOpening,
+        joinCompanyClosing,
       ]
     );
 
-    /* ─── 9 Referral System ─── */
+    /* ─── Referral System ─── */
+
     if (referralid) {
+
       const [[referrer]] = await conn.query(
-        "SELECT id FROM users WHERE usercode = ?", [referralid]
+        "SELECT id FROM users WHERE usercode = ?",
+        [referralid]
       );
 
       if (referrer) {
 
-        // Create referral mapping
         await conn.query(
-          `INSERT IGNORE INTO referral_rewards (referrer_id, referred_id) VALUES (?, ?)`,
+          `INSERT IGNORE INTO referral_rewards
+           (referrer_id, referred_id)
+           VALUES (?, ?)`,
           [referrer.id, userId]
         );
 
         const referralSignupBonus = 3;
 
-        // Update referred user wallet
         await conn.query(
-          `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
+          `UPDATE wallets
+           SET bonusamount = bonusamount + ?
+           WHERE user_id = ?`,
           [referralSignupBonus, userId]
         );
 
-      
-        const { userOpening: refUserOpening, companyOpening: refCompanyOpening }
-          = await getLastBalance(conn, userId);
+        const {
+          userOpening: refUserOpening,
+          companyOpening: refCompanyOpening,
+        } = await getLastBalance(conn, userId);
 
-        const refUserClosing    = refUserOpening    + referralSignupBonus;  // credit → plus
-        const refCompanyClosing = refCompanyOpening - referralSignupBonus;  // expense → minus
+        const refUserClosing = refUserOpening + referralSignupBonus;
+        const refCompanyClosing =
+          refCompanyOpening - referralSignupBonus;
 
         await conn.query(
           `INSERT INTO wallet_transactions
            (user_id, wallettype, transtype, remark,
             amount,
             useropeningbalance, userclosingbalance,
-            opening_balance,    closing_balance)
+            opening_balance, closing_balance)
            VALUES (?, 'bonus', 'credit', 'Referral signup bonus',
-            ?,
-            ?, ?,
-            ?, ?)`,
+            ?, ?, ?, ?, ?)`,
           [
             userId,
             referralSignupBonus,
-            refUserOpening,    refUserClosing,       // user side
-            refCompanyOpening, refCompanyClosing      // company side
+            refUserOpening,
+            refUserClosing,
+            refCompanyOpening,
+            refCompanyClosing,
           ]
         );
       }
@@ -256,31 +463,35 @@ export const signupService = async ({ mobile, otp }) => {
 
     await conn.commit();
 
-    /* ─── Cleanup Redis — parallel for speed ─── */
+    /* ─── Cleanup Redis ─── */
+
     await Promise.all([
       redis.del(`SIGNUP:${normalizedMobile}`),
       redis.del(`SIGNUP_OTP:${normalizedMobile}`),
-      redis.del(`KYC_VERIFIED:${normalizedMobile}`)
+      redis.del(`KYC_VERIFIED:${normalizedMobile}`),
     ]);
 
     return {
       success: true,
       message: "Signup completed successfully",
-      data: { userid, usercode, joiningBonus }
+      data: { userid, usercode, joiningBonus },
     };
 
   } catch (err) {
+
     await conn.rollback();
     throw err;
+
   } finally {
-    conn.release();
+
+    conn.release(); 
+
   }
 };
 
 /* ================= SEND LOGIN OTP ================= */
 
 export const sendLoginOtpService = async ({ email, mobile }) => {
-
 
 
   /* ─── 1 Fetch User ─── */
@@ -334,12 +545,62 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 
 /* ================= LOGIN ================= */
 
+// export const loginService = async ({ email, mobile, otp }, ipAddress) => {
+
+//   /* ─── Find User ─── */
+//   const [users] = await db.query(
+//     `SELECT id, usercode, email, mobile, name,
+//             loginotp, loginotpexpires, account_status
+//      FROM users
+//      WHERE (email = ? OR mobile = ?)
+//      LIMIT 1`,
+//     [email || null, mobile || null]
+//   );
+
+//   if (!users.length) throw new Error("User not found");
+//   const user = users[0];
+
+//   /* ─── Account Status ─── */
+//   if (user.account_status === "deleted") throw new Error("This account has been deleted");
+//   if (user.account_status === "paused")  throw new Error("Your account is temporarily paused");
+
+//   /* ─── OTP Validation ─── */
+//   if (!user.loginotp)                              throw new Error("OTP not requested");
+//   if (user.loginotp !== otp)                       throw new Error("Invalid OTP");
+//   if (new Date(user.loginotpexpires) < new Date()) throw new Error("OTP expired");
+
+//   /* ─── Shift Login Times (Bank Style) ─── */
+//   const [result] = await db.query(
+//     `UPDATE users
+//      SET loginotp         = NULL,
+//          loginotpexpires  = NULL,
+//          last_login       = current_login,
+//          current_login    = NOW(),
+//          last_login_ip    = current_login_ip,
+//          current_login_ip = ?
+//      WHERE id = ?`,
+//     [ipAddress || null, user.id]
+//   );
+
+//   if (result.affectedRows === 0) throw new Error("Login state update failed");
+
+//   /* ─── Return User ─── */
+//   return {
+//     id:       user.id,
+//     usercode: user.usercode,
+//     email:    user.email,
+//     mobile:   user.mobile,
+//     name:     user.name
+//   };
+// };
+
 export const loginService = async ({ email, mobile, otp }, ipAddress) => {
 
   /* ─── Find User ─── */
   const [users] = await db.query(
     `SELECT id, usercode, email, mobile, name,
-            loginotp, loginotpexpires, account_status
+            loginotp, loginotpexpires, account_status,
+            email_verify, mobile_verify
      FROM users
      WHERE (email = ? OR mobile = ?)
      LIMIT 1`,
@@ -347,16 +608,37 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
   );
 
   if (!users.length) throw new Error("User not found");
+
   const user = users[0];
 
   /* ─── Account Status ─── */
-  if (user.account_status === "deleted") throw new Error("This account has been deleted");
-  if (user.account_status === "paused")  throw new Error("Your account is temporarily paused");
+  if (user.account_status === "deleted")
+    throw new Error("This account has been deleted");
+
+  if (user.account_status === "paused")
+    throw new Error("Your account is temporarily paused");
+
+
+  /* ─── Mobile Verification Check ─── */
+  if (user.mobile_verify !== 1)
+    throw new Error("Please verify your mobile number first");
+
+
+  /* ─── Email Verification Check ─── */
+  if (user.email_verify !== 1)
+    throw new Error("Please verify your email before login");
+
 
   /* ─── OTP Validation ─── */
-  if (!user.loginotp)                              throw new Error("OTP not requested");
-  if (user.loginotp !== otp)                       throw new Error("Invalid OTP");
-  if (new Date(user.loginotpexpires) < new Date()) throw new Error("OTP expired");
+  if (!user.loginotp)
+    throw new Error("OTP not requested");
+
+  if (user.loginotp !== otp)
+    throw new Error("Invalid OTP");
+
+  if (new Date(user.loginotpexpires) < new Date())
+    throw new Error("OTP expired");
+
 
   /* ─── Shift Login Times (Bank Style) ─── */
   const [result] = await db.query(
@@ -371,7 +653,9 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
     [ipAddress || null, user.id]
   );
 
-  if (result.affectedRows === 0) throw new Error("Login state update failed");
+  if (result.affectedRows === 0)
+    throw new Error("Login state update failed");
+
 
   /* ─── Return User ─── */
   return {
@@ -382,8 +666,7 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
     name:     user.name
   };
 };
-
-/* ================= PAUSE ACCOUNT ================= */
+/* ================= PAUSE ACCOUNT ====================== */
 
 export const pauseAccountService = async (userId, durationKey) => {
 
@@ -408,7 +691,7 @@ export const pauseAccountService = async (userId, durationKey) => {
   return { status: "paused", pauseTill: end };
 };
 
-/* ================= ADMIN LOGIN ================= */
+/* ================= ADMIN LOGIN ========================= */
 
 const MAX_FAILED_ATTEMPTS = 5;
 
@@ -576,4 +859,68 @@ export const applyReferralContestBonus = async (userId) => {
   } finally {
     conn.release();
   }
+};
+
+
+/* ================= SEND EMAIL VERIFICATION LINK ================= */
+
+
+export const sendEmailVerificationService = async (email) => {
+
+  if (!email) throw new Error("Email required");
+
+  const [[user]] = await db.query(
+    `SELECT id, email_verify FROM users WHERE email = ?`,
+    [email]
+  );
+
+  if (!user) throw new Error("User not found");
+
+  if (user.email_verify === 1)
+    throw new Error("Email already verified");
+
+  // generate token
+  const token = crypto.randomBytes(32).toString("hex");
+
+  // store token in redis
+  await redis.set(`EMAIL_VERIFY:${token}`, user.id, { ex: 3600 });
+
+  const verifyLink = `${process.env.FRONTEND_URL}/verify-email?token=${token}`;
+
+  console.log("Email verify link:", verifyLink);
+
+  // ⭐ THIS LINE ACTUALLY SENDS EMAIL
+  await sendVerificationEmail(email, verifyLink);
+
+  return {
+    success: true,
+    message: "Verification email sent"
+  };
+};
+/* ================= VERIFY EMAIL LINK ================= */
+export const verifyEmailLinkService = async (token) => {
+
+  if (!token) throw new Error("Invalid verification link");
+
+  const userId = await redis.get(`EMAIL_VERIFY:${token}`);
+
+  if (!userId)
+    throw new Error("Verification link expired");
+
+  const [result] = await db.query(
+    `UPDATE users
+     SET email_verify = 1
+     WHERE id = ?`,
+    [userId]
+  );
+
+  if (result.affectedRows === 0)
+    throw new Error("User not found");
+
+  await redis.del(`EMAIL_VERIFY:${token}`);
+
+  return {
+    success: true,
+    message: "Email verified successfully"
+  };
 };

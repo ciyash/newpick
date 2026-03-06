@@ -6,7 +6,9 @@ import {
   verifySignupOtp,
   adminLogin,
   updateProfile,
-  getKycSdkToken
+  getKycSdkToken,
+  sendEmailVerification,
+  verifyEmailLink
 } from "../auth/auth.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 
@@ -21,4 +23,8 @@ router.post("/login", login);
 router.post("/admin/login", adminLogin);   
 router.patch("/update-profile",authenticate,checkAccountActive,updateProfile);
 
+router.post("/send-email-verification", sendEmailVerification);
+router.get("/verify-email", verifyEmailLink);
+
 export default router;
+   
