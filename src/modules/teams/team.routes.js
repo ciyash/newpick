@@ -1,31 +1,38 @@
 import express from "express";
-import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById,createTeam,getMyTeams,getTeamPlayers, getMyTeamsWithPlayers, updateTeam} from "./team.controller.js"
+import {
+  getAllTeams,
+  getTeamById,
+  getAllPlayers,
+  getPlayerById,
+  getPlayerTeamById,
+  createTeam,
+  getMyTeams,
+  getTeamPlayers,
+  getMyTeamsWithPlayers,
+  updateTeam,
+} from "./team.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
-import { createTeamRateLimit } from "../../middlewares/rateLimit.middleware.js";
+import { createTeamRateLimit, updateTeamRateLimit } from "../../middlewares/rateLimit.middleware.js";
 
 const router = express.Router();
 
-router.get("/get-teams", authenticate, checkAccountActive, getAllTeams);
+// ─── Players (public-ish, no rate limit needed) ────────────────────────────
 
-router.get("/get-teams/:id", authenticate, checkAccountActive, getTeamById);
+router.get("/players",                  authenticate, checkAccountActive, getAllPlayers);
+router.get("/players/:id",              authenticate, checkAccountActive, getPlayerById);
+router.get("/players/team/:id",         authenticate, checkAccountActive, getPlayerTeamById);
 
-router.get("/team-players", authenticate, checkAccountActive, getAllPlayers);
+// ─── Teams (general) ───────────────────────────────────────────────────────
 
-router.get("/team-players/team/:id", authenticate, checkAccountActive, getPlayerTeamById);
+router.get("/",                         authenticate, checkAccountActive, getAllTeams);
+router.get("/:id",                      authenticate, checkAccountActive, getTeamById);
 
-router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById); // 
+// ─── User teams ────────────────────────────────────────────────────────────
+router.post("/create",                  authenticate, checkAccountActive, createTeamRateLimit, createTeam);
+router.patch("/update/:teamId",         authenticate, checkAccountActive, updateTeamRateLimit, updateTeam);
 
-// user created teams
-
-router.post("/create",createTeamRateLimit, authenticate, checkAccountActive, createTeam);  
-
-router.get("/user-my-teams/:matchId", authenticate, checkAccountActive, getMyTeams);
-
-router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers);
-
-router.get("/my-teams-with-players", authenticate, checkAccountActive, getMyTeamsWithPlayers);
-
-router.put("/update-team/:teamId", authenticate, checkAccountActive,  updateTeam);
+router.get("/my-teams/:matchId",        authenticate, checkAccountActive, getMyTeams);
+router.get("/my-teams/with-players",    authenticate, checkAccountActive, getMyTeamsWithPlayers);
+router.get("/my-teams/players/:teamId", authenticate, checkAccountActive, getTeamPlayers);
 
 export default router;
-  

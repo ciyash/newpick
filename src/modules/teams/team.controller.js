@@ -1,6 +1,6 @@
 import db from "../../config/db.js";
 import { createTeamService,  getMyTeamsWithPlayersService, getTeamPlayersService, updateTeamService } from "./team.service.js";
-
+import { createTeamSchema, updateTeamSchema } from "./team.validation.js";
 
 export const getAllTeams = async (req, res) => {
   try {
@@ -180,17 +180,32 @@ export const getPlayerTeamById = async (req, res) => {
 
 
 
-
 export const createTeam = async (req, res) => {
   try {
 
     if (!req.user || !req.user.id) {
-      throw new Error("User not authenticated");
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
     }
 
     const userId = req.user.id;
 
-    const { matchId,  players, captainId, viceCaptainId } = req.body;
+    const { error, value } = createTeamSchema.validate(
+      { userId, ...req.body },
+      { abortEarly: false, convert: true }
+    );
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: error.details.map((d) => d.message),
+      });
+    }
+
+    const { matchId, players, captainId, viceCaptainId } = value;
 
     const response = await createTeamService(
       userId,
@@ -200,22 +215,35 @@ export const createTeam = async (req, res) => {
       viceCaptainId
     );
 
-      res.status(201).json({
+    res.status(201).json({
       success: true,
       message: response.message,
       teamId: response.teamId,
       teamName: response.teamName,
-      matchId: matchId  
+      matchId,
     });
 
   } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
+
+    // Known business logic errors
+    const knownErrors = [
+      "Match not found",
+      "Team creation is closed for this match",
+      "Maximum 20 teams allowed per match",
+      "Duplicate team not allowed",
+      "One or more players do not belong to this match",
+      "One or more players do not exist",
+    ];
+
+    if (knownErrors.includes(error.message)) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+
+    // Unknown server error — never leak raw DB errors to client
+    console.error("[createTeam]", error);
+    res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
 
 // export const getMyTeams = async (req, res) => {
 //   try {
@@ -321,21 +349,32 @@ export const updateTeam = async (req, res) => {
     const userId = req.user.id;
     const { teamId } = req.params;
 
-    const result = await updateTeamService(
-      userId,
-      teamId,
-      req.body
+    const { error, value } = updateTeamSchema.validate(
+      { teamId, ...req.body },
+      { abortEarly: false, convert: true }
     );
+
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation failed",
+        errors: error.details.map((d) => d.message),
+      });
+    }
+
+    const { teamId: validatedTeamId, ...body } = value;
+
+    const result = await updateTeamService(userId, validatedTeamId, body);
 
     res.status(200).json({
       success: true,
-      message: result.message
+      message: result.message,
     });
 
   } catch (error) {
     res.status(400).json({
       success: false,
-      message: error.message
+      message: error.message,
     });
   }
 };
