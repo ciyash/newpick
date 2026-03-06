@@ -220,16 +220,23 @@ export const addDepositServicchandu = async (
 
 export const addDepositService = async (userId, amount, paymentIntentId = null) => {
 
-  /* ─── 1️⃣ Validate Inputs ─── */
-  if (!userId) throw new Error("Invalid user");
+  /* ─── 1️⃣ Input Sanitization ─── */
+  if (userId === undefined || userId === null || String(userId).trim() === "") {
+    throw new Error("Invalid user");
+  }
+  const safeUserId = userId;
 
   const sanitizedAmount = Math.round(Number(amount) * 100) / 100;
-
   if (isNaN(sanitizedAmount) || sanitizedAmount <= 0) throw new Error("Invalid deposit amount");
   if (sanitizedAmount < 10)   throw new Error("Minimum deposit is £10");
   if (sanitizedAmount > 5000) throw new Error("Maximum single deposit is £5000");
 
-  if (!paymentIntentId && process.env.NODE_ENV === "production") {
+  // Sanitize paymentIntentId — trim and basic format guard
+  const safePaymentIntentId = typeof paymentIntentId === "string"
+    ? paymentIntentId.trim().slice(0, 200)
+    : null;
+
+  if (!safePaymentIntentId && process.env.NODE_ENV === "production") {
     throw new Error("Invalid payment reference");
   }
 
@@ -239,55 +246,58 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
   try {
     await conn.beginTransaction();
 
-    /* ─── 2 Acquire Named Lock — race condition fix ─── */
+    /* ─── 2️⃣ Acquire Named Lock — prevents race on company balance ─── */
     const [[lockResult]] = await conn.query(
       `SELECT GET_LOCK('company_balance_lock', 10) AS locked`
     );
     if (!lockResult?.locked) throw new Error("Server busy, please try again");
 
-    /* ─── 3 Duplicate Payment Check ─── */
-
-    if (paymentIntentId) {
+    /* ─── 3️⃣ Duplicate Payment Check ─── */
+    if (safePaymentIntentId) {
       const [[existing]] = await conn.query(
         `SELECT id FROM wallet_transactions
          WHERE reference_id = ?
          LIMIT 1`,
-        [paymentIntentId]
+        [safePaymentIntentId]
       );
       if (existing) throw new Error("Payment already processed");
     }
 
-    /* ─── 4 Get User Details ─── */
+    /* ─── 4️⃣ Get User Details ─── */
     const [[user]] = await conn.query(
       `SELECT name, email, mobile
        FROM users
        WHERE id = ?`,
-      [userId]
+      [safeUserId]
     );
     if (!user) throw new Error("User not found");
 
-    /* ─── 5 Get Wallet — FOR UPDATE locks row ─── */
+    /* ─── 5️⃣ Get Wallet — FOR UPDATE locks row ─── */
     const [[wallet]] = await conn.query(
-      `SELECT deposit_limit, depositwallet
+      `SELECT deposit_limit, depositwallet, earnwallet, bonusamount
        FROM wallets
        WHERE user_id = ?
        FOR UPDATE`,
-      [userId]
+      [safeUserId]
     );
     if (!wallet) throw new Error("Wallet not found");
 
-    const MONTHLY_LIMIT = Number(wallet.deposit_limit);
+    const MONTHLY_LIMIT  = Number(wallet.deposit_limit);
+    const depositBalance = Number(wallet.depositwallet  || 0);
+    const earnBalance    = Number(wallet.earnwallet      || 0);
+    const bonusBalance   = Number(wallet.bonusamount     || 0);
 
-    const userOpening = Number(wallet.depositwallet);
-    const userClosing = userOpening + sanitizedAmount;   // deposit credit → plus
+    // ✅ True total user balance across all wallets — consistent with all other services
+    const userOpening = Number((depositBalance + earnBalance + bonusBalance).toFixed(2));
+    const userClosing = Number((userOpening + sanitizedAmount).toFixed(2));  // deposit credit → total goes up
 
-    /* ─── 6 Monthly Limit Check ─── */
+    /* ─── 6️⃣ Monthly Limit Check ─── */
     const [[monthRow]] = await conn.query(
       `SELECT total_added
        FROM monthly_deposits
        WHERE user_id = ? AND ym = ?
        FOR UPDATE`,
-      [userId, yearMonth]
+      [safeUserId, yearMonth]
     );
 
     const alreadyAdded = monthRow ? Number(monthRow.total_added) : 0;
@@ -303,44 +313,44 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
       );
     }
 
-    /* ─── 7 Get Company Last Balance ─── */
+    /* ─── 7️⃣ Get Company Last Balance — FOR UPDATE prevents stale read ─── */
     const [[companyLast]] = await conn.query(
       `SELECT closing_balance
        FROM wallet_transactions
        WHERE closing_balance != 0
        ORDER BY id DESC
-       LIMIT 1`
+       LIMIT 1
+       FOR UPDATE`
     );
     const companyOpening = Number(companyLast?.closing_balance || 0);
-    const companyClosing = companyOpening + sanitizedAmount;   // deposit asset → plus
+    const companyClosing = Number((companyOpening + sanitizedAmount).toFixed(2));  // company receives deposit ↑
 
-    /* ─── 8 Update Monthly Deposits ─── */
+    /* ─── 8️⃣ Update Monthly Deposits ─── */
     if (monthRow) {
       await conn.query(
         `UPDATE monthly_deposits
          SET total_added = total_added + ?
          WHERE user_id = ? AND ym = ?`,
-        [sanitizedAmount, userId, yearMonth]
+        [sanitizedAmount, safeUserId, yearMonth]
       );
     } else {
       await conn.query(
         `INSERT INTO monthly_deposits (user_id, ym, total_added)
          VALUES (?, ?, ?)`,
-        [userId, yearMonth, sanitizedAmount]
+        [safeUserId, yearMonth, sanitizedAmount]
       );
     }
 
-    /* ─── 9 Update Wallet Balance ─── */
-
+    /* ─── 9️⃣ Update Wallet Balance ─── */
     await conn.query(
       `UPDATE wallets
        SET depositwallet  = depositwallet  + ?,
            total_deposits = total_deposits + ?
        WHERE user_id = ?`,
-      [sanitizedAmount, sanitizedAmount, userId]
+      [sanitizedAmount, sanitizedAmount, safeUserId]
     );
 
-    /* ─── 10 Insert Wallet Transaction — one row, both sides ─── */
+    /* ─── 🔟 Insert Wallet Transaction ─── */
     await conn.query(
       `INSERT INTO wallet_transactions
        (user_id, wallettype, transtype, remark,
@@ -354,15 +364,15 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
         ?, ?,
         ?)`,
       [
-        userId,
+        safeUserId,
         sanitizedAmount,
-        userOpening,    userClosing,      // user side
+        userOpening,    userClosing,      // ✅ earn + deposit + bonus total
         companyOpening, companyClosing,   // company side
-        paymentIntentId
+        safePaymentIntentId,
       ]
     );
 
-    /* ─── 11 Insert into Deposit Table ─── */
+    /* ─── 1️⃣1️⃣ Insert into Deposit Table ─── */
     await conn.query(
       `INSERT INTO deposite
        (createdAt, amount, depositeType, status,
@@ -371,47 +381,57 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
                ?, ?, ?, ?, ?)`,
       [
         sanitizedAmount,
-        userId,
+        safeUserId,
         user.mobile,
         user.email,
         user.name,
-        paymentIntentId
+        safePaymentIntentId,
       ]
     );
 
     await conn.commit();
 
     /* ─── Release Lock after commit ─── */
-
+    // ✅ Released on same conn BEFORE conn.release() — conn still valid here
     await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
 
     return {
       success:               true,
       addedAmount:           sanitizedAmount,
-      newBalance:            userClosing,
-      remainingMonthlyLimit: Math.max(0, remaining - sanitizedAmount)
+      newBalance:            userClosing,           // ✅ true total balance after deposit
+      remainingMonthlyLimit: Math.max(0, remaining - sanitizedAmount),
     };
 
   } catch (err) {
     await conn.rollback();
 
-  
-    await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
+    // ✅ Release lock on same conn — still valid even after rollback
+    try {
+      await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
+    } catch (_) {
+      // ignore — lock will auto-release when session ends
+    }
 
-    //  Dev logging — no sensitive data in production logs
     if (process.env.NODE_ENV !== "production") {
       console.error(
-        `[addDepositService] userId=${userId} amount=${sanitizedAmount} error=${err.message}`
+        `[addDepositService] userId=${safeUserId} amount=${sanitizedAmount} error=${err.message}`
       );
     }
+
     throw err;
 
   } finally {
+    // ✅ conn.release() always last — after lock released, after rollback/commit
     conn.release();
   }
 };
 
 export const getMyWalletService = async (userId) => {
+
+  if (userId === undefined || userId === null || String(userId).trim() === "") {
+    throw new Error("Invalid user");
+  }
+
   const [[wallet]] = await db.query(
     `SELECT depositwallet, earnwallet, bonusamount
      FROM wallets
@@ -421,12 +441,18 @@ export const getMyWalletService = async (userId) => {
 
   if (!wallet) throw new Error("Wallet not found");
 
+  const depositWallet  = Number(wallet.depositwallet || 0);
+  const earnWallet     = Number(wallet.earnwallet     || 0);
+  const bonusWallet    = Number(wallet.bonusamount    || 0);
+
   return {
-    depositWallet: Number(wallet.depositwallet),
-    withdrawWallet: Number(wallet.earnwallet),
-    bonusWallet: Number(wallet.bonusamount)
+    depositWallet,
+    earnWallet,
+    bonusWallet,
+    totalBalance: Number((depositWallet + earnWallet + bonusWallet).toFixed(2)),
   };
 };
+
 
 
 export const getMyTransactionsService = async (userId) => {

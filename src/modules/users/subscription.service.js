@@ -219,7 +219,7 @@ const PACK_CONFIG = {
 // };
 
 
-export const buySubscriptionService = async (userId, pack, meta = {}) => {
+export const buySubscriptionServicechandu = async (userId, pack, meta = {}) => {
   let conn;
 
   try {
@@ -446,6 +446,393 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
         earnUsed: earnUse,
         depositUsed: depositUse
       }  
+    };
+
+  } catch (err) {
+    if (conn) await conn.rollback();
+    throw err;
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
+export const buySubscriptionService = async (userId, pack, meta = {}) => {
+  let conn;
+
+  // ─── Input Sanitization ───────────────────────────────────────────────────
+  // userId may be integer or string (UUID etc.) — just guard against empty/null
+  if (userId === undefined || userId === null || String(userId).trim() === "") {
+    throw new Error("Invalid user ID");
+  }
+  const safeUserId = userId;
+
+  // pack must be a plain non-empty string — no objects, arrays, or prototypes
+  if (typeof pack !== "string" || !pack.trim()) {
+    throw new Error("Invalid pack");
+  }
+  const safePack = pack.trim();
+
+  // Sanitize meta — truncate ip and device to safe lengths
+  const safeIp     = typeof meta.ip     === "string" ? meta.ip.slice(0, 45)    : null;
+  const safeDevice = typeof meta.device === "string" ? meta.device.slice(0, 200) : null;
+
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    /* ================================
+       1️⃣ LOCK USER
+    ================================= */
+    const [[user]] = await conn.query(
+      `SELECT
+        subscribe,
+        subscribeenddate,
+        nextsubscribe,
+        subscription_bonus_given,
+        subscription_count
+       FROM users
+       WHERE id = ?
+       FOR UPDATE`,
+      [safeUserId]
+    );
+
+    if (!user) throw new Error("User not found");
+
+    // if (user.subscription_count >= 2) {
+    //   throw new Error("Subscription allowed only 2 times");
+    // }
+
+    /* ================================
+       2️⃣ VALIDATE PACK
+    ================================= */
+    const config = PACK_CONFIG[safePack];
+    if (!config) throw new Error("Invalid pack");
+
+    // Guard against bad PACK_CONFIG values
+    const price  = Number(config.price);
+    const bonus  = Number(config.bonus  ?? 0);
+    const months = Number(config.months ?? 0);
+
+    if (!price  || price  <= 0) throw new Error("Invalid pack price");
+    if (bonus   < 0)            throw new Error("Invalid pack bonus");
+    if (!months || months <= 0) throw new Error("Invalid pack duration");
+
+    /* ================================
+       3️⃣ LOCK WALLET
+    ================================= */
+    const [[wallet]] = await conn.query(
+      `SELECT depositwallet, earnwallet, bonusamount, is_frozen
+       FROM wallets
+       WHERE user_id = ?
+       FOR UPDATE`,
+      [safeUserId]
+    );
+
+    if (!wallet) throw new Error("Wallet not found");
+    if (Number(wallet.is_frozen) === 1) throw new Error("Wallet frozen");
+
+    /* ================================
+       4️⃣ VALIDATE SUBSCRIPTION STATE
+          Done BEFORE touching any money
+    ================================= */
+    const now = new Date();
+    const hasActive =
+      Number(user.subscribe) === 1 &&
+      user.subscribeenddate  &&
+      new Date(user.subscribeenddate) > now;
+
+    let startDate, endDate;
+
+    if (hasActive) {
+
+      if (Number(user.nextsubscribe) === 1) {
+        throw new Error("Next subscription already queued");
+      }
+
+      const expiryDate = new Date(user.subscribeenddate);
+      const diffDays   = (expiryDate - now) / (1000 * 60 * 60 * 24);
+
+      if (diffDays > 5) {
+        // ✅ Show exact date user can purchase next subscription
+        const availableFrom = new Date(expiryDate);
+        availableFrom.setDate(availableFrom.getDate() - 5);
+
+        const formatted = availableFrom.toLocaleDateString("en-GB", {
+          day:   "2-digit",
+          month: "long",
+          year:  "numeric",
+        });
+
+        throw new Error(`Next subscription can be purchased from ${formatted}`);
+      }
+
+      // Within 5 days — queue to start after current sub ends
+      startDate = new Date(user.subscribeenddate);
+      endDate   = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + months);
+
+    } else {
+      startDate = now;
+      endDate   = new Date(now);
+      endDate.setMonth(endDate.getMonth() + months);
+    }
+
+    // Guard against NaN dates from bad config.months
+    if (isNaN(endDate.getTime())) {
+      throw new Error("Failed to calculate subscription end date");
+    }
+
+    /* ================================
+       5️⃣ WALLET DEDUCTION LOGIC
+          Priority: earnwallet first,
+          remaining from depositwallet.
+          Bonus wallet never touched.
+    ================================= */
+    const earnBalance    = Number(wallet.earnwallet    || 0);
+    const depositBalance = Number(wallet.depositwallet || 0);
+
+    let remaining = price;
+
+    const earnUse    = Math.min(earnBalance, remaining);
+    remaining        = Number((remaining - earnUse).toFixed(2));
+
+    const depositUse = Math.min(depositBalance, remaining);
+    remaining        = Number((remaining - depositUse).toFixed(2));
+
+    if (remaining > 0) {
+      throw new Error("Insufficient balance for subscription");
+    }
+
+    /* ================================
+       6️⃣ OPENING / CLOSING BALANCES
+          userBalance  = earn + deposit only
+                         bonus is NOT deducted for subscription
+          bonusRunning = bonus wallet tracked independently for Row 3
+          companyBalance runs sequentially across all rows
+    ================================= */
+    const bonusBalance = Number(wallet.bonusamount || 0);
+
+    // ✅ earn + deposit + bonus = true total user balance
+    //    consistent across ALL transaction types (subscription, contest, deposit)
+    //    so user sees a single continuous balance trail when auditing
+    let userBalance  = Number((earnBalance + depositBalance + bonusBalance).toFixed(2));
+
+    // ✅ bonus tracked independently — used as opening/closing for Row 3 only
+    let bonusRunning = bonusBalance;
+
+    /* ================================
+       7️⃣ GET COMPANY LAST BALANCE
+          Locked with FOR UPDATE to prevent
+          stale read if concurrent transaction commits
+    ================================= */
+    const [[companyLast]] = await conn.query(
+      `SELECT closing_balance
+       FROM wallet_transactions
+       WHERE closing_balance != 0
+       ORDER BY id DESC
+       LIMIT 1
+       FOR UPDATE`
+    );
+    let companyBalance = Number(companyLast?.closing_balance || 0);
+
+    /* ================================
+       8️⃣ UPDATE WALLET BALANCES
+          WHERE clause guards prevent negative balances
+          at DB level — second line of defence after
+          the JS balance checks above
+    ================================= */
+    const [walletUpdate] = await conn.query(
+      `UPDATE wallets SET
+         earnwallet    = earnwallet    - ?,
+         depositwallet = depositwallet - ?
+       WHERE user_id = ?
+         AND earnwallet    >= ?
+         AND depositwallet >= ?`,
+      [earnUse, depositUse, safeUserId, earnUse, depositUse]
+    );
+
+    if (walletUpdate.affectedRows === 0) {
+      throw new Error("Insufficient balance for subscription");
+    }
+
+    /* ================================
+       9️⃣ REFERENCE IDs
+    ================================= */
+    const referenceId      = `SUB-${safeUserId}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const bonusReferenceId = `SUBBONUS-${safeUserId}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+
+    /* ================================
+       🔟 WALLET TRANSACTIONS
+          Row 1: earn debit    → user ↓  company ↑
+          Row 2: deposit debit → user ↓  company ↑
+          Row 3: bonus credit  → user ↑  company ↓
+    ================================= */
+
+    // ── Row 1: Earn wallet debit ──
+    if (earnUse > 0) {
+
+      const uOpen   = userBalance;
+      const uClose  = Number((userBalance    - earnUse).toFixed(2));
+      userBalance   = uClose;
+
+      const coOpen  = companyBalance;
+      const coClose = Number((companyBalance + earnUse).toFixed(2));  // company receives ↑
+      companyBalance = coClose;
+
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount,
+          useropeningbalance, userclosingbalance,
+          opening_balance,    closing_balance,
+          reference_id, ip_address, device)
+         VALUES (?, 'subscribe', 'debit', ?, ?,
+                 ?, ?,
+                 ?, ?,
+                 ?, ?, ?)`,
+        [
+          safeUserId,
+          `Subscription purchase (${safePack})`,
+          earnUse,
+          uOpen,  uClose,
+          coOpen, coClose,
+          referenceId,
+          safeIp,
+          safeDevice,
+        ]
+      );
+    }
+
+    // ── Row 2: Deposit wallet debit ──
+    if (depositUse > 0) {
+
+      const uOpen   = userBalance;
+      const uClose  = Number((userBalance    - depositUse).toFixed(2));
+      userBalance   = uClose;
+
+      const coOpen  = companyBalance;
+      const coClose = Number((companyBalance + depositUse).toFixed(2));  // company receives ↑
+      companyBalance = coClose;
+
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount,
+          useropeningbalance, userclosingbalance,
+          opening_balance,    closing_balance,
+          reference_id, ip_address, device)
+         VALUES (?, 'subscribe', 'debit', ?, ?,
+                 ?, ?,
+                 ?, ?,
+                 ?, ?, ?)`,
+        [
+          safeUserId,
+          `Subscription purchase (${safePack})`,
+          depositUse,
+          uOpen,  uClose,
+          coOpen, coClose,
+          referenceId,
+          safeIp,
+          safeDevice,
+        ]
+      );
+    }
+
+    // ── Row 3: Bonus credit + wallet update together (first sub only) ──
+    if (Number(user.subscription_bonus_given) === 0 && bonus > 0) {
+
+      // ✅ bonusRunning — independent from userBalance (earn+deposit)
+      const uOpen   = bonusRunning;
+      const uClose  = Number((bonusRunning   + bonus).toFixed(2));
+      bonusRunning  = uClose;
+
+      const coOpen  = companyBalance;
+      const coClose = Number((companyBalance - bonus).toFixed(2));  // company gives ↓
+      companyBalance = coClose;
+
+      // Wallet update and transaction insert in same block — always together
+      await conn.query(
+        `UPDATE wallets
+         SET bonusamount = bonusamount + ?
+         WHERE user_id = ?`,
+        [bonus, safeUserId]
+      );
+
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount,
+          useropeningbalance, userclosingbalance,
+          opening_balance,    closing_balance,
+          reference_id)
+         VALUES (?, 'bonus', 'credit', ?, ?,
+                 ?, ?,
+                 ?, ?,
+                 ?)`,
+        [
+          safeUserId,
+          `Subscription bonus (${safePack})`,
+          bonus,
+          uOpen,  uClose,
+          coOpen, coClose,
+          bonusReferenceId,
+        ]
+      );
+
+      await conn.query(
+        `UPDATE users
+         SET subscription_bonus_given = 1
+         WHERE id = ?`,
+        [safeUserId]
+      );
+    }
+
+    /* ================================
+       1️⃣1️⃣ ACTIVATE OR QUEUE SUBSCRIPTION
+    ================================= */
+    if (hasActive) {
+      await conn.query(
+        `UPDATE users SET
+          nextsubscribe          = 1,
+          nextsubscribepack      = ?,
+          nextsubscribestartdate = ?,
+          nextsubscribeenddate   = ?
+         WHERE id = ?`,
+        [safePack, startDate, endDate, safeUserId]
+      );
+    } else {
+      await conn.query(
+        `UPDATE users SET
+          subscribe          = 1,
+          subscribepack      = ?,
+          subscribestartdate = ?,
+          subscribeenddate   = ?
+         WHERE id = ?`,
+        [safePack, startDate, endDate, safeUserId]
+      );
+    }
+
+    /* ================================
+       1️⃣2️⃣ INCREMENT SUBSCRIPTION COUNT
+    ================================= */
+    await conn.query(
+      `UPDATE users
+       SET subscription_count = subscription_count + 1
+       WHERE id = ?`,
+      [safeUserId]
+    );
+
+    await conn.commit();
+
+    return {
+      success: true,
+      message: hasActive
+        ? "Subscription added to queue"
+        : "Subscription activated",
+      startDate,
+      endDate,
+      deduction: {
+        earnUsed:    earnUse,
+        depositUsed: depositUse,
+        bonusGiven:  Number(user.subscription_bonus_given) === 0 ? bonus : 0,
+      },
     };
 
   } catch (err) {

@@ -107,188 +107,20 @@ export const requestSignupOtpService = async (data) => {
 
 /* ================= VERIFY SIGNUP OTP ================= */
 
-// export const signupService = async ({ mobile, otp }) => {
-
-//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-//   /* ─── 1 OTP Check ─── */
-//   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
-//   if (!savedOtp)                        throw new Error("OTP expired");
-//   if (String(savedOtp) !== String(otp)) throw new Error("Invalid OTP");
-
-//   /* ─── 2 Get Signup Session ─── */
-//   const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
-//   if (!signupRaw) throw new Error("Signup session expired");
-
-//   let signupData;
-//   try {
-//     signupData = typeof signupRaw === "string" ? JSON.parse(signupRaw) : signupRaw;
-//   } catch {
-//     throw new Error("Invalid signup session data");
-//   }
-
-//   const { name, email, region, nickname, address, dob, category, referralid } = signupData;
-//   const categoryNormalized = String(category).toLowerCase().trim();
-
-//   /* ─── 3 Transaction — all or nothing ─── */
-//   const conn = await db.getConnection();
-//   try {
-//     await conn.beginTransaction();
-//     /* ─── 4 Generate Unique Usercode ─── */
-//     let usercode;
-//     while (true) {
-//       usercode = generateUserCode();
-//       const [[exists]] = await conn.query(
-//         "SELECT id FROM users WHERE usercode = ?", [usercode]
-//       );
-//       if (!exists) break;
-//     }
-//     /* ─── 5 Generate Userid — FOR UPDATE prevents race condition ─── */
-//     const [[lastUser]] = await conn.query(
-//       "SELECT userid FROM users ORDER BY id DESC LIMIT 1 FOR UPDATE"
-//     );
-//     const nextNumber = lastUser?.userid
-//       ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
-//       : 1;
-//     const userid = "PTW" + String(nextNumber).padStart(6, "0");
-
-//     /* ─── 6 Insert User ─── */
-//     const [result] = await conn.query(
-//       `INSERT INTO users
-//        (userid, usercode, name, email, mobile, region, address,
-//         dob, referalid, nickname, category, email_verify, mobile_verify,
-//         created_at, age_verified)
-//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, NOW(), 1)`,
-//       [
-//         userid, usercode, name, email,
-//         normalizedMobile, region, address || null,
-//         dob, referralid || null, nickname || null,
-//         categoryNormalized
-//       ]
-//     );
-//     const userId = result.insertId;
-
-//     /* ─── 7 Create Wallet ─── */
-//     const depositLimit = categoryNormalized === "students" ? 300 : 1500;
-//     const joiningBonus = 5;
-
-//     await conn.query(
-//       `INSERT INTO wallets
-//        (user_id, depositwallet, earnwallet, bonusamount,
-//         total_deposits, total_withdrawals, deposit_limit, depositelimitdate)
-//        VALUES (?, 0, 0, ?, 0, 0, ?, CURDATE())`,
-//       [userId, joiningBonus, depositLimit]
-//     );
-
-//     /* ─── 8 Joining Bonus Transaction ─── */
-  
-//     const { userOpening: joinUserOpening, companyOpening: joinCompanyOpening }
-//       = await getLastBalance(conn, userId);
-
-//     const joinUserClosing    = joinUserOpening    + joiningBonus;  // credit → plus
-//     const joinCompanyClosing = joinCompanyOpening - joiningBonus;  // expense → minus
-
-//     await conn.query(
-//       `INSERT INTO wallet_transactions
-//        (user_id, wallettype, transtype, remark,
-//         amount,
-//         useropeningbalance, userclosingbalance,
-//         opening_balance,    closing_balance)
-//        VALUES (?, 'bonus', 'credit', 'Joining bonus',
-//         ?,
-//         ?, ?,
-//         ?, ?)`,
-//       [
-//         userId,
-//         joiningBonus,
-//         joinUserOpening,    joinUserClosing,      // user side
-//         joinCompanyOpening, joinCompanyClosing     // company side
-//       ]
-//     );
-
-//     /* ─── 9 Referral System ─── */
-//     if (referralid) {
-//       const [[referrer]] = await conn.query(
-//         "SELECT id FROM users WHERE usercode = ?", [referralid]
-//       );
-
-//       if (referrer) {
-
-//         // Create referral mapping
-//         await conn.query(
-//           `INSERT IGNORE INTO referral_rewards (referrer_id, referred_id) VALUES (?, ?)`,
-//           [referrer.id, userId]
-//         );
-
-//         const referralSignupBonus = 3;
-
-//         // Update referred user wallet
-//         await conn.query(
-//           `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
-//           [referralSignupBonus, userId]
-//         );
-
-      
-//         const { userOpening: refUserOpening, companyOpening: refCompanyOpening }
-//           = await getLastBalance(conn, userId);
-
-//         const refUserClosing    = refUserOpening    + referralSignupBonus;  // credit → plus
-//         const refCompanyClosing = refCompanyOpening - referralSignupBonus;  // expense → minus
-
-//         await conn.query(
-//           `INSERT INTO wallet_transactions
-//            (user_id, wallettype, transtype, remark,
-//             amount,
-//             useropeningbalance, userclosingbalance,
-//             opening_balance,    closing_balance)
-//            VALUES (?, 'bonus', 'credit', 'Referral signup bonus',
-//             ?,
-//             ?, ?,
-//             ?, ?)`,
-//           [
-//             userId,
-//             referralSignupBonus,
-//             refUserOpening,    refUserClosing,       // user side
-//             refCompanyOpening, refCompanyClosing      // company side
-//           ]
-//         );
-//       }
-//     }
-
-//     await conn.commit();
-
-//     /* ─── Cleanup Redis — parallel for speed ─── */
-//     await Promise.all([
-//       redis.del(`SIGNUP:${normalizedMobile}`),
-//       redis.del(`SIGNUP_OTP:${normalizedMobile}`),
-//       redis.del(`KYC_VERIFIED:${normalizedMobile}`)
-//     ]);
-
-//     return {
-//       success: true,
-//       message: "Signup completed successfully",
-//       data: { userid, usercode, joiningBonus }
-//     };
-
-//   } catch (err) {
-//     await conn.rollback();
-//     throw err;
-//   } finally {
-//     conn.release();
-//   }
-// };
-
+const JOINING_BONUS          = 5;
+const REFERRAL_SIGNUP_BONUS  = 3;
+const MAX_USERCODE_RETRIES   = 10;
 
 export const signupService = async ({ mobile, otp }) => {
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-  /* ─── 1 OTP Check ─── */
+  /* ─── 1️⃣ OTP Check ─── */
   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
   if (!savedOtp) throw new Error("OTP expired");
   if (String(savedOtp) !== String(otp)) throw new Error("Invalid OTP");
 
-  /* ─── 2 Get Signup Session ─── */
+  /* ─── 2️⃣ Get & Validate Signup Session ─── */
   const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
   if (!signupRaw) throw new Error("Signup session expired");
 
@@ -300,20 +132,39 @@ export const signupService = async ({ mobile, otp }) => {
     throw new Error("Invalid signup session data");
   }
 
-  const { name, email, region, nickname, address, dob, category, referralid } =
-    signupData;
+  // ✅ Sanitize all fields from Redis before using in DB
+  const name       = String(signupData.name      || "").trim().slice(0, 100);
+  const email      = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
+  const region     = String(signupData.region     || "").trim().slice(0, 100);
+  const nickname   = signupData.nickname  ? String(signupData.nickname).trim().slice(0, 50)  : null;
+  const address    = signupData.address   ? String(signupData.address).trim().slice(0, 300)  : null;
+  const dob        = signupData.dob       ? String(signupData.dob).trim()                    : null;
+  const referralid = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20) : null;
+  const categoryNormalized = String(signupData.category || "").toLowerCase().trim();
 
-  const categoryNormalized = String(category).toLowerCase().trim();
+  if (!name)  throw new Error("Invalid signup session: missing name");
+  if (!email) throw new Error("Invalid signup session: missing email");
 
+  /* ─── 3️⃣ Transaction — all or nothing ─── */
   const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    /* ─── Generate Unique Usercode ─── */
+    /* ─── 4️⃣ Acquire Named Lock — prevents race on company balance ─── */
+    const [[lockResult]] = await conn.query(
+      `SELECT GET_LOCK('company_balance_lock', 10) AS locked`
+    );
+    if (!lockResult?.locked) throw new Error("Server busy, please try again");
+
+    /* ─── 5️⃣ Generate Unique Usercode — with retry limit ─── */
     let usercode;
+    let retries = 0;
 
     while (true) {
+      if (retries >= MAX_USERCODE_RETRIES) {
+        throw new Error("Failed to generate unique usercode, please try again");
+      }
       usercode = generateUserCode();
 
       const [[exists]] = await conn.query(
@@ -322,10 +173,10 @@ export const signupService = async ({ mobile, otp }) => {
       );
 
       if (!exists) break;
+      retries++;
     }
 
-    /* ─── Generate Userid ─── */
-
+    /* ─── 6️⃣ Generate Userid ─── */
     const [[lastUser]] = await conn.query(
       "SELECT userid FROM users ORDER BY id DESC LIMIT 1 FOR UPDATE"
     );
@@ -336,8 +187,7 @@ export const signupService = async ({ mobile, otp }) => {
 
     const userid = "PTW" + String(nextNumber).padStart(6, "0");
 
-    /* ─── Insert User ─── */
-
+    /* ─── 7️⃣ Insert User ─── */
     const [result] = await conn.query(
       `INSERT INTO users
        (userid, usercode, name, email, mobile, region, address,
@@ -346,16 +196,9 @@ export const signupService = async ({ mobile, otp }) => {
         created_at, age_verified)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, NOW(), 1)`,
       [
-        userid,
-        usercode,
-        name,
-        email,
-        normalizedMobile,
-        region,
-        address || null,
-        dob,
-        referralid || null,
-        nickname || null,
+        userid, usercode, name, email,
+        normalizedMobile, region, address,
+        dob, referralid, nickname,
         categoryNormalized,
       ]
     );
@@ -373,45 +216,68 @@ export const signupService = async ({ mobile, otp }) => {
       `INSERT INTO wallets
        (user_id, depositwallet, earnwallet, bonusamount,
         total_deposits, total_withdrawals, deposit_limit, depositelimitdate)
-       VALUES (?, 0, 0, ?, 0, 0, ?, CURDATE())`,
-      [userId, joiningBonus, depositLimit]
+       VALUES (?, 0, 0, 0, 0, 0, ?, CURDATE())`,
+      [userId, depositLimit]
     );
+    // ✅ Wallet starts at 0,0,0 — bonus credited via transaction below
+    //    so opening/closing balances are accurate from the first transaction
 
-    /* ─── Joining Bonus Transaction ─── */
-
-    const {
-      userOpening: joinUserOpening,
-      companyOpening: joinCompanyOpening,
-    } = await getLastBalance(conn, userId);
-
-    const joinUserClosing = joinUserOpening + joiningBonus;
-    const joinCompanyClosing = joinCompanyOpening - joiningBonus;
-
-    await conn.query(
-      `INSERT INTO wallet_transactions
-       (user_id, wallettype, transtype, remark,
-        amount,
-        useropeningbalance, userclosingbalance,
-        opening_balance, closing_balance)
-       VALUES (?, 'bonus', 'credit', 'Joining bonus',
-        ?, ?, ?, ?, ?)`,
-      [
-        userId,
-        joiningBonus,
-        joinUserOpening,
-        joinUserClosing,
-        joinCompanyOpening,
-        joinCompanyClosing,
-      ]
+    /* ─── 9️⃣ Get Company Last Balance ONCE — FOR UPDATE prevents stale read ─── */
+    const [[companyLast]] = await conn.query(
+      `SELECT closing_balance
+       FROM wallet_transactions
+       WHERE closing_balance != 0
+       ORDER BY id DESC
+       LIMIT 1
+       FOR UPDATE`
     );
+    let companyBalance = Number(companyLast?.closing_balance || 0);
 
-    /* ─── Referral System ─── */
+    // ✅ userBalance starts at 0 — new user, no funds yet
+    //    runs as sequential total across all transaction rows
+    //    consistent with buySubscriptionService pattern
+    let userBalance = 0;
 
+    /* ─── 🔟 Joining Bonus Transaction ─── */
+    {
+      const uOpen   = userBalance;
+      const uClose  = Number((userBalance    + JOINING_BONUS).toFixed(2));  // user receives ↑
+      userBalance   = uClose;
+
+      const coOpen  = companyBalance;
+      const coClose = Number((companyBalance - JOINING_BONUS).toFixed(2));  // company gives ↓
+      companyBalance = coClose;
+
+      // ✅ Credit wallet and insert transaction together
+      await conn.query(
+        `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
+        [JOINING_BONUS, userId]
+      );
+
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark,
+          amount,
+          useropeningbalance, userclosingbalance,
+          opening_balance,    closing_balance)
+         VALUES (?, 'bonus', 'credit', 'Joining bonus',
+          ?,
+          ?, ?,
+          ?, ?)`,
+        [
+          userId,
+          JOINING_BONUS,
+          uOpen,  uClose,       // user:    0 → 5
+          coOpen, coClose,      // company: X → X-5
+        ]
+      );
+    }
+
+    /* ─── 1️⃣1️⃣ Referral System ─── */
     if (referralid) {
 
       const [[referrer]] = await conn.query(
-        "SELECT id FROM users WHERE usercode = ?",
-        [referralid]
+        "SELECT id FROM users WHERE usercode = ? FOR UPDATE", [referralid]
       );
 
       if (referrer) {
@@ -423,23 +289,21 @@ export const signupService = async ({ mobile, otp }) => {
           [referrer.id, userId]
         );
 
-        const referralSignupBonus = 3;
+        // ✅ userBalance continues from where joining bonus left off (5)
+        //    NO separate getLastBalance call — avoids stale/wrong read
+        const uOpen   = userBalance;
+        const uClose  = Number((userBalance    + REFERRAL_SIGNUP_BONUS).toFixed(2));  // user receives ↑
+        userBalance   = uClose;
 
+        const coOpen  = companyBalance;
+        const coClose = Number((companyBalance - REFERRAL_SIGNUP_BONUS).toFixed(2));  // company gives ↓
+        companyBalance = coClose;
+
+        // ✅ Wallet update and transaction insert together
         await conn.query(
-          `UPDATE wallets
-           SET bonusamount = bonusamount + ?
-           WHERE user_id = ?`,
-          [referralSignupBonus, userId]
+          `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
+          [REFERRAL_SIGNUP_BONUS, userId]
         );
-
-        const {
-          userOpening: refUserOpening,
-          companyOpening: refCompanyOpening,
-        } = await getLastBalance(conn, userId);
-
-        const refUserClosing = refUserOpening + referralSignupBonus;
-        const refCompanyClosing =
-          refCompanyOpening - referralSignupBonus;
 
         await conn.query(
           `INSERT INTO wallet_transactions
@@ -451,11 +315,9 @@ export const signupService = async ({ mobile, otp }) => {
             ?, ?, ?, ?, ?)`,
           [
             userId,
-            referralSignupBonus,
-            refUserOpening,
-            refUserClosing,
-            refCompanyOpening,
-            refCompanyClosing,
+            REFERRAL_SIGNUP_BONUS,
+            uOpen,  uClose,       // user:    5 → 8
+            coOpen, coClose,      // company: X → X-3
           ]
         );
       }
@@ -463,8 +325,14 @@ export const signupService = async ({ mobile, otp }) => {
 
     await conn.commit();
 
-    /* ─── Cleanup Redis ─── */
+    /* ─── Release Lock after commit ─── */
+    try {
+      await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
+    } catch (_) {
+      // ignore — lock auto-releases when session ends
+    }
 
+    /* ─── Cleanup Redis — after commit so signup can't be reused ─── */
     await Promise.all([
       redis.del(`SIGNUP:${normalizedMobile}`),
       redis.del(`SIGNUP_OTP:${normalizedMobile}`),
@@ -474,12 +342,19 @@ export const signupService = async ({ mobile, otp }) => {
     return {
       success: true,
       message: "Signup completed successfully",
-      data: { userid, usercode, joiningBonus },
+      data: { userid, usercode, joiningBonus: JOINING_BONUS },
     };
 
   } catch (err) {
 
     await conn.rollback();
+
+    try {
+      await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
+    } catch (_) {
+      // ignore
+    }
+
     throw err;
 
   } finally {
