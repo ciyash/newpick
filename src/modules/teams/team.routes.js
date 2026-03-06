@@ -1,7 +1,7 @@
 import express from "express";
 import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById,createTeam,getMyTeams,getTeamPlayers, getMyTeamsWithPlayers, updateTeam} from "./team.controller.js"
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
-import { createTeamRateLimit } from "../../middlewares/rateLimit.middleware.js";
+import { createTeamRateLimit,updateTeamRateLimit } from "../../middlewares/rateLimit.middleware.js";
 
 const router = express.Router();
 
@@ -16,16 +16,14 @@ router.get("/team-players/team/:id", authenticate, checkAccountActive, getPlayer
 router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById); // 
 
 // user created teams
-
-router.post("/create",createTeamRateLimit, authenticate, checkAccountActive, createTeam);  
+router.post("/create",                  authenticate, checkAccountActive, createTeamRateLimit, createTeam);
+router.patch("/update/:teamId",         authenticate, checkAccountActive, updateTeamRateLimit, updateTeam);
 
 router.get("/user-my-teams/:matchId", authenticate, checkAccountActive, getMyTeams);
 
 router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers);
 
 router.get("/my-teams-with-players", authenticate, checkAccountActive, getMyTeamsWithPlayers);
-
-router.put("/update-team/:teamId", authenticate, checkAccountActive,  updateTeam);
 
 export default router;
   

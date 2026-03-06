@@ -174,8 +174,7 @@ import db from "../../config/db.js";
 //   }
 // };
 
-
-export const createTeamService = async (
+export const createTeamServicchandu = async (
   userId,
   matchId,
   players,
@@ -338,6 +337,176 @@ export const createTeamService = async (
     conn.release();
 
   }
+};
+
+export const createTeamService = async (
+  userId,
+  matchId,
+  players,
+  captainId,
+  viceCaptainId
+) => {
+
+  const conn = await db.getConnection();
+
+  try {
+
+    await conn.beginTransaction();
+
+    /* ================================
+       0️⃣ MATCH CHECK
+    ================================= */
+
+    const [[match]] = await conn.query(
+      `SELECT status, start_time
+       FROM matches
+       WHERE id = ?`,
+      [matchId]
+    );
+
+    if (!match) {
+      throw new Error("Match not found");
+    }
+
+    // ✅ Normalized to lowercase — handles "UPCOMING", "Upcoming", "upcoming"
+    const now = new Date();
+    const matchStatus = match.status?.trim().toLowerCase();
+    if (matchStatus !== "upcoming" || now >= new Date(match.start_time)) {
+      throw new Error("Team creation is closed for this match");
+    }
+
+    /* ================================
+       1️⃣ FETCH PLAYERS & ROLES
+          Validate all player IDs exist and
+          grab their position in one query
+    ================================= */
+
+    const [playersData] = await conn.query(
+      `SELECT id AS player_id, position AS role
+       FROM players
+       WHERE id IN (?)`,
+      [players]
+    );
+
+    if (playersData.length !== players.length) {
+      throw new Error("One or more players do not exist");
+    }
+
+    // Build a map of playerId → role for quick lookup
+    const playerRoleMap = Object.fromEntries(
+      playersData.map(({ player_id, role }) => [player_id, role])
+    );
+
+    /* ================================
+       2️⃣ TEAM SIGNATURE
+    ================================= */
+
+    const sortedPlayers = [...players].sort((a, b) => a - b);
+
+    const teamSignature =
+      sortedPlayers.join(",") +
+      `|C${captainId}|VC${viceCaptainId}`;
+
+    /* ================================
+       3️⃣ MAX 20 TEAMS CHECK
+          Lock actual rows (not COUNT) to prevent
+          race condition with concurrent requests
+    ================================= */
+
+    const [existingTeams] = await conn.query(
+      `SELECT id
+       FROM user_teams
+       WHERE user_id = ? AND match_id = ?
+       FOR UPDATE`,
+      [userId, matchId]
+    );
+
+    if (existingTeams.length >= 20) {
+      throw new Error("Maximum 20 teams allowed per match");
+    }
+
+    const teamName = `Team ${existingTeams.length + 1}`;
+
+    /* ================================
+       4️⃣ INSERT TEAM
+          teamSignature unique constraint is the
+          final DB-level guard against duplicates
+    ================================= */
+
+    let teamId;
+
+    try {
+
+      const [teamResult] = await conn.execute(
+        `INSERT INTO user_teams
+         (user_id, match_id, team_name, team_signature, locked)
+         VALUES (?, ?, ?, ?, 0)`,
+        [userId, matchId, teamName, teamSignature]
+      );
+
+      teamId = teamResult.insertId;
+
+    } catch (err) {
+
+      if (err.code === "ER_DUP_ENTRY") {
+        throw new Error("Duplicate team not allowed");
+      }
+
+      throw err;
+    }
+
+    /* ================================
+       5️⃣ BULK INSERT TEAM PLAYERS
+          Includes role fetched from players table —
+          single query, atomic, no loop
+    ================================= */
+
+    const playerRows = players.map((playerId) => [
+      teamId,
+      playerId,
+      playerRoleMap[playerId] ?? null,
+      playerId === captainId ? 1 : 0,
+      playerId === viceCaptainId ? 1 : 0,
+    ]);
+
+    try {
+
+      await conn.query(
+        `INSERT INTO user_team_players
+         (user_team_id, player_id, role, is_captain, is_vice_captain)
+         VALUES ?`,
+        [playerRows]
+      );
+
+    } catch (err) {
+
+      if (err.code === "ER_NO_REFERENCED_ROW_2") {
+        throw new Error("One or more players do not exist");
+      }
+
+      throw err;
+    }
+
+    await conn.commit();
+
+    return {
+      success: true,
+      message: "Team created successfully",
+      teamId,
+      teamName,
+    };
+
+  } catch (err) {
+
+    await conn.rollback();
+    throw err;
+
+  } finally {
+
+    conn.release();
+
+  }
+
 };
 
 export const getMyTeamsMatchIdPlayersService = async (userId, matchId) => {
