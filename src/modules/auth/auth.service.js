@@ -817,7 +817,7 @@ export const applyReferralContestBonus = async (userId) => {
     await conn.query(
       `UPDATE users SET referral_bonus = referral_bonus + ? WHERE id = ?`,
       [reward, ref.referrer_id]
-    );
+    );  
 
     /* ─── Referrer Wallet Transaction ─── */
     const { userOpening, companyOpening } = await getLastBalance(conn, ref.referrer_id);
@@ -923,4 +923,4 @@ export const verifyEmailLinkService = async (token) => {
     success: true,
     message: "Email verified successfully"
   };
-};
+};   
