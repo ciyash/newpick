@@ -196,7 +196,7 @@ export const getUserProfileService = async (userId) => {
     throw new Error("User not found");
   }
 
-  /* ================= WALLET ================= */
+  /* ================= WALLET =================== */
 
   const [[wallet]] = await db.query(
     `SELECT 
