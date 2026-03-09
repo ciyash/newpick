@@ -21,7 +21,7 @@ export const addMoney = async (req, res) => {
     });
   }
 };
-
+ 
 export const getMyWallet = async (req, res) => {
   try {
     const userId = req.user.id; // 🔐 from JWT
