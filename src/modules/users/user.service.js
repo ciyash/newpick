@@ -3,7 +3,6 @@ import db from "../../config/db.js";
 import { getSubscriptionStatusService } from "./subscription.service.js";
 
 
-
 // export const getUserProfileService = async (userId) => {
 
 //   /* ================= USER DETAILS ================= */
@@ -164,7 +163,7 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //   };
 // };
 
-
+//
 export const getUserProfileService = async (userId) => {
 
   /* ================= USER DETAILS ================= */
