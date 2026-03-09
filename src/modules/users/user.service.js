@@ -3,7 +3,6 @@ import db from "../../config/db.js";
 import { getSubscriptionStatusService } from "./subscription.service.js";
 
 
-
 // export const getUserProfileService = async (userId) => {
 
 //   /* ================= USER DETAILS ================= */
@@ -53,7 +52,8 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //     depositwallet: 0,
 //     earnwallet: 0,
 //     bonusamount: 0,
-//     deposit_limit: 0
+//     deposit_limit: 0,
+//     limit_reduced_once: 0
 //   };
 
 //   const depositWallet = Number(safeWallet.depositwallet);
@@ -76,7 +76,11 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //   const addedThisMonth = monthly ? Number(monthly.total_added) : 0;
 
 //   const monthlyLimit = Number(safeWallet.deposit_limit);
+
 //   const remainingThisMonth = Math.max(monthlyLimit - addedThisMonth, 0);
+
+//   /* 🔥 FRONTEND USE LOGIC */
+//   const canAddCash = remainingThisMonth > 0;
 
 //   /* ================= WITHDRAW HISTORY ================= */
 
@@ -110,11 +114,11 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //       category: user.category,
 //       dob: user.dob,
 //       memberSince: user.created_at,
-//        SOFverify: user.issofverify,
-//         KYCverify: user.kyc_status,
-//         Walletlimit:wallet.limit_reduced_once,
 
+//       SOFverify: user.issofverify,
+//       KYCverify: user.kyc_status,
 
+//       Walletlimit: safeWallet.limit_reduced_once,
 
 //       // Previous Login
 //       lastLoginDate: user.last_login
@@ -140,15 +144,16 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //       totalWallet
 //     },
 
-//     /* ===== LIMITS ===== */
+//     /* ===== DEPOSIT LIMIT LOGIC ===== */
 
 //     depositLimits: {
 //       monthlyLimit,
 //       addedThisMonth,
-//       remainingThisMonth
+//       remainingThisMonth,
+//       canAddCash   // 🔥 frontend disable logic
 //     },
 
-//     /* ===== PAYMENTS & WITHDRAWALS ===== */
+//     /* ===== WITHDRAW HISTORY ===== */
 
 //     withdrawals: withdrawals || [],
 
@@ -157,6 +162,7 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //     subscription
 //   };
 // };
+
 
 export const getUserProfileService = async (userId) => {
 
