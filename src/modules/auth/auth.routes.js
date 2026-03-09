@@ -37,4 +37,4 @@ router.post("/verify-old-contact",authenticate,verifyOldContact);
 router.post("/verify-new-contact",authenticate,verifyNewContact);
 
 export default router;
-   
+    
