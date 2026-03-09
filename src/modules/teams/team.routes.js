@@ -17,7 +17,7 @@ router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById)
 
 // user created teams
 router.post("/create",                  authenticate, checkAccountActive, createTeamRateLimit, createTeam);
-router.patch("/update-team/:teamId",         authenticate, checkAccountActive, updateTeamRateLimit, updateTeam);
+router.put("/update-team/:teamId",         authenticate, checkAccountActive, updateTeamRateLimit, updateTeam);
 
 router.get("/user-my-teams/:matchId", authenticate, checkAccountActive, getMyTeams);
 

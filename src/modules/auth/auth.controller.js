@@ -5,7 +5,10 @@ import {
   signupService, sendLoginOtpService, loginService,
   requestSignupOtpService, adminLoginService, updateProfileService,
   sendEmailVerificationService,
-  verifyEmailLinkService
+  verifyEmailLinkService,
+  requestContactChangeService,
+  verifyOldContactService,
+  verifyNewContactService
 } from "../auth/auth.service.js";
 import { getClientIp } from "../../utils/ip.js";
 import redis from "../../config/redis.js";
@@ -221,5 +224,106 @@ export const verifyEmailLink = async (req, res) => {
 
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+};
+
+
+/* ================= REQUEST CONTACT CHANGE ================= */
+
+export const requestContactChange = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+    const { type, newValue } = req.body;
+
+    if (!type || !newValue) {
+      return res.status(400).json({
+        success: false,
+        message: "type and newValue are required"
+      });
+    }
+
+    if (!["email", "mobile"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid type. Must be email or mobile"
+      });
+    }
+
+    const result = await requestContactChangeService(
+      userId,
+      type,
+      newValue
+    );
+
+    res.status(200).json(result);
+
+  } catch (err) {
+
+    res.status(400).json({
+      success: false,
+      message: err.message
+    });
+
+  }
+};
+
+
+/* ================= VERIFY OLD CONTACT ================= */
+
+export const verifyOldContact = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+    const { otp } = req.body;
+
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        message: "OTP required"
+      });
+    }
+
+    const result = await verifyOldContactService(userId, otp);
+
+    res.status(200).json(result);
+
+  } catch (err) {
+
+    res.status(400).json({
+      success: false,
+      message: err.message
+    });
+
+  }
+};
+
+
+/* ================= VERIFY NEW CONTACT ================= */
+
+export const verifyNewContact = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+    const { otp } = req.body;
+
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        message: "OTP required"
+      });
+    }
+
+    const result = await verifyNewContactService(userId, otp);
+
+    res.status(200).json(result);
+
+  } catch (err) {
+
+    res.status(400).json({
+      success: false,
+      message: err.message
+    });
+
   }
 };

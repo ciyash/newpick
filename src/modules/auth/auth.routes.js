@@ -8,7 +8,10 @@ import {
   updateProfile,
   getKycSdkToken,
   sendEmailVerification,
-  verifyEmailLink
+  verifyEmailLink,
+  requestContactChange,
+  verifyOldContact,
+  verifyNewContact
 } from "../auth/auth.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 
@@ -25,6 +28,13 @@ router.patch("/update-profile",authenticate,checkAccountActive,updateProfile);
 
 router.post("/send-email-verification", sendEmailVerification);
 router.get("/verify-email", verifyEmailLink);
+
+// CONTACT CHANGE ROUTES
+router.post("/request-contact-change",authenticate, requestContactChange);
+
+router.post("/verify-old-contact",authenticate,verifyOldContact);
+
+router.post("/verify-new-contact",authenticate,verifyNewContact);
 
 export default router;
    

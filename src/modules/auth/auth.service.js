@@ -4,7 +4,7 @@ import redis from "../../config/redis.js";
 import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
 import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
-
+import { sendOtpEmail } from "../../utils/send.otp.mails.js"
 /* ================= PAUSE PLANS ================= */
 
 const PAUSE_PLANS = {
@@ -799,3 +799,131 @@ export const verifyEmailLinkService = async (token) => {
     message: "Email verified successfully"
   };
 };   
+
+
+export const requestContactChangeService = async (userId, type, newValue) => {
+
+  /* 1️⃣ Get user old contact */
+
+  const [[user]] = await db.query(
+    `SELECT email, mobile FROM users WHERE id = ?`,
+    [userId]
+  );
+
+  if (!user) throw new Error("User not found");
+
+  const oldEmail = user.email;
+  const oldMobile = user.mobile;
+
+  /* 2️⃣ Generate OTP */
+
+  const otp = crypto.randomInt(100000, 999999).toString();
+
+  /* 3️⃣ Store session in redis */
+
+  await redis.set(
+    `CONTACT_CHANGE:${userId}`,
+    JSON.stringify({ type, newValue }),
+    { ex: 300 }
+  );
+
+  await redis.set(
+    `CONTACT_CHANGE_OTP:${userId}`,
+    otp,
+    { ex: 300 }
+  );
+
+  /* 4️⃣ Send OTP to OLD contact */
+
+  if (type === "email") {
+
+    await sendOtpEmail(oldEmail, otp);
+
+  } else if (type === "mobile") {
+
+    // example SMS placeholder
+    console.log(`Send OTP ${otp} to mobile ${oldMobile}`);
+
+  }
+
+  return {
+    success: true,
+    message: `OTP sent to your registered ${type}`
+  };
+};
+
+export const verifyOldContactService = async (userId, otp) => {
+
+  const savedOtp = await redis.get(`CHANGE_CONTACT_OLD_OTP:${userId}`);
+
+  if (!savedOtp) throw new Error("OTP expired");
+
+  if (savedOtp !== otp)
+    throw new Error("Invalid OTP");
+
+  const session = await redis.get(`CHANGE_CONTACT:${userId}`);
+
+  if (!session)
+    throw new Error("Session expired");
+
+  const { type, newValue } = JSON.parse(session);
+
+  const newOtp = crypto.randomInt(100000, 999999).toString();
+
+  await redis.set(
+    `CHANGE_CONTACT_NEW_OTP:${userId}`,
+    newOtp,
+    { ex: 300 }
+  );
+
+  console.log(`Send OTP ${newOtp} to new ${type}:`, newValue);
+
+  return {
+    success: true,
+    message: `OTP sent to new ${type}`
+  };
+};
+
+export const verifyNewContactService = async (userId, otp) => {
+
+  const savedOtp = await redis.get(`CHANGE_CONTACT_NEW_OTP:${userId}`);
+
+  if (!savedOtp)
+    throw new Error("OTP expired");
+
+  if (savedOtp !== otp)
+    throw new Error("Invalid OTP");
+
+  const session = await redis.get(`CHANGE_CONTACT:${userId}`);
+
+  if (!session)
+    throw new Error("Session expired");
+
+  const { type, newValue } = JSON.parse(session);
+
+  if (type === "email") {
+
+    await db.query(
+      `UPDATE users SET email = ?, email_verify = 0 WHERE id = ?`,
+      [newValue, userId]
+    );
+
+  } else {
+
+    await db.query(
+      `UPDATE users SET mobile = ?, mobile_verify = 0 WHERE id = ?`,
+      [newValue, userId]
+    );
+
+  }
+
+  await redis.del(`CHANGE_CONTACT:${userId}`);
+  await redis.del(`CHANGE_CONTACT_OLD_OTP:${userId}`);
+  await redis.del(`CHANGE_CONTACT_NEW_OTP:${userId}`);
+
+  return {
+    success: true,
+    message: `${type} updated successfully`
+  };
+};
+
