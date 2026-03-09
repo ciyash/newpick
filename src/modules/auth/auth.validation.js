@@ -10,7 +10,7 @@ export const signupSchema = Joi.object({
   category: Joi.string().valid("students", "others").required(),
   nickname: Joi.string().min(3).max(50).optional().allow(null, ""),
   referralid: Joi.string().empty("").default("AAAAA1111").optional(),
-});
+}); 
 
 export const verifyOtpSchema = Joi.object({
   mobile: Joi.string().pattern(/^[0-9]{10,15}$/).required(),

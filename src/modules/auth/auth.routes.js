@@ -4,7 +4,7 @@ import {
   login,
   sendLoginOtp,
   verifySignupOtp,
-  adminLogin,
+  adminLogin,  
   updateProfile,
   getKycSdkToken,
   sendEmailVerification,

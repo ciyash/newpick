@@ -8,24 +8,32 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 
 //   /* ================= USER DETAILS ================= */
 
- 
 //   const [[user]] = await db.query(
-//   `SELECT 
-//       userid,
-//       usercode,
-//       name,
-//       email,
-//       mobile,
-//       nickname,
-//       region,
-//       category,
-//       dob,
-//       created_at
-//    FROM users
-//    WHERE id = ?`,
-//   [userId]
-// );
+//     `SELECT 
+//         userid,
+//         usercode,
+//         name,
+//         email,
+//         mobile,
+//         nickname,
+//         region,
+//         category,
+//         dob,
+//         created_at,
+//         last_login,
+//         current_login,
+//         last_login_ip,
+//         current_login_ip,
+//         issofverify,
+//         kyc_status
+//      FROM users
+//      WHERE id = ?`,
+//     [userId]
+//   );
 
+//   if (!user) {
+//     throw new Error("User not found");
+//   }
 
 //   /* ================= WALLET ================= */
 
@@ -34,11 +42,25 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //         depositwallet,
 //         earnwallet,
 //         bonusamount,
-//         deposit_limit
+//         deposit_limit,
+//         limit_reduced_once
 //      FROM wallets
 //      WHERE user_id = ?`,
 //     [userId]
 //   );
+
+//   const safeWallet = wallet || {
+//     depositwallet: 0,
+//     earnwallet: 0,
+//     bonusamount: 0,
+//     deposit_limit: 0
+//   };
+
+//   const depositWallet = Number(safeWallet.depositwallet);
+//   const withdrawWallet = Number(safeWallet.earnwallet);
+//   const bonusWallet = Number(safeWallet.bonusamount);
+
+//   const totalWallet = depositWallet + withdrawWallet + bonusWallet;
 
 //   /* ================= MONTHLY DEPOSIT ================= */
 
@@ -51,7 +73,10 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //     [userId, yearMonth]
 //   );
 
-//   const added = monthly ? Number(monthly.total_added) : 0;
+//   const addedThisMonth = monthly ? Number(monthly.total_added) : 0;
+
+//   const monthlyLimit = Number(safeWallet.deposit_limit);
+//   const remainingThisMonth = Math.max(monthlyLimit - addedThisMonth, 0);
 
 //   /* ================= WITHDRAW HISTORY ================= */
 
@@ -80,46 +105,58 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 //       name: user.name,
 //       email: user.email,
 //       mobile: user.mobile,
-//       nickname: user.nickname || null, 
+//       nickname: user.nickname || null,
 //       region: user.region,
 //       category: user.category,
 //       dob: user.dob,
-//       memberSince: user.created_at
+//       memberSince: user.created_at,
+//        SOFverify: user.issofverify,
+//         KYCverify: user.kyc_status,
+//         Walletlimit:wallet.limit_reduced_once,
+
+
+
+//       // Previous Login
+//       lastLoginDate: user.last_login
+//         ? new Date(user.last_login).toLocaleString("en-IN")
+//         : "First login",
+
+//       lastLoginIp: user.last_login_ip || null,
+
+//       // Current Login
+//       currentLoginDate: user.current_login
+//         ? new Date(user.current_login).toLocaleString("en-IN")
+//         : null,
+
+//       currentLoginIp: user.current_login_ip || null
 //     },
-
-//     /* ===== ACCOUNT STATUS ===== */
-
-//     // accountStatus: {
-//     //   accountState: user.account_state || "Active",
-//     //   kycStatus: user.kyc_status || "Pending"
-//     // },
 
 //     /* ===== WALLET ===== */
 
 //     wallet: {
-//       depositWallet: Number(wallet.depositwallet),
-//       withdrawWallet: Number(wallet.earnwallet),
-//       bonusWallet: Number(wallet.bonusamount)
+//       depositWallet,
+//       withdrawWallet,
+//       bonusWallet,
+//       totalWallet
 //     },
 
 //     /* ===== LIMITS ===== */
 
 //     depositLimits: {
-//       monthlyLimit: Number(wallet.deposit_limit),
-//       addedThisMonth: added,
-//       remainingThisMonth: wallet.deposit_limit - added
+//       monthlyLimit,
+//       addedThisMonth,
+//       remainingThisMonth
 //     },
 
 //     /* ===== PAYMENTS & WITHDRAWALS ===== */
 
-//     withdrawals,
+//     withdrawals: withdrawals || [],
 
 //     /* ===== SUBSCRIPTION ===== */
 
 //     subscription
 //   };
 // };
-
 
 export const getUserProfileService = async (userId) => {
 
@@ -170,7 +207,8 @@ export const getUserProfileService = async (userId) => {
     depositwallet: 0,
     earnwallet: 0,
     bonusamount: 0,
-    deposit_limit: 0
+    deposit_limit: 0,
+    limit_reduced_once: 0
   };
 
   const depositWallet = Number(safeWallet.depositwallet);
@@ -193,7 +231,11 @@ export const getUserProfileService = async (userId) => {
   const addedThisMonth = monthly ? Number(monthly.total_added) : 0;
 
   const monthlyLimit = Number(safeWallet.deposit_limit);
+
   const remainingThisMonth = Math.max(monthlyLimit - addedThisMonth, 0);
+
+  /* 🔥 FRONTEND USE LOGIC */
+  const canAddCash = remainingThisMonth > 0;
 
   /* ================= WITHDRAW HISTORY ================= */
 
@@ -227,11 +269,11 @@ export const getUserProfileService = async (userId) => {
       category: user.category,
       dob: user.dob,
       memberSince: user.created_at,
-       SOFverify: user.issofverify,
-        KYCverify: user.kyc_status,
-        Walletlimit:wallet.limit_reduced_once,
 
+      SOFverify: user.issofverify,
+      KYCverify: user.kyc_status,
 
+      Walletlimit: safeWallet.limit_reduced_once,
 
       // Previous Login
       lastLoginDate: user.last_login
@@ -257,15 +299,16 @@ export const getUserProfileService = async (userId) => {
       totalWallet
     },
 
-    /* ===== LIMITS ===== */
+    /* ===== DEPOSIT LIMIT LOGIC ===== */
 
     depositLimits: {
       monthlyLimit,
       addedThisMonth,
-      remainingThisMonth
+      remainingThisMonth,
+      canAddCash   // 🔥 frontend disable logic
     },
 
-    /* ===== PAYMENTS & WITHDRAWALS ===== */
+    /* ===== WITHDRAW HISTORY ===== */
 
     withdrawals: withdrawals || [],
 

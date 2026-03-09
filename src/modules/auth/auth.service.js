@@ -665,7 +665,7 @@ export const updateProfileService = async (userId, data) => {
 
   return { success: true, message: "Profile updated successfully" };
 };
-
+ 
 /* ================= REFERRAL CONTEST BONUS ================= */
 
 export const applyReferralContestBonus = async (userId) => {

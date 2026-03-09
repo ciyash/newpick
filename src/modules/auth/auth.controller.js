@@ -42,7 +42,7 @@ export const verifySignupOtp = async (req, res) => {
   }
 };
 
-/* ================= SEND LOGIN OTP ================= */
+/* ================= SEND LOGIN OTP ================= */ 
 
 export const sendLoginOtp = async (req, res) => {
   try {
