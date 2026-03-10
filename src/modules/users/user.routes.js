@@ -15,6 +15,7 @@ import paymentRoutes from '../payment/payment.router.js'
 import uctRoutes from '../uct/uct.route.js'
 import kycRoutes from '../kyc/kyc.route.js'
 import withdrawRoutes from '../withdraw/withdraw.routes.js'
+import bankRoutes from '../bank/bank.route.js'
 
 const app = express.Router();
 
@@ -36,5 +37,6 @@ app.use("/payment",authenticate,checkAccountActive, paymentRoutes)
 app.use("/uct",authenticate,checkAccountActive, uctRoutes)
 app.use("/kyc",authenticate,checkAccountActive,kycRoutes)
 app.use("/withdraw", withdrawRoutes);
+app.use("/bank",authenticate,checkAccountActive, bankRoutes);
 
 export default app;     

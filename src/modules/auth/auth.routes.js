@@ -17,13 +17,16 @@ import { authenticate, checkAccountActive } from "../../middlewares/auth.middlew
 
 const router = Router();
 
-router.post("/signup",signup);
-router.get("/kyc-token",getKycSdkToken)
+// ADMIN LOGIN
+router.post("/admin/login", adminLogin);   
 
+//USER ROUTES
+router.post("/signup",signup);
+router.post("/kyc-token",getKycSdkToken)
 router.post("/verify-signup", verifySignupOtp);
 router.post("/login/send-otp", sendLoginOtp);
 router.post("/login", login);
-router.post("/admin/login", adminLogin);   
+
 router.patch("/update-profile",authenticate,checkAccountActive,updateProfile);
 
 router.post("/send-email-verification", sendEmailVerification);
@@ -37,4 +40,3 @@ router.post("/verify-old-contact",authenticate,verifyOldContact);
 router.post("/verify-new-contact",authenticate,verifyNewContact);
 
 export default router;
-    
