@@ -47,7 +47,7 @@ export const updateSeries = validate(Joi.object({
 }).min(1)); 
 /* ================= MATCH ================= */
 
-export const createMatch = validate(
+export const createMatchol = validate(
   Joi.object({
     series_id: Joi.number().integer().positive().required(),
 
@@ -73,6 +73,34 @@ export const createMatch = validate(
       return helpers.message("Match must be scheduled in the future");
     }
 
+    return value;
+  })
+);
+export const createMatch = validate(
+  Joi.object({
+    series_id:    Joi.number().integer().positive().required(),
+    home_team_id: Joi.number().integer().positive().required(),
+    away_team_id: Joi.number().integer().positive().required(),
+    matchdate:    Joi.string().pattern(/^\d{4}-\d{2}-\d{2}$/).required(),
+    start_time:   Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/).required(),
+
+    // ✅ Add contests array
+    contests: Joi.array().items(
+      Joi.object({
+        category_id:   Joi.number().integer().positive().required(),
+        max_entries:   Joi.number().integer().min(2).required(),
+        is_guaranteed: Joi.number().valid(0, 1).default(0),
+      })
+    ).min(1).required().messages({
+      "array.min":  "At least one contest category must be selected",
+      "any.required": "contests is required",
+    }),
+
+  }).custom((value, helpers) => {
+    const matchDateTime = new Date(`${value.matchdate}T${value.start_time}`);
+    if (matchDateTime <= new Date()) {
+      return helpers.message("Match must be scheduled in the future");
+    }
     return value;
   })
 );
