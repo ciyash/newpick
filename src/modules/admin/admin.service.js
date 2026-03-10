@@ -323,6 +323,209 @@ export const updateSeries = async (id, data, admin, ip) => {
 };
 //matches
 export const createMatch = async (data, admin, ip) => {
+  if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
+
+  const {
+    series_id,
+    home_team_id,
+    away_team_id,
+    start_time,
+    matchdate,
+    contests = [],
+  } = data;
+
+  // ── Basic validations ─────────────────────────────────────────────────────
+  if (Number(home_team_id) === Number(away_team_id))
+    throw new Error("Home and away teams must be different");
+
+  if (!contests.length)
+    throw new Error("At least one contest category must be selected");
+
+  for (const c of contests) {
+    if (!c.category_id)
+      throw new Error("Each contest must have a category_id");
+    if (!c.max_entries || Number(c.max_entries) < 2)
+      throw new Error(`Contest category ${c.category_id}: max_entries must be at least 2`);
+  }
+
+  // Guard against duplicate category_ids in the same request
+  const uniqueCategoryIds = [...new Set(contests.map((c) => Number(c.category_id)))];
+  if (uniqueCategoryIds.length !== contests.length)
+    throw new Error("Duplicate category_id entries found in contests array");
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // ── Validate series ───────────────────────────────────────────────────
+    const [[series]] = await conn.query(
+      `SELECT seriesid, name AS seriesname FROM series WHERE seriesid = ?`,
+      [series_id]
+    );
+    if (!series) throw new Error("Invalid series_id — series not found");
+
+    // ── Validate teams ────────────────────────────────────────────────────
+    const [[homeTeam]] = await conn.query(
+      `SELECT id, name AS teamname FROM teams WHERE id = ?`,
+      [home_team_id]
+    );
+    if (!homeTeam) throw new Error("Invalid home_team_id — team not found");
+
+    const [[awayTeam]] = await conn.query(
+      `SELECT id, name AS teamname FROM teams WHERE id = ?`,
+      [away_team_id]
+    );
+    if (!awayTeam) throw new Error("Invalid away_team_id — team not found");
+
+    // ── Duplicate match check ─────────────────────────────────────────────
+    const [[existing]] = await conn.query(
+      `SELECT id FROM matches
+       WHERE series_id    = ?
+         AND home_team_id = ?
+         AND away_team_id = ?
+         AND matchdate    = ?
+         AND start_time   = ?`,
+      [series_id, home_team_id, away_team_id, matchdate, start_time]
+    );
+    if (existing)
+      throw new Error("A match with the same teams, series, time and date already exists");
+
+    // ── Fetch selected contest categories ─────────────────────────────────
+    const [categories] = await conn.query(
+      `SELECT id, name, entryfee, platformfee,
+              percentage AS winner_percentage
+       FROM contestcategory
+       WHERE id IN (?)`,
+      [uniqueCategoryIds]
+    );
+
+    if (categories.length !== uniqueCategoryIds.length) {
+      const foundIds   = categories.map((c) => Number(c.id));
+      const missingIds = uniqueCategoryIds.filter((id) => !foundIds.includes(id));
+      throw new Error(`Contest categories not found: ${missingIds.join(", ")}`);
+    }
+
+    // ── Create match ──────────────────────────────────────────────────────
+    const [matchResult] = await conn.query(
+      `INSERT INTO matches
+         (series_id, seriesname,
+          home_team_id, hometeamname,
+          away_team_id, awayteamname,
+          matchdate, start_time,
+          status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'UPCOMING', NOW())`,
+      [
+        series_id,    series.seriesname,
+        home_team_id, homeTeam.teamname,
+        away_team_id, awayTeam.teamname,
+        matchdate,    start_time,
+      ]
+    );
+    if (matchResult.affectedRows === 0) throw new Error("Failed to create match");
+    const matchId = matchResult.insertId;
+
+    // ── Create contests ───────────────────────────────────────────────────
+    const createdContests = [];
+
+    for (const input of contests) {
+      // Number() on both sides — DB returns id as number, request may send as string
+      const category = categories.find((c) => Number(c.id) === Number(input.category_id));
+      if (!category) throw new Error(`Category ${input.category_id} not found`);
+
+      // ── Values from category + admin input ───────────────────────────
+      const max_entries             = Number(input.max_entries);
+      const entry_fee               = Number(category.entryfee);
+      const platform_fee_percentage = Number(category.platformfee);      // e.g. 10 = 10%
+      const winner_percentage       = Number(category.winner_percentage); // e.g. 20 = 20% of players win
+      const is_guaranteed           = input.is_guaranteed ? 1 : 0;
+      const is_cashback             = 1;
+      const cashback_percentage     = Number(category.cashback_percentage || 0); // from category directly
+      const min_entries             = 2;
+
+      // ── Math ─────────────────────────────────────────────────────────
+      const prize_pool          = max_entries * entry_fee;                                    // total collected
+      const platformFeeAmount   = (prize_pool * platform_fee_percentage) / 100;              // platform cut
+      const netAfterFee         = prize_pool - platformFeeAmount;                             // after platform fee
+      const totalWinners        = Math.floor((max_entries * winner_percentage) / 100);        // winning players
+      const cashbackPerUser     = is_cashback ? entry_fee : 0;                               // per user cashback
+      const totalCashback       = is_cashback ? cashbackPerUser * max_entries : 0;           // total cashback payout
+      const netPrizePool        = Math.max(0, netAfterFee - totalCashback);                  // final prize pool
+      const first_prize         = netPrizePool;                                              // full pool — distribution set later
+      const prizeDistribution   = null;                                                      // set separately
+
+      // ── INSERT — column order matches original contest INSERT exactly ─
+      await conn.query(
+        `INSERT INTO contest
+           (match_id, contest_type, entry_fee,
+            prize_pool, net_pool_prize,
+            max_entries, min_entries, current_entries,
+            is_guaranteed, winner_percentage, total_winners,
+            first_prize, prize_distribution,
+            is_cashback, cashback_percentage, cashback_amount,
+            platform_fee_percentage, platform_fee_amount,
+            status, created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+        [
+          matchId,
+          category.name,
+          entry_fee,
+          Number(prize_pool.toFixed(2)),          // prize_pool     = total collected
+          Number(netPrizePool.toFixed(2)),         // net_pool_prize = after fee & cashback
+          max_entries,
+          min_entries,
+          0,                                       // current_entries starts at 0
+          is_guaranteed,
+          winner_percentage,
+          totalWinners,
+          Number(first_prize.toFixed(2)),          // first_prize = full net pool
+          prizeDistribution,                       // NULL — set separately
+          is_cashback,
+          Number(cashback_percentage.toFixed(2)),  // from category directly
+          Number(cashbackPerUser.toFixed(2)),      // per-user cashback amount
+          platform_fee_percentage,
+          Number(platformFeeAmount.toFixed(2)),
+          "UPCOMING",
+        ]
+      );
+
+      createdContests.push({
+        category:              category.name,
+        max_entries,
+        min_entries,
+        entry_fee,
+        platform_fee_percentage,
+        platform_fee_amount:   Number(platformFeeAmount.toFixed(2)),
+        prize_pool:            Number(prize_pool.toFixed(2)),
+        net_prize_pool:        Number(netPrizePool.toFixed(2)),
+        winner_percentage,
+        total_winners:         totalWinners,
+        is_guaranteed,
+        is_cashback,
+        cashback_percentage:   Number(cashback_percentage.toFixed(2)),
+        cashback_amount:       Number(cashbackPerUser.toFixed(2)),
+        first_prize:           Number(first_prize.toFixed(2)),
+      });
+    }
+
+    // ── Audit log ─────────────────────────────────────────────────────────
+    await logAdmin(conn, admin, "CREATE_MATCH", "match", matchId, ip || null);
+    await conn.commit();
+
+    return {
+      success:  true,
+      match_id: matchId,
+      contests: createdContests,
+    };
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+export const createMatchcontastold = async (data, admin, ip) => {
 
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
