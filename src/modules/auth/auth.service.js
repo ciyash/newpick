@@ -202,9 +202,9 @@ export const signupService = async ({ mobile, otp }) => {
     await conn.query(
       `INSERT INTO wallets
        (user_id, depositwallet, earnwallet, bonusamount,
-        total_deposits, total_withdrawals, deposit_limit, depositelimitdate)
-       VALUES (?, 0, 0, 0, 0, 0, ?, CURDATE())`,
-      [userId, depositLimit]
+        total_deposits, total_withdrawals, deposit_limit,monthly_limit, depositelimitdate)
+       VALUES (?, 0, 0, 0, 0, 0, ?,?, CURDATE())`,
+      [userId, depositLimit,depositLimit]
     );
     // ✅ Wallet starts at 0,0,0 — bonus credited via transaction below
     //    so opening/closing balances are accurate from the first transaction

@@ -211,3 +211,37 @@ export const updateContestCategory = validate(
     platformfee: Joi.number().min(0).precision(2),
   }).min(1) // ✅ at least one field required
 );
+
+//Withdraw
+
+// ── User: request a withdrawal ───────────────────────────────────────────────
+export const requestWithdraw = validate(
+  Joi.object({
+    amount: Joi.number().positive().precision(2).required().messages({
+      "any.required": "Amount is required",
+      "number.positive": "Amount must be greater than 0",
+      "number.base":     "Amount must be a number",
+    }),
+  })
+);
+
+// ── Admin: approve a withdrawal ──────────────────────────────────────────────
+export const approveWithdraw = validate(
+  Joi.object({
+    transaction_id: Joi.string().max(255).required().messages({
+      "any.required": "Stripe transaction ID is required",
+      "string.empty": "Stripe transaction ID cannot be empty",
+    }),
+    remarks: Joi.string().max(500).optional().allow("", null),
+  })
+);
+
+// ── Admin: reject a withdrawal ───────────────────────────────────────────────
+export const rejectWithdraw = validate(
+  Joi.object({
+    remarks: Joi.string().max(500).required().messages({
+      "any.required": "Remarks are required for rejection",
+      "string.empty": "Remarks cannot be empty",
+    }),
+  })
+);

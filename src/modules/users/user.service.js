@@ -160,6 +160,8 @@ export const getUserProfileService = async (userId) => {
         earnwallet,
         bonusamount,
         deposit_limit,
+        iskyc,
+        issofverify,
         limit_reduced_once
      FROM wallets
      WHERE user_id = ?`,
@@ -227,8 +229,9 @@ export const getUserProfileService = async (userId) => {
       category: user.category,
       dob: user.dob,
       memberSince: user.created_at,
-       SOFverify: user.issofverify,
-        KYCverify: user.kyc_status,
+       SOFverify: wallet.issofverify,
+        KYCstaus: user.kyc_status,
+         KYCverify: wallet.iskyc,
         Walletlimit:wallet.limit_reduced_once,
 
 
