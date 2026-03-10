@@ -7,15 +7,16 @@ const router = express.Router();
 
 router.post("/add-money", authenticate, addMoney);
 
-router.get("/my-wallet", authenticate, getMyWallet);
+router.get("/my-wallet",  getMyWallet);
     
-router.get("/my-transactions", authenticate, getMyTransactions);
+router.get("/my-transactions",  getMyTransactions);
 
-router.delete("/:userid", authenticate, deleteTransactionsByUser);
+router.delete("/:userid",  deleteTransactionsByUser);
 
-router.get("/analytics/summary", authenticate, getMyAnalytics);
 
-router.get("/analytics/statement", authenticate, downloadAnalyticsStatement);  
+router.get("/analytics/:type",  getMyAnalytics);
+
+router.get("/analytics/statement",  downloadAnalyticsStatement);  
 
 
 

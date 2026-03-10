@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
 import db from "../config/db.js";
-
+import redis from "../config/redis.js";
 /* ================= TOKEN ERROR MESSAGES ================= */
 
 const TOKEN_ERRORS = {
@@ -11,38 +11,78 @@ const TOKEN_ERRORS = {
 
 /* ================= AUTHENTICATE ================= */
 
-export const authenticate = (req, res, next) => {
+
+export const authenticate = async (req, res, next) => {
   try {
 
     /* ── Extract Token ── */
     const authHeader = req.headers.authorization;
+
     if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ success: false, message: "Authorization header missing or malformed" });
+      return res.status(401).json({
+        success: false,
+        message: "Authorization header missing or malformed"
+      });
     }
 
     const token = authHeader.split(" ")[1];
 
+    /* ── Check Redis Blacklist (Logout Tokens) ── */
+    const blacklisted = await redis.get(`BLACKLIST:${token}`);
+
+    if (blacklisted) {
+      return res.status(401).json({
+        success: false,
+        message: "Session expired. Please login again"
+      });
+    }
+
     /* ── Verify Token ── */
     let decoded;
+
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ["HS256"] });
+      decoded = jwt.verify(token, process.env.JWT_SECRET, {
+        algorithms: ["HS256"]
+      });
     } catch (err) {
+
+      const TOKEN_ERRORS = {
+        TokenExpiredError: "Session expired, please login again",
+        JsonWebTokenError: "Invalid token",
+        NotBeforeError: "Token not yet active"
+      };
+
       const message = TOKEN_ERRORS[err.name] || "Token verification failed";
-      return res.status(401).json({ success: false, message });
+
+      return res.status(401).json({
+        success: false,
+        message
+      });
     }
 
     /* ── Validate Payload ── */
     if (!decoded?.id || !decoded?.email) {
-      return res.status(401).json({ success: false, message: "Invalid token payload" });
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token payload"
+      });
     }
 
-    /* ── Attach User to Request ── */
+    /* ── Attach User ── */
     req.user = decoded;
+
     next();
 
   } catch (err) {
-    if (process.env.NODE_ENV !== "production") console.error("Authenticate error:", err);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+
+    if (process.env.NODE_ENV !== "production")
+      console.error("Authenticate error:", err);
+
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error"
+    });
+
   }
 };
 

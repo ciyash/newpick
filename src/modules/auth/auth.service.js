@@ -422,12 +422,14 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 
 /* ================= LOGIN ================= */
 
+
 // export const loginService = async ({ email, mobile, otp }, ipAddress) => {
 
 //   /* ─── Find User ─── */
 //   const [users] = await db.query(
 //     `SELECT id, usercode, email, mobile, name,
-//             loginotp, loginotpexpires, account_status
+//             loginotp, loginotpexpires, account_status,
+//             email_verify, mobile_verify
 //      FROM users
 //      WHERE (email = ? OR mobile = ?)
 //      LIMIT 1`,
@@ -435,16 +437,37 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 //   );
 
 //   if (!users.length) throw new Error("User not found");
+
 //   const user = users[0];
 
 //   /* ─── Account Status ─── */
-//   if (user.account_status === "deleted") throw new Error("This account has been deleted");
-//   if (user.account_status === "paused")  throw new Error("Your account is temporarily paused");
+//   if (user.account_status === "deleted")
+//     throw new Error("This account has been deleted");
+
+//   if (user.account_status === "paused")
+//     throw new Error("Your account is temporarily paused");
+
+
+//   /* ─── Mobile Verification Check ─── */
+//   if (user.mobile_verify !== 1)
+//     throw new Error("Please verify your mobile number first");
+
+
+//   /* ─── Email Verification Check ─── */
+//   if (user.email_verify !== 1)
+//     throw new Error("Please verify your email before login");
+
 
 //   /* ─── OTP Validation ─── */
-//   if (!user.loginotp)                              throw new Error("OTP not requested");
-//   if (user.loginotp !== otp)                       throw new Error("Invalid OTP");
-//   if (new Date(user.loginotpexpires) < new Date()) throw new Error("OTP expired");
+//   if (!user.loginotp)
+//     throw new Error("OTP not requested");
+
+//   if (user.loginotp !== otp)
+//     throw new Error("Invalid OTP");
+
+//   if (new Date(user.loginotpexpires) < new Date())
+//     throw new Error("OTP expired");
+
 
 //   /* ─── Shift Login Times (Bank Style) ─── */
 //   const [result] = await db.query(
@@ -459,7 +482,9 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 //     [ipAddress || null, user.id]
 //   );
 
-//   if (result.affectedRows === 0) throw new Error("Login state update failed");
+//   if (result.affectedRows === 0)
+//     throw new Error("Login state update failed");
+
 
 //   /* ─── Return User ─── */
 //   return {
@@ -477,14 +502,15 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
   const [users] = await db.query(
     `SELECT id, usercode, email, mobile, name,
             loginotp, loginotpexpires, account_status,
-            email_verify, mobile_verify
+            email_verify, mobile_verify, age_verified
      FROM users
      WHERE (email = ? OR mobile = ?)
      LIMIT 1`,
     [email || null, mobile || null]
   );
 
-  if (!users.length) throw new Error("User not found");
+  if (!users.length)
+    throw new Error("User not found");
 
   const user = users[0];
 
@@ -504,6 +530,11 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
   /* ─── Email Verification Check ─── */
   if (user.email_verify !== 1)
     throw new Error("Please verify your email before login");
+
+
+  /* ─── Age Verification Check ─── */
+  if (user.age_verified !== 1)
+    throw new Error("Age verification required before login");
 
 
   /* ─── OTP Validation ─── */
@@ -543,6 +574,8 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
     name:     user.name
   };
 };
+
+
 /* ================= PAUSE ACCOUNT ====================== */
 
 export const pauseAccountService = async (userId, durationKey) => {
