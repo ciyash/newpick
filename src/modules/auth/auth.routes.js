@@ -11,7 +11,8 @@ import {
   verifyEmailLink,
   requestContactChange,
   verifyOldContact,
-  verifyNewContact
+  verifyNewContact,
+  logout
 } from "../auth/auth.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 
@@ -27,16 +28,19 @@ router.post("/verify-signup", verifySignupOtp);
 router.post("/login/send-otp", sendLoginOtp);
 router.post("/login", login);
 
-router.patch("/update-profile",authenticate,checkAccountActive,updateProfile);
 
+router.patch("/update-profile",authenticate,checkAccountActive,updateProfile);
 router.post("/send-email-verification", sendEmailVerification);
 router.get("/verify-email", verifyEmailLink);
 
-// CONTACT CHANGE ROUTES
+// CONTACT CHANGE ROUTES  
+
 router.post("/request-contact-change",authenticate, requestContactChange);
 
 router.post("/verify-old-contact",authenticate,verifyOldContact);
 
 router.post("/verify-new-contact",authenticate,verifyNewContact);
+
+router.post("/logout", authenticate, logout);
 
 export default router;

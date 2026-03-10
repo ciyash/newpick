@@ -676,24 +676,32 @@ export const deleteTransactionsByUserCodeService = async (userid) => {
 //   };
 // };
 
-
-
 export const getMyAnalyticsService = async (userId, month = null, year = null) => {
 
-  /* ================= WALLET TRANSACTION FILTER ================= */
+  const now = new Date();
+  const currentYear = now.getFullYear();
 
   let conditions = ["user_id = ?"];
   let params = [userId];
 
-  if (month && year) {
+  if (month !== null && year === null) {
+    conditions.push("MONTH(created_at) = ?");
+    conditions.push("YEAR(created_at) = ?");
+    params.push(month, currentYear);
+  }
+
+  if (month === null && year !== null) {
+    conditions.push("YEAR(created_at) = ?");
+    params.push(year);
+  }
+
+  if (month !== null && year !== null) {
     conditions.push("MONTH(created_at) = ?");
     conditions.push("YEAR(created_at) = ?");
     params.push(month, year);
-  }  
+  }
 
   const whereClause = conditions.join(" AND ");
-
-  /* ================= FINANCIAL SUMMARY ================= */
 
   const [[financial]] = await db.query(
     `SELECT
@@ -705,12 +713,23 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
     params
   );
 
-  /* ================= CONTEST ENTRY FILTER ================= */
+  /* Contest Entries */
 
   let entryConditions = ["ce.user_id = ?"];
   let entryParams = [userId];
 
-  if (month && year) {
+  if (month !== null && year === null) {
+    entryConditions.push("MONTH(ce.joined_at) = ?");
+    entryConditions.push("YEAR(ce.joined_at) = ?");
+    entryParams.push(month, currentYear);
+  }
+
+  if (month === null && year !== null) {
+    entryConditions.push("YEAR(ce.joined_at) = ?");
+    entryParams.push(year);
+  }
+
+  if (month !== null && year !== null) {
     entryConditions.push("MONTH(ce.joined_at) = ?");
     entryConditions.push("YEAR(ce.joined_at) = ?");
     entryParams.push(month, year);
@@ -719,80 +738,48 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
   const entryWhere = entryConditions.join(" AND ");
 
   const [entries] = await db.query(
-    `SELECT 
-        ce.entry_fee,
-        c.match_id,
-        ce.joined_at
+    `SELECT ce.entry_fee, c.match_id, ce.joined_at
      FROM contest_entries ce
      JOIN contest c ON ce.contest_id = c.id
      WHERE ${entryWhere}`,
     entryParams
   );
 
-  /* ================= WALLET INFO ================= */
-
   const [[wallet]] = await db.query(
-    `SELECT 
-        depositwallet,
-        earnwallet,
-        bonusamount,
-        deposit_limit,
-        total_deposits
+    `SELECT depositwallet, earnwallet, bonusamount,
+            deposit_limit, total_deposits
      FROM wallets
      WHERE user_id = ?`,
     [userId]
   );
 
-  /* ================= ENTRY FEES ================= */
-
-  const entryFees = entries.reduce(
-    (sum, e) => sum + Number(e.entry_fee || 0),
-    0
-  );
-
-  /* ================= WALLET BALANCE ================= */
+  const entryFees = entries.reduce((sum, e) => sum + Number(e.entry_fee || 0), 0);
 
   const walletBalance =
     Number(wallet?.depositwallet || 0) +
     Number(wallet?.earnwallet || 0) +
     Number(wallet?.bonusamount || 0);
 
-  /* ================= FINANCIAL VALUES ================= */
-
   const deposits = Number(financial?.deposits || 0);
   const withdrawals = Number(financial?.withdrawals || 0);
   const credits = Number(financial?.credits || 0);
 
-  /* ================= ACTIVITY METRICS ================= */
-
   const contestsJoined = entries.length;
 
-  const matchesPlayed = new Set(
-    entries.map(e => e.match_id)
-  ).size;
+  const matchesPlayed = new Set(entries.map(e => e.match_id)).size;
 
   const activeDays = new Set(
-    entries.map(e =>
-      new Date(e.joined_at).toDateString()
-    )
+    entries.map(e => new Date(e.joined_at).toDateString())
   ).size;
 
   const avgContests =
-    matchesPlayed === 0
-      ? 0
-      : Number((contestsJoined / matchesPlayed).toFixed(2));
-
-  /* ================= LIMITS ================= */
+    matchesPlayed === 0 ? 0 :
+    Number((contestsJoined / matchesPlayed).toFixed(2));
 
   const monthlyLimit = Number(wallet?.deposit_limit || 0);
   const usedThisMonth = Number(wallet?.total_deposits || 0);
 
-  const remainingLimit = Math.max(
-    monthlyLimit - usedThisMonth,
-    0
-  );
-
-  /* ================= RESPONSE ================= */
+  const remainingLimit = Math.max(monthlyLimit - usedThisMonth, 0);
 
   return {
     financial: {

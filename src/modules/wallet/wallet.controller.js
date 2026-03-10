@@ -102,19 +102,14 @@ export const deleteTransactionsByUser = async (req, res) => {
 // };
 
 
+
 export const getMyAnalytics = async (req, res) => {
   try {
 
     const userId = req.user.id;
+    const { type } = req.params;
 
-    const month = req.query.month ? Number(req.query.month) : null;
-    const year = req.query.year ? Number(req.query.year) : null;
-
-    const data = await getMyAnalyticsService(
-      userId,
-      month,
-      year
-    );
+    const data = await getMyAnalyticsService(userId, type);
 
     res.json(data);
 
@@ -126,7 +121,6 @@ export const getMyAnalytics = async (req, res) => {
 
   }
 };
-
 export const downloadAnalyticsStatement = async (req, res) => {
   try {
 

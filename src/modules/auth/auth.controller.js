@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import db from "../../config/db.js";
+
 import { signupSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../auth/auth.validation.js";
 import {
   signupService, sendLoginOtpService, loginService,
@@ -389,6 +390,36 @@ export const verifyNewContact = async (req, res) => {
   } catch (err) {
 
     res.status(400).json({
+      success: false,
+      message: err.message
+    });
+
+  }
+};
+
+
+
+
+export const logout = async (req, res) => {
+  try {
+
+    const authHeader = req.headers.authorization;
+    const token = authHeader.split(" ")[1];
+
+    const decoded = jwt.decode(token);
+
+    const expiry = decoded.exp - Math.floor(Date.now() / 1000);
+
+    await redis.set(`BLACKLIST:${token}`, "logout", { EX: expiry });
+
+    res.json({
+      success: true,
+      message: "Logged out successfully"
+    });
+
+  } catch (err) {
+
+    res.status(500).json({
       success: false,
       message: err.message
     });
