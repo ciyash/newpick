@@ -284,7 +284,6 @@ export const getUserProfileService = async (userId) => {
         Walletlimit:wallet.limit_reduced_once,
 
       SOFverify: user.issofverify,
-      KYCverify: user.kyc_status,
 
       Walletlimit: safeWallet.limit_reduced_once,
 
