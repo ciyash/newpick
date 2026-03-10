@@ -77,38 +77,21 @@ export const deleteTransactionsByUser = async (req, res) => {
   }
 };
 
-export const getMyAnalytics = async (req, res) => {
-  try {
-
-    if (!req.user || !req.user.id) {
-      throw new Error("User not authenticated");
-    }
-
-    const userId = req.user.id;
-
-    const data = await getMyAnalyticsService(userId);
-
-    res.status(200).json({
-      success: true,
-      ...data
-    });
-
-  } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
 // export const getMyAnalytics = async (req, res) => {
 //   try {
+
+//     if (!req.user || !req.user.id) {
+//       throw new Error("User not authenticated");
+//     }
 
 //     const userId = req.user.id;
 
 //     const data = await getMyAnalyticsService(userId);
 
-//     res.status(200).json(data);
+//     res.status(200).json({
+//       success: true,
+//       ...data
+//     });
 
 //   } catch (error) {
 //     res.status(400).json({
@@ -117,6 +100,32 @@ export const getMyAnalytics = async (req, res) => {
 //     });
 //   }
 // };
+
+
+export const getMyAnalytics = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+
+    const month = req.query.month ? Number(req.query.month) : null;
+    const year = req.query.year ? Number(req.query.year) : null;
+
+    const data = await getMyAnalyticsService(
+      userId,
+      month,
+      year
+    );
+
+    res.json(data);
+
+  } catch (err) {
+
+    res.status(500).json({
+      message: err.message
+    });
+
+  }
+};
 
 export const downloadAnalyticsStatement = async (req, res) => {
   try {

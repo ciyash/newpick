@@ -365,7 +365,7 @@ export const signupService = async ({ mobile, otp }) => {
 
   }
 };
-
+ 
 /* ================= SEND LOGIN OTP ================= */
 
 export const sendLoginOtpService = async ({ email, mobile }) => {
