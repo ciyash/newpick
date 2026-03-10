@@ -2053,6 +2053,76 @@ export const fetchWithdrawsSummary = async () => {
 };
 
 
+
+export const adminWithdrawActionService = async (withdrawId, data) => {
+  const conn = await db.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    const { action, reason } = data;
+
+    const [[withdraw]] = await conn.query(
+      `SELECT id, user_id, amount, status
+       FROM withdraws
+       WHERE id = ?
+       FOR UPDATE`,
+      [withdrawId]
+    );
+
+    if (!withdraw) throw new Error("Withdraw request not found");
+
+    if (withdraw.status !== "PENDING") {
+      throw new Error("Withdraw request already processed");
+    }
+
+    if (action === "APPROVE") {
+      await conn.query(
+        `UPDATE withdraws
+         SET status = 'APPROVED',
+             approved_at = NOW()
+         WHERE id = ?`,
+        [withdrawId]
+      );
+    }
+
+    if (action === "REJECT") {
+      // refund wallet
+      await conn.query(
+        `UPDATE wallets
+         SET earnwallet = earnwallet + ?
+         WHERE user_id = ?`,
+        [withdraw.amount, withdraw.user_id]
+      );
+
+      await conn.query(
+        `UPDATE withdraws
+         SET status = 'REJECTED',
+             reject_reason = ?,
+             rejected_at = NOW()
+         WHERE id = ?`,
+        [reason, withdrawId]
+      );
+    }
+
+    await conn.commit();
+
+    return {
+      success: true,
+      message:
+        action === "APPROVE"
+          ? "Withdrawal approved successfully"
+          : "Withdrawal rejected and wallet refunded",
+    };
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
 // ── Users ─────────────────────────────────────────────────────
 
 const USER_COLUMNS = `
@@ -2171,4 +2241,370 @@ export const fetchUsersByAccountStatus = async (filters = {}, { page = 1, limit 
     data: rows,
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
   };
+};
+
+
+async function getCompanyBalance(conn) {
+  const [[row]] = await conn.query(
+    `SELECT closing_balance
+     FROM wallet_transactions
+     WHERE closing_balance != 0
+     ORDER BY id DESC
+     LIMIT 1
+     FOR UPDATE`
+  );
+  return Number(row?.closing_balance || 0);
+}
+
+// ── Approve ──────────────────────────────────────────────────────────────────
+export const approveWithdrawService = async (adminId, withdrawId, body) => {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const { transaction_id, remarks = "" } = body;
+    if (!transaction_id) throw new Error("transaction_id is required");
+
+    // 1. Lock & fetch withdrawal (with snapshots)
+    const [[withdraw]] = await conn.query(
+      `SELECT w.*, u.name AS username, u.email, u.mobile AS phone
+       FROM withdraws w
+       JOIN users u ON u.id = w.user_id
+       WHERE w.id = ?
+       FOR UPDATE`,
+      [withdrawId]
+    );
+    if (!withdraw)
+      throw new Error("Withdrawal request not found");
+    if (withdraw.status !== "PENDING")
+      throw new Error(`Withdrawal is already ${withdraw.status.toLowerCase()}`);
+
+    const amount = parseFloat(withdraw.amount);
+
+    // 2. Use the balance snapshot captured at request time
+    //    (wallet was already debited — these values are correct)
+    const userOpening = Number(withdraw.snapshot_opening);
+    const userClosing = Number(withdraw.snapshot_closing);
+
+    // 3. Company balance
+    const companyOpening = await getCompanyBalance(conn);
+    const companyClosing = Number((companyOpening - amount).toFixed(2));
+
+    // 4. Mark APPROVED
+    await conn.query(
+      `UPDATE withdraws
+       SET status = 'APPROVED', transaction_id = ?, processed_at = NOW()
+       WHERE id = ?`,
+      [transaction_id, withdrawId]
+    );
+
+    // 5. Approval audit log
+    await conn.query(
+      `INSERT INTO withdraw_approvals
+         (withdrawal_id, admin_id, status, remarks, created_at)
+       VALUES (?, ?, 'approved', ?, NOW())`,
+      [withdrawId, adminId, remarks]
+    );
+
+    // 6. Wallet transaction — debit (money physically leaves company)
+    await conn.query(
+      `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark,
+          amount,
+          useropeningbalance, userclosingbalance,
+          opening_balance,    closing_balance,
+          reference_id)
+       VALUES (?, 'withdrawal', 'debit', 'Withdrawal approved',
+          ?,
+          ?, ?,
+          ?, ?,
+          ?)`,
+      [
+        withdraw.user_id,
+        amount,
+        userOpening, userClosing,
+        companyOpening, companyClosing,
+        transaction_id,
+      ]
+    );
+
+    await conn.commit();
+
+    return {
+      success: true,
+      message: "Withdrawal approved successfully",
+      data: {
+        withdrawal_id:  withdrawId,
+        user_id:        withdraw.user_id,
+        username:       withdraw.username,
+        email:          withdraw.email,
+        phone:          withdraw.phone,
+        amount,
+        transaction_id,
+        status:         "APPROVED",
+        userOpening,
+        userClosing,
+        companyOpening,
+        companyClosing,
+      },
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+// ── Reject ────────────────────────────────────────────────────────────────────
+export const rejectWithdrawService = async (adminId, withdrawId, body) => {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const { remarks = "" } = body;
+
+    // 1. Lock & fetch withdrawal (with snapshots)
+    const [[withdraw]] = await conn.query(
+      `SELECT w.*, u.name AS username, u.email, u.mobile AS phone
+       FROM withdraws w
+       JOIN users u ON u.id = w.user_id
+       WHERE w.id = ?
+       FOR UPDATE`,
+      [withdrawId]
+    );
+    if (!withdraw)
+      throw new Error("Withdrawal request not found");
+    if (withdraw.status !== "PENDING")
+      throw new Error(`Withdrawal is already ${withdraw.status.toLowerCase()}`);
+
+    const amount = parseFloat(withdraw.amount);
+
+    // 2. User balance — opening is post-deduction snapshot, closing adds amount back
+    const userOpening = Number(withdraw.snapshot_closing); // current state (after deduction at request time)
+    const userClosing = Number((userOpening + amount).toFixed(2)); // refund restores it
+
+    // 3. Company balance — no fund movement on rejection, just hold & return
+    //    opening and closing are the SAME to keep ledger chain intact
+    const companyOpening = await getCompanyBalance(conn);
+    const companyClosing = companyOpening; // ✅ no change — money was never sent out
+
+    // 4. Mark REJECTED
+    const [updateResult] = await conn.query(
+      `UPDATE withdraws
+       SET status = 'REJECTED', processed_at = NOW()
+       WHERE id = ? AND status = 'PENDING'`,
+      [withdrawId]
+    );
+    // Guard: if another process already changed the status, abort
+    if (updateResult.affectedRows === 0)
+      throw new Error("Withdrawal could not be rejected (status may have changed)");
+
+    // 5. Refund earnwallet ← runs AFTER status update is confirmed safe
+    await conn.query(
+      `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+      [amount, withdraw.user_id]
+    );
+
+    // 6. Approval audit log
+    await conn.query(
+      `INSERT INTO withdraw_approvals
+         (withdrawal_id, admin_id, status, remarks, created_at)
+       VALUES (?, ?, 'rejected', ?, NOW())`,
+      [withdrawId, adminId, remarks]
+    );
+
+    // 7. Wallet transaction — credit (money returned to user earn wallet)
+    //    Company opening = closing (same) because no company funds moved
+    await conn.query(
+      `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark,
+          amount,
+          useropeningbalance, userclosingbalance,
+          opening_balance,    closing_balance,
+          reference_id)
+       VALUES (?, 'refund', 'credit', 'Withdrawal rejected - refund',
+          ?,
+          ?, ?,
+          ?, ?,
+          ?)`,
+      [
+        withdraw.user_id,
+        amount,
+        userOpening, userClosing,
+        companyOpening, companyClosing, // same value — ledger chain unbroken, no movement
+        `REJECTED-${withdrawId}`,
+      ]
+    );
+
+    await conn.commit();
+
+    return {
+      success: true,
+      message: "Withdrawal rejected and amount refunded to earn wallet",
+      data: {
+        withdrawal_id:  withdrawId,
+        user_id:        withdraw.user_id,
+        username:       withdraw.username,
+        email:          withdraw.email,
+        phone:          withdraw.phone,
+        amount,
+        status:         "REJECTED",
+        remarks,
+        userOpening,
+        userClosing,
+        companyOpening,
+        companyClosing,
+      },
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+// ── List all ─────────────────────────────────────────────────────────────────
+export const getAllWithdrawalsService = async (query) => {
+  const { status, page = 1, limit = 20 } = query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+
+  let where = "WHERE 1=1";
+  const params = [];
+
+  if (status) {
+    where += " AND w.status = ?";
+    params.push(status.toUpperCase());
+  }
+
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total FROM withdraws w ${where}`,
+    params
+  );
+
+  const [rows] = await db.query(
+    `SELECT
+       w.id,
+       w.user_id,
+       w.username,
+       w.email,
+       w.phone,
+       w.amount,
+       w.status,
+       w.transaction_id,
+       w.bank_details,
+       w.snapshot_opening,
+       w.snapshot_closing,
+       w.created_at,
+       w.processed_at,
+       -- Pull latest approval record inline — no duplicate rows
+       (SELECT wa.admin_id  FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS admin_id,
+       (SELECT wa.remarks   FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS remarks,
+       (SELECT wa.created_at FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS approval_date
+     FROM withdraws w
+     ${where}
+     ORDER BY w.created_at DESC
+     LIMIT ? OFFSET ?`,
+    [...params, parseInt(limit), offset]
+  );
+
+  return {
+    success: true,
+    data: rows,
+    pagination: {
+      total:      parseInt(total),
+      page:       parseInt(page),
+      limit:      parseInt(limit),
+      totalPages: Math.ceil(total / parseInt(limit)),
+    },
+  };
+};
+// ── Single detail ─────────────────────────────────────────────────────────────
+export const getWithdrawDetailService = async (withdrawId) => {
+  const [rows] = await db.query(
+    `SELECT
+       CAST(w.id AS CHAR)      AS id,
+       CAST(w.user_id AS CHAR) AS user_id,
+       w.username,
+       w.email,
+       w.phone,
+       w.amount,
+       w.status,
+       w.transaction_id,
+       w.bank_details,
+       w.payment_mode,
+       w.snapshot_opening,
+       w.snapshot_closing,
+       w.created_at,
+       w.processed_at,
+
+       -- Derive approval_status from status
+       CASE w.status
+         WHEN 'APPROVED' THEN 'approved'
+         WHEN 'REJECTED' THEN 'rejected'
+         ELSE NULL
+       END AS approval_status,
+
+       -- Use processed_at as approval_date
+       CASE w.status
+         WHEN 'PENDING' THEN NULL
+         ELSE w.processed_at
+       END AS approval_date,
+
+       -- Approval record
+       (SELECT wa.admin_id
+        FROM withdraw_approvals wa
+        WHERE wa.withdrawal_id = w.id
+        ORDER BY wa.created_at DESC LIMIT 1) AS admin_id,
+
+       (SELECT wa.remarks
+        FROM withdraw_approvals wa
+        WHERE wa.withdrawal_id = w.id
+        ORDER BY wa.created_at DESC LIMIT 1) AS remarks,
+
+       -- User balances
+       -- PENDING  → use snapshots (wallet already deducted at request time)
+       -- APPROVED/REJECTED → use actual wallet_transaction record
+       CASE w.status
+         WHEN 'PENDING' THEN w.snapshot_opening
+         ELSE (SELECT wt.useropeningbalance
+               FROM wallet_transactions wt
+               WHERE (w.status = 'APPROVED' AND wt.reference_id = w.transaction_id)
+                  OR (w.status = 'REJECTED' AND wt.reference_id = CONCAT('REJECTED-', w.id))
+               LIMIT 1)
+       END AS useropeningbalance,
+
+       CASE w.status
+         WHEN 'PENDING' THEN w.snapshot_closing
+         ELSE (SELECT wt.userclosingbalance
+               FROM wallet_transactions wt
+               WHERE (w.status = 'APPROVED' AND wt.reference_id = w.transaction_id)
+                  OR (w.status = 'REJECTED' AND wt.reference_id = CONCAT('REJECTED-', w.id))
+               LIMIT 1)
+       END AS userclosingbalance,
+
+       -- Company balances
+       -- PENDING → NULL (no company movement yet)
+       -- APPROVED/REJECTED → from wallet_transaction
+       (SELECT wt.opening_balance
+        FROM wallet_transactions wt
+        WHERE (w.status = 'APPROVED' AND wt.reference_id = w.transaction_id)
+           OR (w.status = 'REJECTED' AND wt.reference_id = CONCAT('REJECTED-', w.id))
+        LIMIT 1) AS companyopening,
+
+       (SELECT wt.closing_balance
+        FROM wallet_transactions wt
+        WHERE (w.status = 'APPROVED' AND wt.reference_id = w.transaction_id)
+           OR (w.status = 'REJECTED' AND wt.reference_id = CONCAT('REJECTED-', w.id))
+        LIMIT 1) AS companyclosing
+
+     FROM withdraws w
+     WHERE CAST(w.id AS CHAR) = ?`,
+    [String(withdrawId)]
+  );
+
+  const row = rows[0];
+  if (!row) throw new Error("Withdrawal not found");
+  return { success: true, data: row };
 };

@@ -1,5 +1,6 @@
 import * as s from "./admin.service.js";
 import { getClientIp } from "../../utils/ip.js";
+import redis from "../../config/redis.js";
 
 // ERROR HELPER 
 
@@ -484,8 +485,23 @@ export const fetchWithdrawsSummary = async (req, res) => {
   }
 };
 
+export const adminWithdrawActionController = async (req, res, next) => {
+  try {
+    const { withdrawId } = req.params;
 
-// ── Users ─────────────────────────────────────────────────────
+    const result = await s.adminWithdrawActionService(
+      withdrawId,
+      req.body
+    );
+
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+
+//  Users
 export const getallUsers = async (req, res) => {
   try {
     const page  = parseInt(req.query.page)           || 1;
@@ -533,3 +549,46 @@ export const fetchUsersByAccountStatus = async (req, res) => {
     handleError(res, e);
   }
 };
+
+
+export const approveWithdrawal = async (req, res) => {
+  try {
+    const result = await s.approveWithdrawService(req.admin.id, req.params.withdrawId, req.body);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+export const rejectWithdrawal = async (req, res) => {
+  try {
+    const result = await s.rejectWithdrawService(req.admin.id, req.params.withdrawId, req.body);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+
+export const getAllWithdrawals = async (req, res) => {
+  try {
+    const result = await s.getAllWithdrawalsService(req.query);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
+export const getWithdrawalDetail = async (req, res) => {
+  try {
+    const { withdrawId } = req.params; // ✅ match your route param name
+    console.log("withdrawId from params:", withdrawId); // verify it's not undefined
+    const result = await s.getWithdrawDetailService(withdrawId);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(404).json({ success: false, message: err.message });
+  }
+};
+

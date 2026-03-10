@@ -61,11 +61,17 @@ router.get("/fetchdepositssummary",   adminAuth(), c.fetchDepositesSummary);
 router.get("/getallwithdraws",        adminAuth(), c.getallWithdraws);
 router.post("/fetchwithdraws",        adminAuth(), c.fetchWithdraws);
 router.get("/fetchwithdraws summary", adminAuth(), c.fetchWithdrawsSummary);
+router.post("/withdraw/:withdrawId/approve", adminAuth(), v.approveWithdraw, c.approveWithdrawal);
+router.post("/withdraw/:withdrawId/reject",  adminAuth(), v.rejectWithdraw,  c.rejectWithdrawal);
+router.get("/withdraw/list",                 adminAuth(),                     c.getAllWithdrawals);
+router.get("/withdraw/:withdrawId",          adminAuth(),                     c.getWithdrawalDetail);
 
 //users
 router.get("/getallusers",            adminAuth(), c.getallUsers);
 router.post("/fetchusers",            adminAuth(), c.fetchUsers);
 router.post("/fetchusersbykyc",       adminAuth(), c.fetchUsersByKycStatus);
 router.post("/fetchusersbyaccount",   adminAuth(), c.fetchUsersByAccountStatus);
+
+
 
 export default router;

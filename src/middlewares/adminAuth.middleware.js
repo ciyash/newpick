@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
+import redis from "../config/redis.js";
 
 const TOKEN_ERRORS = {
   TokenExpiredError: "Session expired, please login again",

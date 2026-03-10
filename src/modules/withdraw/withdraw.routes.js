@@ -7,10 +7,11 @@ import {
 
 import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
+import { requestWithdrawValidate } from "./withdraw.validation.js";
 const router = express.Router();
 
 /* ================= USER ================= */
-router.post("/request", authenticate, checkAccountActive,  requestWithdraw);
+router.post("/request", authenticate, checkAccountActive, requestWithdrawValidate, requestWithdraw);
 
 /* ================= ADMIN ================= */
 router.post("/approve", adminAuth(), approveWithdraw);
