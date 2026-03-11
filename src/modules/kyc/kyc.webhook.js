@@ -86,7 +86,7 @@ export const sumsubWebhook = async (req, res) => {
     console.error("KYC webhook error:", err);
     return res.sendStatus(500);
 
-  }
+  }  
 };
 
 
