@@ -638,7 +638,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     };
 
     await insertTxn("bonus", bonusUse);
-    await insertTxn("earn", earnUse);
+    await insertTxn("winning", earnUse);
     await insertTxn("deposit", depositUse);
 
     /* ================= INSERT ENTRIES ================= */
