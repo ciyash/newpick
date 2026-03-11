@@ -17,6 +17,8 @@
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
+    "expo-notifications": "^55.0.12",
+    "expo-server-sdk": "^6.1.0",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "firebase-admin": "^13.6.1",
