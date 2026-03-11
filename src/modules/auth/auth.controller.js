@@ -30,6 +30,73 @@ export const signup = async (req, res) => {
   }
 };
 
+
+export const resendSignupOtp = async (req, res) => {
+
+  try {
+
+    const { mobile } = req.body;
+
+    const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+    /* 1️⃣ check KYC session */
+
+    const [rows] = await db.query(
+      "SELECT age_verified FROM kyc_sessions WHERE mobile=?",
+      [normalizedMobile]
+    );
+
+    if (!rows.length) {
+      return res.status(400).json({
+        success: false,
+        message: "KYC session not found"
+      });
+    }
+
+    /* 2️⃣ check age verification */
+
+    if (rows[0].age_verified !== 1) {
+      return res.status(400).json({
+        success: false,
+        message: "Complete KYC verification first"
+      });
+    }
+
+    /* 3️⃣ generate OTP */
+
+    const otp = Math.floor(100000 + Math.random() * 900000);
+
+    /* 4️⃣ store OTP in redis */
+
+    await redis.set(
+      `SIGNUP_OTP:${normalizedMobile}`,
+      otp,
+      { EX: 300 } // 5 minutes
+    );
+
+    /* 5️⃣ send OTP (SMS service) */
+
+    console.log(`Signup OTP for ${normalizedMobile}:`, otp);
+
+    res.json({
+      success: true,
+      message: "OTP resent successfully"
+    });
+
+  } catch (err) {
+
+    console.error("Resend OTP error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+
+  }
+
+};
+
+
 /* ================= VERIFY SIGNUP OTP ================= */
 
 export const verifySignupOtp = async (req, res) => {

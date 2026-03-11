@@ -11,7 +11,8 @@ import {
   requestContactChange,
   verifyOldContact,
   verifyNewContact,
-  logout
+  logout,
+  resendSignupOtp
 } from "../auth/auth.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 
@@ -19,10 +20,10 @@ const router = Router();
 
 // ADMIN LOGIN
 router.post("/admin/login", adminLogin);   
-
+router.post("/resend-otp", resendSignupOtp);
 //USER ROUTES
 router.post("/signup",signup);
-// router.post("/kyc-token",getKycSdkToken)
+
 router.post("/verify-signup", verifySignupOtp);
 router.post("/login/send-otp", sendLoginOtp);
 router.post("/login", login);
