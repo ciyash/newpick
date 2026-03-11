@@ -193,7 +193,7 @@ export const signupService = async ({ mobile, otp }) => {
     const [result] = await conn.query(
       `INSERT INTO users
        (userid, usercode, name, email, mobile, region, address,
-        dob, referalid, nickname, category,
+        dob, referralid, nickname, category,
         email_verify, mobile_verify,
         created_at, age_verified)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, NOW(), 1)`,
