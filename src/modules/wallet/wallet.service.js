@@ -455,37 +455,37 @@ export const getMyWalletService = async (userId) => {
 
 
 
-// export const getMyTransactionsService = async (userId) => {
-//   const [rows] = await db.query(
-//     `SELECT
-//         id,
-//         wallettype,
-//         transtype,
-//         amount,
-//         remark,
-//         reference_id,
-//         created_at
-//      FROM wallet_transactions
-//      WHERE user_id = ?
-//      ORDER BY id DESC`,
-//     [userId]
-//   );
+export const getMyTransactionsService = async (userId) => {
+  const [rows] = await db.query(
+    `SELECT
+        id,
+        wallettype,
+        transtype,
+        amount,
+        remark,
+        reference_id,
+        created_at
+     FROM wallet_transactions
+     WHERE user_id = ?
+     ORDER BY id DESC`,
+    [userId]
+  );
 
-//   return rows.map(txn => ({
-//     id: txn.id,
-//     walletType: txn.wallettype,      // deposit / withdraw / bonus
-//     transactionType: txn.transtype,  // credit / debit
-//     amount: Number(txn.amount),
-//     remark: txn.remark,
-//     referenceId: txn.reference_id,
-//     date: txn.created_at
-//   }));
-// };
+  return rows.map(txn => ({
+    id: txn.id,
+    walletType: txn.wallettype,      // deposit / withdraw / bonus
+    transactionType: txn.transtype,  // credit / debit
+    amount: Number(txn.amount),
+    remark: txn.remark,
+    referenceId: txn.reference_id,
+    date: txn.created_at
+  }));
+};
 
 
-// 1 FIRST define helper
 
-export const getMyTransactionsService = async (userId, year) => {
+
+export const getMyTransactionsServiceYear = async (userId, year) => {
 
   /* 1️⃣ Get user join date */
 
@@ -565,6 +565,8 @@ export const getMyTransactionsService = async (userId, year) => {
   };
 
 };
+
+
 export const createWalletTransaction = async ({
   conn,
   userId,

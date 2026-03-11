@@ -1,9 +1,9 @@
 import db from "../../config/db.js";
 import { generateTransactionsPDF } from "../../utils/pdf.document .js";
+import { sendMail } from "../../utils/send.mail.js";
 
-import { sendOtpEmail } from "../../utils/send.otp.mails.js";
 
-import {addDepositService,  getMyWalletService,getMyTransactionsService, deleteTransactionsByUserCodeService, getMyAnalyticsService} from "./wallet.service.js";
+import {addDepositService,  getMyWalletService,getMyTransactionsService, deleteTransactionsByUserCodeService, getMyAnalyticsService, getMyTransactionsServiceYear} from "./wallet.service.js";
 
 export const addMoney = async (req, res) => {
   try {
@@ -44,61 +44,17 @@ export const getMyWallet = async (req, res) => {
 };  
 
 
-// export const getMyTransactions = async (req, res) => {
-//   try {
-
-//     const userId = req.user.id;
-//     const { year } = req.params;
-
-//     const result = await getMyTransactionsService(userId, year);
-
-//     res.status(200).json({
-//       success: true,
-//       ...result
-//     });
-
-//   } catch (err) {
-
-//     res.status(400).json({
-//       success: false,
-//       message: err.message
-//     });
-
-//   }
-// };
-
-
 
 export const getMyTransactions = async (req, res) => {
   try {
 
     const userId = req.user.id;
-    const { year } = req.params;
 
-    const result = await getMyTransactionsService(userId, year);
+    const result = await getMyTransactionsService(userId);
 
-    const [[user]] = await db.query(
-      `SELECT email FROM users WHERE id=?`,
-      [userId]
-    );
-
-    if (!user) throw new Error("User not found");
-
-    if (user.email && result.data && result.data.length) {
-
-      const pdfBuffer = await generateTransactionsPDF(result.data, year);
-
-      await sendOtpEmail(
-        user.email,
-        `PICK2WIN Wallet Transactions ${year}`,
-        pdfBuffer
-      );
-
-    }
-
-    res.json({
+    res.status(200).json({
       success: true,
-      ...result
+      data: result
     });
 
   } catch (err) {
@@ -110,6 +66,67 @@ export const getMyTransactions = async (req, res) => {
 
   }
 };
+
+
+export const getMyTransactionsYear = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { year } = req.params;
+
+    const result = await getMyTransactionsServiceYear(userId, year);
+    const transactions = result.data || [];
+
+    if (!transactions.length) {
+      return res.json({
+        success: true,
+        message: `No transactions found for ${year}`
+      });
+    }
+
+    const [[user]] = await db.query(
+      `SELECT email FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    const pdfBuffer = await generateTransactionsPDF(transactions, year);
+console.log("PDF size:", pdfBuffer.length);
+    await sendMail({
+      to: user.email,
+      subject: `PICK2WIN Wallet Transactions ${year}`,
+      html: `<p>Your wallet statement for ${year} is attached.</p>`,
+      attachments: [
+        {
+          filename: `wallet-transactions-${year}.pdf`,
+          content: pdfBuffer
+        }
+      ]
+    });
+
+    res.json({
+      success: true,
+      message: `Transactions statement sent to ${user.email}`
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export const deleteTransactionsByUser = async (req, res) => {
   try {
