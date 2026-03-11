@@ -35,7 +35,7 @@ app.post("/save-fcm-token", authenticate, saveFcmToken);
 app.post("/test-notification", authenticate, testNotification);
 app.use("/payment",authenticate,checkAccountActive, paymentRoutes)
 app.use("/uct",authenticate,checkAccountActive, uctRoutes)
-app.use("/kyc",authenticate,checkAccountActive,kycRoutes)
+app.use("/kyc",kycRoutes)
 app.use("/withdraw", withdrawRoutes);
 app.use("/bank",authenticate,checkAccountActive, bankRoutes);
 app.use("/test",testRoutes)
