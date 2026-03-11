@@ -193,12 +193,18 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //       }
 //     }
 
-//     /* ================= CONTEST LOCK & CAPACITY CHECK ================= */
+//     /* ================= CONTEST + MATCH LOCK ================= */
 
 //     const [[contest]] = await conn.query(
-//       `SELECT max_entries, current_entries, status
-//        FROM contest
-//        WHERE id = ?
+//       `SELECT 
+//           c.max_entries,
+//           c.current_entries,
+//           c.status,
+//           m.status AS match_status,
+//           m.matchdate
+//        FROM contest c
+//        JOIN matches m ON c.match_id = m.id
+//        WHERE c.id = ?
 //        FOR UPDATE`,
 //       [contestId]
 //     );
@@ -206,6 +212,21 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //     if (!contest) {
 //       throw new Error("Contest not found");
 //     }
+
+//     /* ---------- Match Status Check ---------- */
+
+//     if (contest.match_status !== "UPCOMING") {
+//       throw new Error("Match already started or completed");
+//     }
+
+//     const now = new Date();
+//     const matchStartTime = new Date(contest.matchdate);
+
+//     if (now >= matchStartTime) {
+//       throw new Error("Match already started");
+//     }
+
+//     /* ---------- Contest Status Check ---------- */
 
 //     if (contest.status !== "UPCOMING") {
 //       throw new Error("Contest not available");
@@ -398,10 +419,13 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //   }
 // };
 
+
 export const joinContestService = async (userId, amount, meta = {}) => {
+
   const conn = await db.getConnection();
 
   try {
+
     await conn.beginTransaction();
 
     const { contestId, userTeamId } = meta;
@@ -417,8 +441,9 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     /* ================= DUPLICATE CHECK ================= */
 
     for (const teamId of teamIds) {
+
       const [[already]] = await conn.query(
-        `SELECT id 
+        `SELECT id
          FROM contest_entries
          WHERE contest_id = ?
          AND user_id = ?
@@ -429,17 +454,19 @@ export const joinContestService = async (userId, amount, meta = {}) => {
       if (already) {
         throw new Error(`Team ${teamId} already joined`);
       }
+
     }
 
     /* ================= CONTEST + MATCH LOCK ================= */
 
     const [[contest]] = await conn.query(
-      `SELECT 
+      `SELECT
           c.max_entries,
           c.current_entries,
           c.status,
           m.status AS match_status,
-          m.matchdate
+          m.matchdate,
+          m.start_time
        FROM contest c
        JOIN matches m ON c.match_id = m.id
        WHERE c.id = ?
@@ -457,10 +484,15 @@ export const joinContestService = async (userId, amount, meta = {}) => {
       throw new Error("Match already started or completed");
     }
 
-    const now = new Date();
-    const matchStartTime = new Date(contest.matchdate);
+    /* ---------- Match Time Check ---------- */
 
-    if (now >= matchStartTime) {
+    const now = new Date();
+
+    const matchStart = new Date(
+      `${contest.matchdate.toISOString().split("T")[0]} ${contest.start_time}`
+    );
+
+    if (now >= matchStart) {
       throw new Error("Match already started");
     }
 
@@ -495,12 +527,14 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     if (entryAmount === 0) {
 
       for (const teamId of teamIds) {
+
         await conn.query(
           `INSERT INTO contest_entries
            (contest_id, user_id, user_team_id, entry_fee, status)
            VALUES (?, ?, ?, 0, 'joined')`,
           [contestId, userId, teamId]
         );
+
       }
 
       await conn.query(
@@ -516,6 +550,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
         success: true,
         message: "Joined free contest successfully"
       };
+
     }
 
     /* ================= WALLET LOCK ================= */
@@ -529,6 +564,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     );
 
     if (!wallet) throw new Error("Wallet not found");
+
     if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
 
     let remaining = totalEntry;
@@ -583,6 +619,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     /* ================= WALLET TRANSACTIONS ================= */
 
     const insertTxn = async (walletType, amountUsed) => {
+
       if (amountUsed <= 0) return;
 
       await conn.query(
@@ -597,6 +634,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
           contestId
         ]
       );
+
     };
 
     await insertTxn("bonus", bonusUse);
@@ -606,12 +644,14 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     /* ================= INSERT ENTRIES ================= */
 
     for (const teamId of teamIds) {
+
       await conn.query(
         `INSERT INTO contest_entries
          (contest_id, user_id, user_team_id, entry_fee, status)
          VALUES (?, ?, ?, ?, 'joined')`,
         [contestId, userId, teamId, entryAmount]
       );
+
     }
 
     /* ================= UPDATE CONTEST COUNT ================= */
@@ -628,12 +668,14 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     /* ================= AUTO MARK FULL ================= */
 
     if (newCount >= contest.max_entries) {
+
       await conn.query(
         `UPDATE contest
          SET status = 'FULL'
          WHERE id = ?`,
         [contestId]
       );
+
     }
 
     await conn.commit();
@@ -650,13 +692,17 @@ export const joinContestService = async (userId, amount, meta = {}) => {
     };
 
   } catch (err) {
+
     await conn.rollback();
     throw err;
-  } finally {
-    conn.release();
-  }
-};
 
+  } finally {
+
+    conn.release();
+
+  }
+
+};
 export const getMyContestsService = async (userId, matchId) => {
 
   const [rows] = await db.query(`
