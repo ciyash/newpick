@@ -46,42 +46,18 @@
 
 import db from "../../config/db.js";
 
-
-
 export const sumsubWebhook = async (req, res) => {
 
-  try {
+  const { externalUserId, reviewResult } = req.body;
 
-    const { applicantId, externalUserId, reviewResult } = req.body;
+  if (reviewResult?.reviewAnswer === "GREEN") {
 
-    if (reviewResult?.reviewAnswer === "GREEN") {
-
-      await db.query(
-        `UPDATE users
-         SET age_verified = 1
-         WHERE mobile = ?`,
-        [externalUserId]
-      );
-
-    } else if (reviewResult?.reviewAnswer === "RED") {
-
-      /* verification failed → reset */
-      await db.query(
-        `UPDATE users
-         SET sumsub_applicant_id = NULL
-         WHERE mobile = ?`,
-        [externalUserId]
-      );
-
-    }
-
-    res.status(200).send("ok");
-
-  } catch (err) {
-
-    console.error("WEBHOOK ERROR:", err);
-    res.status(500).send("error");
+    await db.query(
+      "UPDATE users SET age_verified=1 WHERE mobile=?",
+      [externalUserId]
+    );
 
   }
 
+  res.send("ok");
 };

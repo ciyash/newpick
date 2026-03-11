@@ -162,6 +162,8 @@ export const getKycSdkToken = async (req, res) => {
 
   }
 };
+
+
 export const getKycStatus = async (req, res) => {
   try {
 
