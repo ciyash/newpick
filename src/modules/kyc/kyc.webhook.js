@@ -44,52 +44,77 @@
 import db from "../../config/db.js";
 
 
+// export const sumsubWebhook = async (req, res) => {
+//   try {
+
+//     const { applicantId, reviewResult } = req.body;
+
+//     if (!applicantId) {
+//       return res.status(400).send("Applicant ID missing");
+//     }
+
+//     let status = "pending";
+//     let ageVerified = 0;
+
+//     const answer = reviewResult?.reviewAnswer;
+
+//     if (answer === "GREEN") {
+//       status = "approved";
+//       ageVerified = 1;
+//     }
+//     else if (answer === "RED") {
+//       status = "rejected";
+//     }
+
+//     const [result] = await db.query(
+//       `UPDATE users
+//        SET kyc_status = ?, age_verified = ?
+//        WHERE sumsub_applicant_id = ?`,
+//       [status, ageVerified, applicantId]
+//     );
+
+//     if (result.affectedRows === 0) {
+//       console.log("User not found for applicant:", applicantId);
+//     }
+
+//     console.log("KYC updated:", applicantId, status);
+
+//     return res.sendStatus(200);
+
+//   } catch (err) {
+
+//     console.error("KYC webhook error:", err);
+//     return res.sendStatus(500);
+
+//   }  
+// };
+
 export const sumsubWebhook = async (req, res) => {
+
   try {
 
     const { applicantId, reviewResult } = req.body;
 
-    if (!applicantId) {
-      return res.status(400).send("Applicant ID missing");
-    }
+    const status = reviewResult?.reviewAnswer;
 
-    let status = "pending";
-    let ageVerified = 0;
+    const ageVerified = status === "GREEN" ? 1 : 0;
 
-    const answer = reviewResult?.reviewAnswer;
-
-    if (answer === "GREEN") {
-      status = "approved";
-      ageVerified = 1;
-    }
-    else if (answer === "RED") {
-      status = "rejected";
-    }
-
-    const [result] = await db.query(
-      `UPDATE users
-       SET kyc_status = ?, age_verified = ?
+    await db.query(
+      `UPDATE users 
+       SET age_verified = ?
        WHERE sumsub_applicant_id = ?`,
-      [status, ageVerified, applicantId]
+      [ageVerified, applicantId]
     );
 
-    if (result.affectedRows === 0) {
-      console.log("User not found for applicant:", applicantId);
-    }
-
-    console.log("KYC updated:", applicantId, status);
-
-    return res.sendStatus(200);
+    res.sendStatus(200);
 
   } catch (err) {
 
-    console.error("KYC webhook error:", err);
-    return res.sendStatus(500);
+    res.sendStatus(500);
 
-  }  
+  }
+
 };
-
-
 
 
 export const getKycStatus = async (req, res) => {
