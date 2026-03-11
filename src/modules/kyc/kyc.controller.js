@@ -148,26 +148,21 @@ export const getKycStatus = async (req, res) => {
 
     const { mobile } = req.params;
 
-    const session = await redis.get(`KYC_SESSION:${mobile}`);
+    const [rows] = await db.query(
+      "SELECT age_verified FROM kyc_sessions WHERE mobile=?",
+      [mobile]
+    );
 
-    if (!session) {
+    if (!rows.length) {
       return res.json({
         success: true,
         ageVerified: 0
       });
     }
 
-    let data;
-
-    if (typeof session === "string") {
-      data = JSON.parse(session);
-    } else {
-      data = session;
-    }
-
     return res.json({
       success: true,
-      ageVerified: data.age_verified || 0
+      ageVerified: rows[0].age_verified || 0
     });
 
   } catch (err) {
