@@ -111,7 +111,6 @@ import { createApplicantService } from "./kyc.service.js";
 // };
 
 
-
 export const getKycSdkToken = async (req, res) => {
   try {
 
@@ -126,15 +125,11 @@ export const getKycSdkToken = async (req, res) => {
 
     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-    /* store mobile in redis session */
-
     await redis.set(
       `KYC_SESSION:${normalizedMobile}`,
       JSON.stringify({ mobile: normalizedMobile, email }),
-      { EX: 600 } // 10 minutes
+      { EX: 600 }
     );
-
-    /* create sumsub applicant */
 
     const applicantId = await createApplicantService(normalizedMobile);
 
@@ -154,13 +149,15 @@ export const getKycSdkToken = async (req, res) => {
 
   } catch (err) {
 
+    console.error("KYC TOKEN ERROR:", err);  // 👈 add this
+
     res.status(500).json({
       success: false,
       message: err.message
     });
 
   }
-};
+}; 
 
 export const getKycStatus = async (req, res) => {
   try {

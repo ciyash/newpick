@@ -1,5 +1,4 @@
 import crypto from "crypto";
-
 import https from "https";
 
 export const createSumsubHeaders = (method, path, body = "") => {
@@ -16,13 +15,13 @@ export const createSumsubHeaders = (method, path, body = "") => {
   return {
     "X-App-Token": process.env.SUMSUB_APP_TOKEN,
     "X-App-Access-Ts": ts,
-    "X-App-Access-Sig": signature
+    "X-App-Access-Sig": signature,
+    "Content-Type": "application/json"
   };
 };
 
-
-
 export const sumsubPost = (url, headers, body = null) => {
+
   return new Promise((resolve, reject) => {
 
     const req = https.request(url, {
@@ -50,4 +49,5 @@ export const sumsubPost = (url, headers, body = null) => {
 
     req.end();
   });
+
 };

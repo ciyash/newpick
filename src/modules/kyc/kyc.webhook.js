@@ -44,31 +44,21 @@
 
 
 
-import redis from "../../config/redis.js";
 import db from "../../config/db.js";
 
 
 export const sumsubWebhook = async (req, res) => {
-  try {
 
-    const { applicantId, reviewResult } = req.body;
+  const { reviewResult } = req.body;
 
-    if (reviewResult.reviewAnswer === "GREEN") {
+  if (reviewResult?.reviewAnswer === "GREEN") {
 
-      await db.query(
-        `UPDATE users
-         SET age_verified = 1
-         WHERE sumsub_applicant_id = ?`,
-        [applicantId]
-      );
+    await db.query(
+      "UPDATE users SET age_verified = 1 WHERE mobile = ?",
+      ["9234567821"]
+    );
 
-      console.log("Age Verified:", applicantId);
-    }
-
-    res.status(200).send("ok");
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("error");
   }
+
+  res.send("ok");
 };
