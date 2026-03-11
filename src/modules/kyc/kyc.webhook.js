@@ -47,85 +47,28 @@
 import redis from "../../config/redis.js";
 import db from "../../config/db.js";
 
-export const sumsubWebhook = async (req, res) => {
 
+export const sumsubWebhook = async (req, res) => {
   try {
 
-    const payload = req.body;
+    const { applicantId, reviewResult } = req.body;
 
-    console.log("📩 Sumsub webhook payload:", payload);
-
-    const externalUserId = payload?.externalUserId;
-    const reviewResult = payload?.reviewResult;
-
-    if (!externalUserId) {
-
-      console.log("⚠️ No externalUserId received");
-
-      return res.sendStatus(200);
-    }
-
-    const mobile = String(externalUserId).replace(/\D/g, "").trim();
-
-    console.log("📱 Mobile from webhook:", mobile);
-
-    /* Check review result */
-
-    if (reviewResult?.reviewAnswer === "GREEN") {
-
-      console.log("✅ KYC approved for:", mobile);
-
-      /* Get Redis session */
-
-      const session = await redis.get(`KYC_SESSION:${mobile}`);
-
-      if (session) {
-
-        const data =
-          typeof session === "string"
-            ? JSON.parse(session)
-            : session;
-
-        data.age_verified = 1;
-
-        await redis.set(
-          `KYC_SESSION:${mobile}`,
-          JSON.stringify(data),
-          { EX: 600 }
-        );
-
-        console.log("🟢 Redis session updated:", data);
-
-      }
-
-      /* Optional: update DB if user already exists */
+    if (reviewResult.reviewAnswer === "GREEN") {
 
       await db.query(
         `UPDATE users
          SET age_verified = 1
-         WHERE mobile = ?`,
-        [mobile]
+         WHERE sumsub_applicant_id = ?`,
+        [applicantId]
       );
 
-      console.log("🟢 DB updated if user exists");
-
+      console.log("Age Verified:", applicantId);
     }
 
-    else if (reviewResult?.reviewAnswer === "RED") {
-
-      console.log("❌ KYC rejected for:", mobile);
-
-    }
-
-    res.sendStatus(200);
+    res.status(200).send("ok");
 
   } catch (err) {
-
-    console.error("❌ Sumsub webhook error:", err);
-
-    res.sendStatus(500);
-
+    console.error(err);
+    res.status(500).send("error");
   }
-
 };
-
