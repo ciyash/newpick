@@ -53,7 +53,7 @@ export const sumsubWebhook = async (req, res) => {
   if (reviewResult?.reviewAnswer === "GREEN") {
 
     await db.query(
-      "UPDATE users SET age_verified=1 WHERE mobile=?",
+      "UPDATE kyc_sessions SET age_verified=1 WHERE mobile=?",
       [externalUserId]
     );
 

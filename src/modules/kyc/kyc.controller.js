@@ -111,58 +111,37 @@ import { createApplicantService } from "./kyc.service.js";
 // };
 
 
-export const getKycSdkToken = async (req, res) => {
-  try {
+export const startKyc = async (req, res) => {
 
-    const { mobile, email } = req.body;
+  const { mobile, email } = req.body;
 
-    if (!mobile || !email) {
-      return res.status(400).json({
-        success: false,
-        message: "Mobile and email required"
-      });
-    }
+  const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-    const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+  const applicantId = await createApplicantService(normalizedMobile);
 
-    /* create applicant */
-    const applicantId = await createApplicantService(normalizedMobile);
+  await db.query(
+    `INSERT INTO kyc_sessions (mobile, email, applicant_id, age_verified)
+     VALUES (?, ?, ?, 0)
+     ON DUPLICATE KEY UPDATE
+     applicant_id = VALUES(applicant_id)`,
+    [normalizedMobile, email, applicantId]
+  );
 
-    /* ⭐ store temporary */
-    await db.query(
-      `UPDATE users 
-       SET sumsub_applicant_id = ?, 
-           age_verified = 0
-       WHERE mobile = ?`,
-      [applicantId, normalizedMobile]
-    );
+  const path = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
 
-    const path = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
+  const headers = createSumsubHeaders("POST", path, "");
 
-    const headers = createSumsubHeaders("POST", path, "");
+  const data = await sumsubPost(
+    process.env.SUMSUB_BASE_URL + path,
+    headers
+  );
 
-    const data = await sumsubPost(
-      process.env.SUMSUB_BASE_URL + path,
-      headers
-    );
+  res.json({
+    success: true,
+    token: data.token
+  });
 
-    res.json({
-      success: true,
-      token: data.token
-    });
-
-  } catch (err) {
-
-    console.error("KYC TOKEN ERROR:", err);
-
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
-
-  }
 };
-
 
 export const getKycStatus = async (req, res) => {
   try {
