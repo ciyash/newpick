@@ -42,6 +42,7 @@
 // };
 
 import db from "../../config/db.js";
+import redis from "../../config/redis.js";
 
 
 // export const sumsubWebhook = async (req, res) => {
@@ -89,73 +90,58 @@ import db from "../../config/db.js";
 //   }  
 // };
 
-export const sumsubWebhook = async (req, res) => {
 
-  try {
+export const sumsubWebhook = async (req,res)=>{
 
-    const { applicantId, reviewResult } = req.body;
+ const { externalUserId, reviewResult } = req.body;
 
-    const status = reviewResult?.reviewAnswer;
+ const mobile = externalUserId;
 
-    const ageVerified = status === "GREEN" ? 1 : 0;
+ if(reviewResult?.reviewAnswer === "GREEN"){
 
-    await db.query(
-      `UPDATE users 
-       SET age_verified = ?
-       WHERE sumsub_applicant_id = ?`,
-      [ageVerified, applicantId]
-    );
+   const session = await redis.get(`KYC:${mobile}`);
 
-    res.sendStatus(200);
+   if(session){
 
-  } catch (err) {
+     const data = JSON.parse(session);
 
-    res.sendStatus(500);
+     data.age_verified = 1;
 
-  }
+     await redis.set(
+       `KYC:${mobile}`,
+       JSON.stringify(data),
+       { EX: 900 }
+     );
+
+   }
+
+ }
+
+ res.sendStatus(200);
 
 };
 
 
-export const getKycStatus = async (req, res) => {
-  try {
+export const getKycStatus = async (req,res)=>{
 
-    const { mobile } = req.params;
+ const { mobile } = req.params;
 
-    if (!mobile) {
-      return res.status(400).json({
-        success: false,
-        message: "Mobile number required"
-      });
-    }
+ const session = await redis.get(`KYC:${mobile}`);
 
-    const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+ if(!session){
 
-    const [[user]] = await db.query(
-      `SELECT age_verified
-       FROM users
-       WHERE mobile = ?`,
-      [normalizedMobile]
-    );
+   return res.json({
+     success:true,
+     ageVerified:0
+   });
 
-    if (!user) {
-      return res.json({
-        success: true,
-        ageVerified: 0
-      });
-    }
+ }
 
-    res.json({
-      success: true,
-      ageVerified: user.age_verified
-    });
+ const data = JSON.parse(session);
 
-  } catch (err) {
+ res.json({
+   success:true,
+   ageVerified:data.age_verified
+ });
 
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
-
-  }
 };
