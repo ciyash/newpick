@@ -1,5 +1,7 @@
 import db from "../../config/db.js";
-import { sendMail } from "../../utils/send.mail.js"
+import { generateTransactionsPDF } from "../../utils/pdf.document .js";
+
+import { sendOtpEmail } from "../../utils/send.otp.mails.js";
 
 import {addDepositService,  getMyWalletService,getMyTransactionsService, deleteTransactionsByUserCodeService, getMyAnalyticsService} from "./wallet.service.js";
 
@@ -39,7 +41,7 @@ export const getMyWallet = async (req, res) => {
       message: err.message
     });
   }
-};
+};  
 
 
 // export const getMyTransactions = async (req, res) => {
@@ -66,73 +68,35 @@ export const getMyWallet = async (req, res) => {
 // };
 
 
+
 export const getMyTransactions = async (req, res) => {
   try {
 
     const userId = req.user.id;
     const { year } = req.params;
 
-    /* 1️⃣ Get transactions */
-
     const result = await getMyTransactionsService(userId, year);
 
-    /* 2️⃣ Get user email */
-
     const [[user]] = await db.query(
-      `SELECT email FROM users WHERE id = ?`,
+      `SELECT email FROM users WHERE id=?`,
       [userId]
     );
 
-    /* 3️⃣ Send email only if email exists */
+    if (!user) throw new Error("User not found");
 
-    if (user && user.email && result.data && result.data.length) {
+    if (user.email && result.data && result.data.length) {
 
-      const html = `
-        <h3>PICK2WIN Wallet Transactions (${year})</h3>
+      const pdfBuffer = await generateTransactionsPDF(result.data, year);
 
-        <table border="1" cellpadding="6" cellspacing="0">
-          <tr>
-            <th>ID</th>
-            <th>Wallet Type</th>
-            <th>Transaction Type</th>
-            <th>Amount</th>
-            <th>Remark</th>
-            <th>Date</th>
-          </tr>
-
-          ${result.data.map(txn => `
-            <tr>
-              <td>${txn.id}</td>
-              <td>${txn.walletType}</td>
-              <td>${txn.transactionType}</td>
-              <td>${txn.amount}</td>
-              <td>${txn.remark}</td>
-              <td>${txn.date}</td>
-            </tr>
-          `).join("")}
-
-        </table>
-      `;
-
-      try {
-
-        await sendMail(
-          user.email,
-          `PICK2WIN Wallet Transactions ${year}`,
-          html
-        );
-
-      } catch (mailErr) {
-
-        console.log("Email sending failed:", mailErr.message);
-
-      }
+      await sendOtpEmail(
+        user.email,
+        `PICK2WIN Wallet Transactions ${year}`,
+        pdfBuffer
+      );
 
     }
 
-    /* 4️⃣ Return API response */
-
-    res.status(200).json({
+    res.json({
       success: true,
       ...result
     });
@@ -250,4 +214,4 @@ export const downloadAnalyticsStatement = async (req, res) => {
       message: error.message
     });
   }
-};
+}; 
