@@ -48,7 +48,7 @@ const getLastBalance = async (conn, userId) => {
 /* ================= REQUEST SIGNUP OTP ================= */
 
 export const requestSignupOtpService = async (data) => {
-  const { name, email, mobile, region, address, dob, nickname, category, referralid } = data;
+  const { name, email, mobile, region, address, dob, nickname, category, referral } = data;
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
@@ -457,12 +457,12 @@ export const signupService = async ({ mobile, otp }) => {
     const [result] = await conn.query(
       `INSERT INTO users
        (userid, usercode, name, email, mobile, region, address,
-        dob, referalid, nickname, category,
+        dob, referral, nickname, category,
         email_verify, mobile_verify,
         created_at, age_verified)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, NOW(), 1)`,
       [
-        userid, usercode, name, email,
+        userid, usercode, name, email, 
         normalizedMobile, region, address,
         dob, referralid, nickname,
         categoryNormalized
