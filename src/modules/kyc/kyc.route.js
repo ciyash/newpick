@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { getKycSdkToken, kycComplete } from "./kyc.controller.js";
-import { getKycStatus, sumsubWebhook } from "./kyc.webhook.js";
+import { getKycSdkToken, getKycStatus, kycComplete } from "./kyc.controller.js";
+import {  sumsubWebhook } from "./kyc.webhook.js";
 
 
 const router=Router()

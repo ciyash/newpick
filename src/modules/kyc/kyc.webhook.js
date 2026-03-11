@@ -41,107 +41,91 @@
 //   }
 // };
 
-import db from "../../config/db.js";
+
+
+
 import redis from "../../config/redis.js";
+import db from "../../config/db.js";
 
+export const sumsubWebhook = async (req, res) => {
 
-// export const sumsubWebhook = async (req, res) => {
-//   try {
+  try {
 
-//     const { applicantId, reviewResult } = req.body;
+    const payload = req.body;
 
-//     if (!applicantId) {
-//       return res.status(400).send("Applicant ID missing");
-//     }
+    console.log("📩 Sumsub webhook payload:", payload);
 
-//     let status = "pending";
-//     let ageVerified = 0;
+    const externalUserId = payload?.externalUserId;
+    const reviewResult = payload?.reviewResult;
 
-//     const answer = reviewResult?.reviewAnswer;
+    if (!externalUserId) {
 
-//     if (answer === "GREEN") {
-//       status = "approved";
-//       ageVerified = 1;
-//     }
-//     else if (answer === "RED") {
-//       status = "rejected";
-//     }
+      console.log("⚠️ No externalUserId received");
 
-//     const [result] = await db.query(
-//       `UPDATE users
-//        SET kyc_status = ?, age_verified = ?
-//        WHERE sumsub_applicant_id = ?`,
-//       [status, ageVerified, applicantId]
-//     );
+      return res.sendStatus(200);
+    }
 
-//     if (result.affectedRows === 0) {
-//       console.log("User not found for applicant:", applicantId);
-//     }
+    const mobile = String(externalUserId).replace(/\D/g, "").trim();
 
-//     console.log("KYC updated:", applicantId, status);
+    console.log("📱 Mobile from webhook:", mobile);
 
-//     return res.sendStatus(200);
+    /* Check review result */
 
-//   } catch (err) {
+    if (reviewResult?.reviewAnswer === "GREEN") {
 
-//     console.error("KYC webhook error:", err);
-//     return res.sendStatus(500);
+      console.log("✅ KYC approved for:", mobile);
 
-//   }  
-// };
+      /* Get Redis session */
 
+      const session = await redis.get(`KYC_SESSION:${mobile}`);
 
-export const sumsubWebhook = async (req,res)=>{
+      if (session) {
 
- const { externalUserId, reviewResult } = req.body;
+        const data =
+          typeof session === "string"
+            ? JSON.parse(session)
+            : session;
 
- const mobile = externalUserId;
+        data.age_verified = 1;
 
- if(reviewResult?.reviewAnswer === "GREEN"){
+        await redis.set(
+          `KYC_SESSION:${mobile}`,
+          JSON.stringify(data),
+          { EX: 600 }
+        );
 
-   const session = await redis.get(`KYC:${mobile}`);
+        console.log("🟢 Redis session updated:", data);
 
-   if(session){
+      }
 
-     const data = JSON.parse(session);
+      /* Optional: update DB if user already exists */
 
-     data.age_verified = 1;
+      await db.query(
+        `UPDATE users
+         SET age_verified = 1
+         WHERE mobile = ?`,
+        [mobile]
+      );
 
-     await redis.set(
-       `KYC:${mobile}`,
-       JSON.stringify(data),
-       { EX: 900 }
-     );
+      console.log("🟢 DB updated if user exists");
 
-   }
+    }
 
- }
+    else if (reviewResult?.reviewAnswer === "RED") {
 
- res.sendStatus(200);
+      console.log("❌ KYC rejected for:", mobile);
 
-};
+    }
 
+    res.sendStatus(200);
 
-export const getKycStatus = async (req,res)=>{
+  } catch (err) {
 
- const { mobile } = req.params;
+    console.error("❌ Sumsub webhook error:", err);
 
- const session = await redis.get(`KYC:${mobile}`);
+    res.sendStatus(500);
 
- if(!session){
-
-   return res.json({
-     success:true,
-     ageVerified:0
-   });
-
- }
-
- const data = JSON.parse(session);
-
- res.json({
-   success:true,
-   ageVerified:data.age_verified
- });
+  }
 
 };
+

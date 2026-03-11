@@ -162,6 +162,46 @@ export const getKycSdkToken = async (req, res) => {
   }
 };
 
+export const getKycStatus = async (req, res) => {
+  try {
+
+    const { mobile } = req.params;
+
+    const session = await redis.get(`KYC_SESSION:${mobile}`);
+
+    if (!session) {
+      return res.json({
+        success: true,
+        ageVerified: 0
+      });
+    }
+
+    let data;
+
+    if (typeof session === "string") {
+      data = JSON.parse(session);
+    } else {
+      data = session;
+    }
+
+    return res.json({
+      success: true,
+      ageVerified: data.age_verified || 0
+    });
+
+  } catch (err) {
+
+    console.error("KYC status error:", err);
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
+
+  }
+};
+
+
 export const kycComplete = async (req, res) => {
   try {
     const { mobile } = req.body;
