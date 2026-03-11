@@ -1,7 +1,8 @@
 import {
   requestWithdrawService,
   approveWithdrawService,
-  rejectWithdrawService
+  rejectWithdrawService,
+  getMyWithdrawRequestsService
 } from "./withdraw.service.js";
 
 /* User */
@@ -43,5 +44,27 @@ export const rejectWithdraw = async (req, res) => {
     res.status(200).json(response);
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+export const getMyWithdrawRequests = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+
+    const withdraws = await getMyWithdrawRequestsService(userId);
+
+    res.json({
+      success: true,
+      data: withdraws
+    });
+
+  } catch (err) {
+
+    res.status(400).json({
+      success: false,
+      message: err.message
+    });
+
   }
 };

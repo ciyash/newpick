@@ -317,3 +317,35 @@ export const rejectWithdrawService = async (
     conn.release();
   }
 };
+
+export const getMyWithdrawRequestsService = async (userId) => {
+
+  const [rows] = await db.query(
+    `SELECT
+        id,
+        amount,
+        bank_details,
+        payment_mode,
+        transaction_id,
+        status,
+        created_at,
+        processed_at
+     FROM withdraws
+     WHERE user_id = ?
+     AND status IN ('PENDING','REJECTED')
+     ORDER BY created_at DESC`,
+    [userId]
+  );
+
+  return rows.map(w => ({
+    id: w.id,
+    amount: Number(w.amount),
+    bankDetails: w.bank_details,
+    paymentMode: w.payment_mode,
+    transactionId: w.transaction_id,
+    status: w.status,
+    requestedAt: w.created_at,
+    processedAt: w.processed_at
+  }));
+
+};

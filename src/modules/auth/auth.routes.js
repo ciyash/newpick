@@ -44,3 +44,4 @@ router.post("/verify-new-contact",authenticate,verifyNewContact);
 router.post("/logout", authenticate, logout);
 
 export default router;
+  
