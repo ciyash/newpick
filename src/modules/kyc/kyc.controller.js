@@ -125,13 +125,17 @@ export const getKycSdkToken = async (req, res) => {
 
     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-    await redis.set(
-      `KYC_SESSION:${normalizedMobile}`,
-      JSON.stringify({ mobile: normalizedMobile, email }),
-      { EX: 600 }
-    );
-
+    /* create applicant */
     const applicantId = await createApplicantService(normalizedMobile);
+
+    /* ⭐ store temporary */
+    await db.query(
+      `UPDATE users 
+       SET sumsub_applicant_id = ?, 
+           age_verified = 0
+       WHERE mobile = ?`,
+      [applicantId, normalizedMobile]
+    );
 
     const path = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
 
@@ -149,7 +153,7 @@ export const getKycSdkToken = async (req, res) => {
 
   } catch (err) {
 
-    console.error("KYC TOKEN ERROR:", err);  // 👈 add this
+    console.error("KYC TOKEN ERROR:", err);
 
     res.status(500).json({
       success: false,
@@ -157,8 +161,7 @@ export const getKycSdkToken = async (req, res) => {
     });
 
   }
-}; 
-
+};
 export const getKycStatus = async (req, res) => {
   try {
 
