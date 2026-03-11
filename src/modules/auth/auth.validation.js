@@ -9,7 +9,7 @@ export const signupSchema = Joi.object({
   dob:      Joi.date().less("now").required(),
   category: Joi.string().valid("students", "others").required(),
   nickname: Joi.string().min(3).max(50).optional().allow(null, ""),
-  referralid: Joi.string().empty("").default("AAAAA1111").optional(),
+  referralid: Joi.string().empty("").default("AAAAA1111").optional().allow("")
 }); 
 
 export const verifyOtpSchema = Joi.object({
