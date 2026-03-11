@@ -1,4 +1,5 @@
 import db from "../../config/db.js";
+import { sendMail } from "../../utils/send.mail.js"
 
 import {addDepositService,  getMyWalletService,getMyTransactionsService, deleteTransactionsByUserCodeService, getMyAnalyticsService} from "./wallet.service.js";
 
@@ -40,21 +41,27 @@ export const getMyWallet = async (req, res) => {
   }
 };
 
+
 // export const getMyTransactions = async (req, res) => {
 //   try {
-//     const userId = req.user.id;
 
-//     const transactions = await getMyTransactionsService(userId);
+//     const userId = req.user.id;
+//     const { year } = req.params;
+
+//     const result = await getMyTransactionsService(userId, year);
 
 //     res.status(200).json({
 //       success: true,
-//       data: transactions
+//       ...result
 //     });
+
 //   } catch (err) {
+
 //     res.status(400).json({
 //       success: false,
 //       message: err.message
 //     });
+
 //   }
 // };
 
@@ -65,7 +72,65 @@ export const getMyTransactions = async (req, res) => {
     const userId = req.user.id;
     const { year } = req.params;
 
+    /* 1️⃣ Get transactions */
+
     const result = await getMyTransactionsService(userId, year);
+
+    /* 2️⃣ Get user email */
+
+    const [[user]] = await db.query(
+      `SELECT email FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    /* 3️⃣ Send email only if email exists */
+
+    if (user && user.email && result.data && result.data.length) {
+
+      const html = `
+        <h3>PICK2WIN Wallet Transactions (${year})</h3>
+
+        <table border="1" cellpadding="6" cellspacing="0">
+          <tr>
+            <th>ID</th>
+            <th>Wallet Type</th>
+            <th>Transaction Type</th>
+            <th>Amount</th>
+            <th>Remark</th>
+            <th>Date</th>
+          </tr>
+
+          ${result.data.map(txn => `
+            <tr>
+              <td>${txn.id}</td>
+              <td>${txn.walletType}</td>
+              <td>${txn.transactionType}</td>
+              <td>${txn.amount}</td>
+              <td>${txn.remark}</td>
+              <td>${txn.date}</td>
+            </tr>
+          `).join("")}
+
+        </table>
+      `;
+
+      try {
+
+        await sendMail(
+          user.email,
+          `PICK2WIN Wallet Transactions ${year}`,
+          html
+        );
+
+      } catch (mailErr) {
+
+        console.log("Email sending failed:", mailErr.message);
+
+      }
+
+    }
+
+    /* 4️⃣ Return API response */
 
     res.status(200).json({
       success: true,
