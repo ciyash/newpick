@@ -40,4 +40,4 @@ app.use("/withdraw", withdrawRoutes);
 app.use("/bank",authenticate,checkAccountActive, bankRoutes);
 app.use("/test",testRoutes)
 
-export default app;     
+export default app;      
