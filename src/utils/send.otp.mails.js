@@ -1,32 +1,52 @@
 import { sendMail } from "./send.mail.js";
 
-export const sendOtpEmail = async (email, otp) => {
+export const sendOtpEmail = async (email, data, isPdf = false) => {
 
-  await sendMail({
-    to: email,
-    subject: "PICK2WIN Security OTP",
-    html: `
-      <div style="font-family:Arial">
+  if (isPdf) {
 
-        <h2>PICK2WIN Security Code</h2>
+    await sendMail({
+      to: email,
+      subject: "PICK2WIN Wallet Transactions",
+      text: "Please find your wallet transactions attached.",
+      attachments: [
+        {
+          filename: "wallet-transactions.pdf",
+          content: data
+        }
+      ]
+    });
 
-        <p>Your OTP is:</p>
+  } else {
 
-        <h1 style=" 
-          background:#f4f4f4;
-          padding:15px;
-          text-align:center;
-          letter-spacing:5px
-        ">
-          ${otp}
-        </h1>
+    const otp = data;
 
-        <p>This OTP is valid for 5 minutes.</p>
+    await sendMail({
+      to: email,
+      subject: "PICK2WIN Security OTP",
+      html: `
+        <div style="font-family:Arial">
 
-        <p>If you didn't request this, please ignore.</p>
+          <h2>PICK2WIN Security Code</h2>
 
-      </div>
-    `
-  });
+          <p>Your OTP is:</p>
+
+          <h1 style="
+            background:#f4f4f4;
+            padding:15px;
+            text-align:center;
+            letter-spacing:5px
+          ">
+            ${otp}
+          </h1>
+
+          <p>This OTP is valid for 5 minutes.</p>
+
+          <p>If you didn't request this, please ignore.</p>
+
+        </div>
+      `
+    });
+
+  }
 
 };
