@@ -5,7 +5,7 @@ import { getKycStatus, sumsubWebhook } from "./kyc.webhook.js";
 
 const router=Router()
 
-// router.get("/token",  getKycSdkToken); 
+router.post("/token",  getKycSdkToken); 
 
 router.post("/webhook", sumsubWebhook);
 

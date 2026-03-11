@@ -6,7 +6,6 @@ import {
   verifySignupOtp,
   adminLogin,  
   updateProfile,
-  getKycSdkToken,
   sendEmailVerification,
   verifyEmailLink,
   requestContactChange,
@@ -23,7 +22,7 @@ router.post("/admin/login", adminLogin);
 
 //USER ROUTES
 router.post("/signup",signup);
-router.post("/kyc-token",getKycSdkToken)
+// router.post("/kyc-token",getKycSdkToken)
 router.post("/verify-signup", verifySignupOtp);
 router.post("/login/send-otp", sendLoginOtp);
 router.post("/login", login);
