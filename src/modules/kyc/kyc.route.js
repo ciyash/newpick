@@ -9,8 +9,8 @@ router.post("/token",  getKycSdkToken);
 
 router.post("/webhook", sumsubWebhook);
 
-router.get("/kyc-status",  getKycStatus);
+router.get("/kyc-status/:mobile",  getKycStatus);
 
-router.post("/kyc-completed", kycComplete);
+router.post("/kyc-completed", kycComplete);  
 
 export default router

@@ -13,8 +13,7 @@ import {
 } from "../auth/auth.service.js";
 import { getClientIp } from "../../utils/ip.js";
 import redis from "../../config/redis.js";
-import { createApplicantService } from "../kyc/kyc.service.js";
-import { createSumsubHeaders, sumsubPost } from "../../utils/sumsub.js";
+
 
 /* ================= SIGNUP ================= */
 

@@ -90,22 +90,33 @@ export const sumsubWebhook = async (req, res) => {
 };
 
 
+
+
 export const getKycStatus = async (req, res) => {
   try {
 
-    const userId = req.user.id;
+    const { mobile } = req.params;
+
+    if (!mobile) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile number required"
+      });
+    }
+
+    const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
     const [[user]] = await db.query(
       `SELECT age_verified
        FROM users
-       WHERE id = ?`,
-      [userId]
+       WHERE mobile = ?`,
+      [normalizedMobile]
     );
 
     if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
+      return res.json({
+        success: true,
+        ageVerified: 0
       });
     }
 
