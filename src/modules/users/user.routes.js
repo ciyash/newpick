@@ -16,7 +16,7 @@ import uctRoutes from '../uct/uct.route.js'
 import kycRoutes from '../kyc/kyc.route.js'
 import withdrawRoutes from '../withdraw/withdraw.routes.js'
 import bankRoutes from '../bank/bank.route.js'
-
+import testRoutes from '../test/test.routes.js'
 const app = express.Router();
 
 app.get("/userprofile", authenticate, getUserProfile);
@@ -38,5 +38,6 @@ app.use("/uct",authenticate,checkAccountActive, uctRoutes)
 app.use("/kyc",authenticate,checkAccountActive,kycRoutes)
 app.use("/withdraw", withdrawRoutes);
 app.use("/bank",authenticate,checkAccountActive, bankRoutes);
+app.use("/test",testRoutes)
 
 export default app;     

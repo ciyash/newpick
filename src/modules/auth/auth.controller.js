@@ -269,7 +269,7 @@ export const getKycSdkToken = async (req, res) => {
 
   }
 };
-
+  
 export const sendEmailVerification = async (req, res) => {
   try {
 

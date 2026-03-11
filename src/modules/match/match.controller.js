@@ -101,9 +101,11 @@ export const getMatchFullDetails = async (req, res) => {
 
 export const getMatchesByType = async (req, res) => {
   try {
-    const { type } = req.params;
 
-    const matches = await getMatchesByTypeService(type);
+    const { type } = req.params;
+    const userId = req.user.id;
+
+    const matches = await getMatchesByTypeService(userId, type);
 
     res.json({
       success: true,
@@ -112,9 +114,11 @@ export const getMatchesByType = async (req, res) => {
     });
 
   } catch (error) {
+
     res.status(400).json({
       success: false,
       message: error.message
     });
+
   }
 };
