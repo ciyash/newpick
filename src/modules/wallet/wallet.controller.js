@@ -40,21 +40,45 @@ export const getMyWallet = async (req, res) => {
   }
 };
 
+// export const getMyTransactions = async (req, res) => {
+//   try {
+//     const userId = req.user.id;
+
+//     const transactions = await getMyTransactionsService(userId);
+
+//     res.status(200).json({
+//       success: true,
+//       data: transactions
+//     });
+//   } catch (err) {
+//     res.status(400).json({
+//       success: false,
+//       message: err.message
+//     });
+//   }
+// };
+
+
 export const getMyTransactions = async (req, res) => {
   try {
-    const userId = req.user.id;
 
-    const transactions = await getMyTransactionsService(userId);
+    const userId = req.user.id;
+    const { year } = req.params;
+
+    const result = await getMyTransactionsService(userId, year);
 
     res.status(200).json({
       success: true,
-      data: transactions
+      ...result
     });
+
   } catch (err) {
+
     res.status(400).json({
       success: false,
       message: err.message
     });
+
   }
 };
 

@@ -43,6 +43,7 @@
 
 import db from "../../config/db.js";
 
+
 export const sumsubWebhook = async (req, res) => {
   try {
 
@@ -55,18 +56,20 @@ export const sumsubWebhook = async (req, res) => {
     let status = "pending";
     let ageVerified = 0;
 
-    if (reviewResult?.reviewAnswer === "GREEN") {
+    const answer = reviewResult?.reviewAnswer;
+
+    if (answer === "GREEN") {
       status = "approved";
       ageVerified = 1;
     }
-    else if (reviewResult?.reviewAnswer === "RED") {
+    else if (answer === "RED") {
       status = "rejected";
     }
 
     const [result] = await db.query(
       `UPDATE users
-       SET kyc_status=?, age_verified=?
-       WHERE sumsub_applicant_id=?`,
+       SET kyc_status = ?, age_verified = ?
+       WHERE sumsub_applicant_id = ?`,
       [status, ageVerified, applicantId]
     );
 
@@ -76,12 +79,47 @@ export const sumsubWebhook = async (req, res) => {
 
     console.log("KYC updated:", applicantId, status);
 
-    res.sendStatus(200);
+    return res.sendStatus(200);
 
   } catch (err) {
 
     console.error("KYC webhook error:", err);
-    res.sendStatus(500);
+    return res.sendStatus(500);
+
+  }
+};
+
+
+export const getKycStatus = async (req, res) => {
+  try {
+
+    const userId = req.user.id;
+
+    const [[user]] = await db.query(
+      `SELECT age_verified
+       FROM users
+       WHERE id = ?`,
+      [userId]
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      ageVerified: user.age_verified
+    });
+
+  } catch (err) {
+
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
 
   }
 };

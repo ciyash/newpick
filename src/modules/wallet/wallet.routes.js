@@ -9,7 +9,7 @@ router.post("/add-money", authenticate, addMoney);
 
 router.get("/my-wallet",  getMyWallet);
     
-router.get("/my-transactions",  getMyTransactions);
+router.get("/my-transactions/:year",  getMyTransactions);
 
 router.delete("/:userid",  deleteTransactionsByUser);
 

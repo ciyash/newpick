@@ -455,7 +455,73 @@ export const getMyWalletService = async (userId) => {
 
 
 
-export const getMyTransactionsService = async (userId) => {
+// export const getMyTransactionsService = async (userId) => {
+//   const [rows] = await db.query(
+//     `SELECT
+//         id,
+//         wallettype,
+//         transtype,
+//         amount,
+//         remark,
+//         reference_id,
+//         created_at
+//      FROM wallet_transactions
+//      WHERE user_id = ?
+//      ORDER BY id DESC`,
+//     [userId]
+//   );
+
+//   return rows.map(txn => ({
+//     id: txn.id,
+//     walletType: txn.wallettype,      // deposit / withdraw / bonus
+//     transactionType: txn.transtype,  // credit / debit
+//     amount: Number(txn.amount),
+//     remark: txn.remark,
+//     referenceId: txn.reference_id,
+//     date: txn.created_at
+//   }));
+// };
+
+
+// 1 FIRST define helper
+
+export const getMyTransactionsService = async (userId, year) => {
+
+  /* 1️⃣ Get user join date */
+
+  const [[user]] = await db.query(
+    `SELECT created_at
+     FROM users
+     WHERE id = ?`,
+    [userId]
+  );
+
+  if (!user) throw new Error("User not found");
+
+  const joinDate = new Date(user.created_at);
+  const joinYear = joinDate.getFullYear();
+
+  let startDate;
+  let endDate;
+
+  /* 2️⃣ Decide date range */
+
+  if (Number(year) === joinYear) {
+
+    // user joined this year → start from join date
+    startDate = user.created_at;
+
+  } else {
+
+    // full year
+    startDate = `${year}-01-01 00:00:00`;
+
+  }
+
+  endDate = `${year}-12-31 23:59:59`;
+
+  /* 3️⃣ Fetch transactions */
+
   const [rows] = await db.query(
     `SELECT
         id,
@@ -467,23 +533,38 @@ export const getMyTransactionsService = async (userId) => {
         created_at
      FROM wallet_transactions
      WHERE user_id = ?
-     ORDER BY id DESC`,
-    [userId]
+     AND created_at BETWEEN ? AND ?
+     ORDER BY created_at DESC`,
+    [userId, startDate, endDate]
   );
 
-  return rows.map(txn => ({
+  /* 4️⃣ If no transactions */
+
+  if (!rows.length) {
+    return {
+      message: `No transactions found for ${year}`,
+      data: []
+    };
+  }
+
+  /* 5️⃣ Format response */
+
+  const transactions = rows.map(txn => ({
     id: txn.id,
-    walletType: txn.wallettype,      // deposit / withdraw / bonus
-    transactionType: txn.transtype,  // credit / debit
+    walletType: txn.wallettype,
+    transactionType: txn.transtype,
     amount: Number(txn.amount),
     remark: txn.remark,
     referenceId: txn.reference_id,
     date: txn.created_at
   }));
+
+  return {
+
+    data: transactions
+  };
+
 };
-
-
-// 1 FIRST define helper
 export const createWalletTransaction = async ({
   conn,
   userId,
