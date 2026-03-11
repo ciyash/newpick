@@ -80,7 +80,8 @@ export const resendSignupOtp = async (req, res) => {
 
     res.json({
       success: true,
-      message: "OTP resent successfully"
+      message: "OTP resent successfully",
+      otp: otp   // 👈 OTP in response
     });
 
   } catch (err) {
