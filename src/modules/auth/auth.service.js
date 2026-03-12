@@ -167,7 +167,7 @@ export const signupService = async ({ mobile, otp }) => {
       if (retries >= MAX_USERCODE_RETRIES) {
         throw new Error("Failed to generate unique usercode, please try again");
       }
-      usercode = generateUserCode();
+      usercode = generateUserCode();  
 
       const [[exists]] = await conn.query(
         "SELECT id FROM users WHERE usercode = ?",

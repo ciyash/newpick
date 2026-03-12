@@ -860,6 +860,7 @@ export const getTeamPlayersService = async (teamId) => {
 //   return Object.values(teams);
 // };
 
+
 export const getMyTeamsWithPlayersService = async (
   userId,
   matchId,
@@ -896,6 +897,7 @@ export const getMyTeamsWithPlayersService = async (
         p.name,
         p.position,
         p.points,
+        p.credits,
         p.player_type,
         p.playerimage,
         p.team_id AS real_team_id,
@@ -943,6 +945,7 @@ export const getMyTeamsWithPlayersService = async (
       name: row.name,
       position: row.position,
       points: row.points,
+      credits: row.credits,
       playerType: row.player_type,
       image: row.playerimage,
       isCaptain: row.is_captain === 1,
