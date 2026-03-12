@@ -242,33 +242,6 @@ export const updateProfile = async (req, res) => {
   }
 };
 
-/* ================= KYC SDK TOKEN ================= */
-
-// ⭐ Sumsub section — maintained by another team, no changes made
-
-// export const getKycSdkToken = async (req, res) => {
-//   try {
-//     const { mobile }       = req.query;
-//     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-//     const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
-//     if (!signupRaw) throw new Error("Signup session expired");
-
-//     const applicantId = await createApplicantService(normalizedMobile);
-
-//     const path    = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
-//     const headers = createSumsubHeaders("POST", path, "");
-//     const data    = await sumsubPost(process.env.SUMSUB_BASE_URL + path, headers);
-
-//     res.json({ success: true, token: data.token });
-
-//   } catch (err) {
-//     const status = err.message === "Signup session expired" ? 400 : 500;
-//     res.status(status).json({ success: false, message: err.message });
-//   }
-// };
-
-
   
 export const sendEmailVerification = async (req, res) => {
   try {
@@ -282,20 +255,36 @@ export const sendEmailVerification = async (req, res) => {
   }
 };
 
+
 export const verifyEmailLink = async (req, res) => {
+
   try {
 
     const { token } = req.query;
 
-    const result = await verifyEmailLinkService(token);
+    const [rows] = await db.query(
+      "SELECT id FROM users WHERE email_token=?",
+      [token]
+    );
 
-    res.json(result);
+    if (!rows.length) {
+      return res.status(400).send("Invalid or expired verification link");
+    }
+
+    await db.query(
+      "UPDATE users SET email_verify=1, email_token=NULL WHERE id=?",
+      [rows[0].id]
+    );
+
+    res.send("Email verified successfully ✅");
 
   } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-};
 
+    res.status(500).send("Verification failed");
+
+  }
+
+};
 
 /* ================= REQUEST CONTACT CHANGE ================= */
 

@@ -21,15 +21,17 @@ const router = Router();
 // ADMIN LOGIN
 router.post("/admin/login", adminLogin);   
 router.post("/resend-otp", resendSignupOtp);
+
+
 //USER ROUTES
 router.post("/signup",signup);
-
 router.post("/verify-signup", verifySignupOtp);
 router.post("/login/send-otp", sendLoginOtp);
 router.post("/login", login);
 
-
 router.patch("/update-profile",authenticate,checkAccountActive,updateProfile);
+
+// EMAIL VERIFICATION ROUTES
 router.post("/send-email-verification", sendEmailVerification);
 router.get("/verify-email", verifyEmailLink);
 

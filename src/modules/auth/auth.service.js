@@ -4,7 +4,7 @@ import redis from "../../config/redis.js";
 import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
 import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
-import { sendOtpEmail } from "../../utils/send.otp.mails.js"
+import { sendOtpEmail } from '../../utils/send.otp.mails.js';
 
     
 /* ================= PAUSE PLANS ================= */ 
@@ -366,6 +366,128 @@ export const signupService = async ({ mobile, otp }) => {
   }
 };
  
+
+
+
+
+
+// export const signupService = async ({ mobile, otp }) => {
+
+//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+//   /* OTP CHECK */
+//   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
+//   if (!savedOtp) throw new Error("OTP expired");
+
+//   if (String(savedOtp) !== String(otp))
+//     throw new Error("Invalid OTP");
+
+
+//   /* GET SIGNUP SESSION */
+//   const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
+//   if (!signupRaw) throw new Error("Signup session expired");
+
+//   const signupData =
+//     typeof signupRaw === "string"
+//       ? JSON.parse(signupRaw)
+//       : signupRaw;
+
+
+//   const name       = signupData.name;
+//   const email      = signupData.email;
+//   const region     = signupData.region;
+//   const address    = signupData.address || null;
+//   const dob        = signupData.dob;
+//   const nickname   = signupData.nickname || null;
+//   const category   = signupData.category || null;
+//   const referralid = signupData.referralid || null;
+
+//   if (!name) throw new Error("Name missing");
+//   if (!email) throw new Error("Email missing");
+//   if (!dob) throw new Error("DOB missing");
+
+
+//   /* GENERATE USERCODE */
+//   const usercode = generateUserCode();
+
+
+//   /* GENERATE USERID */
+//   const [[lastUser]] = await db.query(
+//     "SELECT userid FROM users ORDER BY id DESC LIMIT 1"
+//   );
+
+//   const nextNumber = lastUser?.userid
+//     ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
+//     : 1;
+
+//   const userid = "PTW" + String(nextNumber).padStart(6, "0");
+
+
+//   /* INSERT USER */
+//   const [result] = await db.query(
+//     `INSERT INTO users
+//      (userid, usercode, name, email, mobile, region, address,
+//       dob, referralid, nickname, category,
+//       email_verify, mobile_verify, created_at)
+//      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, NOW())`,
+//     [
+//       userid,
+//       usercode,
+//       name,
+//       email,
+//       normalizedMobile,
+//       region,
+//       address,
+//       dob,
+//       referralid,
+//       nickname,
+//       category
+//     ]
+//   );
+
+//   const userId = result.insertId;
+
+
+//   /* EMAIL TOKEN */
+//   const emailToken = crypto.randomBytes(32).toString("hex");
+
+//   await db.query(
+//     "UPDATE users SET email_token=? WHERE id=?",
+//     [emailToken, userId]
+//   );
+
+
+//   /* VERIFY LINK */
+//   const verifyLink =
+//     `${process.env.BACKEND_URL}/api/auth/verify-email?token=${emailToken}`;
+
+
+//   /* SEND EMAIL */
+//   await sendVerificationEmail({
+//     to: email,
+//     subject: "Verify your email",
+//     html: `
+//       <h3>Email Verification</h3>
+//       <p>Please click the link below to verify your email</p>
+//       <a href="${verifyLink}">Verify Email</a>
+//     `
+//   });
+
+
+//   /* CLEANUP REDIS */
+//   await Promise.all([
+//     redis.del(`SIGNUP:${normalizedMobile}`),
+//     redis.del(`SIGNUP_OTP:${normalizedMobile}`)
+//   ]);
+
+
+//   return {
+//     success: true,
+//     message: "Signup successful. Please verify your email."
+//   };
+
+// };
+  
 
 /* ================= SEND LOGIN OTP ================= */
 

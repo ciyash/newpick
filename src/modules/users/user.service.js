@@ -165,6 +165,7 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 
 //
 
+
 export const getUserProfileService = async (userId) => {
 
   /* ================= USER DETAILS ================= */
@@ -186,7 +187,9 @@ export const getUserProfileService = async (userId) => {
         last_login_ip,
         current_login_ip,
         issofverify,
-        kyc_status
+        kyc_status,
+        mobile_verify,
+        email_verify
      FROM users
      WHERE id = ?`,
     [userId]
@@ -217,6 +220,8 @@ export const getUserProfileService = async (userId) => {
     earnwallet: 0,
     bonusamount: 0,
     deposit_limit: 0,
+    iskyc: 0,
+    issofverify: 0,
     limit_reduced_once: 0
   };
 
@@ -243,7 +248,6 @@ export const getUserProfileService = async (userId) => {
 
   const remainingThisMonth = Math.max(monthlyLimit - addedThisMonth, 0);
 
-  /* 🔥 FRONTEND USE LOGIC */
   const canAddCash = remainingThisMonth > 0;
 
   /* ================= WITHDRAW HISTORY ================= */
@@ -278,23 +282,21 @@ export const getUserProfileService = async (userId) => {
       category: user.category,
       dob: user.dob,
       memberSince: user.created_at,
-       SOFverify: wallet.issofverify,
-        KYCstaus: user.kyc_status,
-         KYCverify: wallet.iskyc,
-        Walletlimit:wallet.limit_reduced_once,
+
+      mobileVerify: user.mobile_verify,
+      emailVerify: user.email_verify,
 
       SOFverify: user.issofverify,
-
+      KYCstatus: user.kyc_status,
+      KYCverify: safeWallet.iskyc,
       Walletlimit: safeWallet.limit_reduced_once,
 
-      // Previous Login
       lastLoginDate: user.last_login
         ? new Date(user.last_login).toLocaleString("en-IN")
         : "First login",
 
       lastLoginIp: user.last_login_ip || null,
 
-      // Current Login
       currentLoginDate: user.current_login
         ? new Date(user.current_login).toLocaleString("en-IN")
         : null,
@@ -311,13 +313,13 @@ export const getUserProfileService = async (userId) => {
       totalWallet
     },
 
-    /* ===== DEPOSIT LIMIT LOGIC ===== */
+    /* ===== DEPOSIT LIMIT ===== */
 
     depositLimits: {
       monthlyLimit,
       addedThisMonth,
       remainingThisMonth,
-      canAddCash   // 🔥 frontend disable logic
+      canAddCash
     },
 
     /* ===== WITHDRAW HISTORY ===== */
