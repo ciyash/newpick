@@ -17,21 +17,19 @@ import db from "../../config/db.js";
 // };
 
 
-
-
 export const sumsubWebhook = async (req, res) => {
 
   try {
 
     const { externalUserId, reviewResult, levelName } = req.body;
 
-    const reviewAnswer = reviewResult?.reviewAnswer;
-
     console.log("SUMSUB WEBHOOK:", req.body);
+
+    const reviewAnswer = reviewResult?.reviewAnswer;
 
     if (reviewAnswer === "GREEN") {
 
-      /* AGE VERIFICATION (registration time) */
+      /* AGE VERIFICATION */
 
       if (levelName === "age-verification") {
 
@@ -40,9 +38,11 @@ export const sumsubWebhook = async (req, res) => {
           [externalUserId]
         );
 
+        console.log("AGE VERIFIED:", externalUserId);
+
       }
 
-      /* ADDRESS VERIFICATION (after login anytime) */
+      /* ADDRESS VERIFICATION */
 
       if (levelName === "address-verification") {
 
@@ -50,6 +50,8 @@ export const sumsubWebhook = async (req, res) => {
           "UPDATE users SET address_verified = 1 WHERE mobile = ?",
           [externalUserId]
         );
+
+        console.log("ADDRESS VERIFIED:", externalUserId);
 
       }
 
