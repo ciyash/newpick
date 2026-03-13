@@ -13,11 +13,12 @@ router.get("/team-players", authenticate, checkAccountActive, getAllPlayers);
 
 router.get("/team-players/team/:id", authenticate, checkAccountActive, getPlayerTeamById);
 
-router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById); // 
+router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById);  
 
 // user created teams
-router.post("/create",                  authenticate, checkAccountActive, createTeamRateLimit, createTeam);
-router.put("/update-team/:teamId",         authenticate, checkAccountActive, updateTeamRateLimit, updateTeam);
+router.post("/create", authenticate, checkAccountActive, createTeamRateLimit, createTeam);
+
+router.put("/update-team/:teamId", authenticate, checkAccountActive, updateTeamRateLimit, updateTeam);
 
 router.get("/user-my-teams/:matchId", authenticate, checkAccountActive, getMyTeams);
 
@@ -26,4 +27,3 @@ router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers)
 router.get("/my-teams-with-players", authenticate, checkAccountActive, getMyTeamsWithPlayers);
  
 export default router;
-  
