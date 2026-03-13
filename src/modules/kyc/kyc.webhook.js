@@ -17,66 +17,49 @@ import db from "../../config/db.js";
 // };
 
 
+
 export const sumsubWebhook = async (req, res) => {
 
- try {
+  try {
 
-  const { externalUserId, applicantId, reviewResult, levelName } = req.body;
+    const { externalUserId, reviewResult, levelName } = req.body;
 
-  const reviewAnswer = reviewResult?.reviewAnswer;
+    const reviewAnswer = reviewResult?.reviewAnswer;
 
-  /*
-   GREEN → approved
-   RED → rejected
-  */
+    if (reviewAnswer === "GREEN") {
 
-  if (reviewAnswer === "GREEN") {
+      /* AGE VERIFICATION */
 
-   /* Age verification */
+      if (levelName === "age-verification") {
 
-   if (levelName === "age-verification") {
+        await db.query(
+          "UPDATE kyc_sessions SET age_verified = 1 WHERE mobile = ?",
+          [externalUserId]
+        );
 
-    await db.query(
-     "UPDATE kyc_sessions SET age_verified = 1 WHERE mobile = ?",
-     [externalUserId]
-    );
+      }
 
-   }
+      /* ADDRESS VERIFICATION */
 
-   /* Address verification */
+      if (levelName === "address-verification") {
 
-   if (levelName === "address-verification") {
+        await db.query(
+          "UPDATE users SET address_verified = 1 WHERE mobile = ?",
+          [externalUserId]
+        );
 
-    await db.query(
-     `UPDATE users 
-      SET address_verified = 1, kyc_status = 'approved'
-      WHERE sumsub_applicant_id = ?`,
-     [applicantId]
-    );
+      }
 
-   }
+    }
 
-  }
+    res.send("ok");
 
-  if (reviewAnswer === "RED") {
+  } catch (error) {
 
-   await db.query(
-    `UPDATE users 
-     SET kyc_status = 'rejected'
-     WHERE sumsub_applicant_id = ?`,
-    [applicantId]
-   );
+    console.error("Sumsub webhook error:", error);
+
+    res.sendStatus(500);
 
   }
-
-  res.sendStatus(200);
-
- } catch (error) {
-
-  console.error("Sumsub webhook error:", error);
-
-  res.sendStatus(500);
-
- }
 
 };
