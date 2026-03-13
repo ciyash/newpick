@@ -15,10 +15,7 @@ router.get("/kyc-status/:mobile",  getKycStatus);
 router.post("/kyc-completed", kycComplete);  
 
 
-
-router.post("/address-kyc", authenticate, startAddressVerification);
-
-
+router.post("/address-kyc",authenticate, startAddressVerification);
 
 
 

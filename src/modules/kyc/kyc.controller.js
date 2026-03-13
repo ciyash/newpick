@@ -1,115 +1,9 @@
 import db from "../../config/db.js"
-import redis from "../../config/redis.js";
+
 import { createSumsubHeaders,  sumsubPost } from "../../utils/sumsub.js";
 
-import { createApplicantService, generateKycTokenService } from "./kyc.service.js";
+import { createApplicantService, generateAddressKycTokenService } from "./kyc.service.js";
  
-// export const getKycSdkToken = async (req, res) => {
-//   try {
-
-//     const { mobile, email } = req.body;
-
-//     if (!mobile || !email) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Mobile and email are required"
-//       });
-//     }
-
-//     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-//     const normalizedEmail  = String(email).toLowerCase().trim();
-
-//     /* ================= CHECK IF USER ALREADY EXISTS ================= */
-
-//     const [
-//       [[emailUser]],
-//       [[mobileUser]]
-//     ] = await Promise.all([
-//       db.query(`SELECT id FROM users WHERE email = ?`, [normalizedEmail]),
-//       db.query(`SELECT id FROM users WHERE mobile = ?`, [normalizedMobile])
-//     ]);
-
-//     if (emailUser) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email already registered"
-//       });
-//     }
-
-//     if (mobileUser) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Mobile already registered"
-//       });
-//     }
-
-//     /* ================= CREATE SUMSUB APPLICANT ================= */
-
-//     const applicantId = await createApplicantService(normalizedMobile);
-
-//     /* ================= GENERATE SDK TOKEN ================= */
-
-//     const path = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
-
-//     const headers = createSumsubHeaders("POST", path, "");
-
-//     const data = await sumsubPost(
-//       process.env.SUMSUB_BASE_URL + path,
-//       headers
-//     );
-
-//     res.json({
-//       success: true,
-//       token: data.token
-//     });
-
-//   } catch (err) {
-
-//     res.status(500).json({
-//       success: false,
-//       message: err.message
-//     });
-
-//   }
-// };
-
-// export const getKycSdkToken = async (req, res) => {
-//   try {
-
-//     // ⭐ For signup flow use mobile or tempId
-//     const { mobile } = req.query;
-
-//     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-//     const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
-//     if (!signupRaw) throw new Error("Signup session expired");
-
-//     // Use mobile as externalUserId
-//     const applicantId = await createApplicantService(normalizedMobile);
-
-//     const path =
-//       `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
-
-//     const headers = createSumsubHeaders("POST", path, "");
-
-//     const data = await sumsubPost(
-//       process.env.SUMSUB_BASE_URL + path,
-//       headers
-//     );
-
-//     res.json({
-//       success: true,
-//       token: data.token
-//     });
-
-//   } catch (err) {
-//     res.status(500).json({
-//       success: false,
-//       message: err.message
-//     });
-//   }
-// };
-
 
 export const startKyc = async (req, res) => {
 
@@ -208,26 +102,62 @@ export const kycComplete = async (req, res) => {
 };
 
 
+/* =============================
+   START ADDRESS VERIFICATION
+============================= */
+
+
+
+
 export const startAddressVerification = async (req, res) => {
 
- try {
+  try {
 
-  const userId = req.user.id;
+    const userId = req.user.id;
 
-  const token = await generateKycTokenService(userId);
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        message: "User required"
+      });
+    }
 
-  res.json({
-   success: true,
-   token
-  });
+    /* get mobile from DB */
 
- } catch (error) {
+    const [rows] = await db.query(
+      "SELECT mobile FROM users WHERE id = ?",
+      [userId]
+    );
 
-  res.status(500).json({
-   success: false,
-   message: error.message
-  });
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
 
- }
+    const mobile = rows[0].mobile;
+
+    const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+    /* generate Sumsub token */
+
+    const token = await generateAddressKycTokenService(normalizedMobile);
+
+    res.json({
+      success: true,
+      token
+    });
+
+  } catch (error) {
+
+    console.error("Address KYC error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
 
 };
