@@ -2,7 +2,7 @@ import db from "../../config/db.js"
 import redis from "../../config/redis.js";
 import { createSumsubHeaders,  sumsubPost } from "../../utils/sumsub.js";
 
-import { createApplicantService } from "./kyc.service.js";
+import { createApplicantService, generateKycTokenService } from "./kyc.service.js";
  
 // export const getKycSdkToken = async (req, res) => {
 //   try {
@@ -205,4 +205,29 @@ export const kycComplete = async (req, res) => {
       message: error.message
     });
   }
+};
+
+
+export const startAddressVerification = async (req, res) => {
+
+ try {
+
+  const userId = req.user.id;
+
+  const token = await generateKycTokenService(userId);
+
+  res.json({
+   success: true,
+   token
+  });
+
+ } catch (error) {
+
+  res.status(500).json({
+   success: false,
+   message: error.message
+  });
+
+ }
+
 };

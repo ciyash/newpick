@@ -1,10 +1,13 @@
-import Router from 'express'
-import { getAllPlayers, testNotification } from './test.controller.js';
+import express from "express";
+import {
+ sendOtpController,
+ verifyOtpController
+} from "./test.controller.js";
 
-const router=Router()
+const router = express.Router();
 
-router.get("/notification", testNotification);
+router.post("/send-otp", sendOtpController);
 
-router.get("/players", getAllPlayers);
+router.post("/verify-otp", verifyOtpController);
 
-export default router
+export default router;

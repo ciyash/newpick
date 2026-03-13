@@ -1,63 +1,82 @@
-
-// import db from "../../config/db.js";
+import db from "../../config/db.js";
 
 // export const sumsubWebhook = async (req, res) => {
-//   try {
 
-//     const { applicantId, reviewResult } = req.body;
+//   const { externalUserId, reviewResult } = req.body;
 
-//     if (!applicantId) {
-//       return res.status(400).send("Applicant ID missing");
-//     }
-
-//     let status = "pending";
-//     let ageVerified = 0;
-
-//     if (reviewResult?.reviewAnswer === "GREEN") {
-//       status = "approved";
-//       ageVerified = 1;
-//     } 
-//     else if (reviewResult?.reviewAnswer === "RED") {
-//       status = "rejected";
-//     }
+//   if (reviewResult?.reviewAnswer === "GREEN") {
 
 //     await db.query(
-//       `UPDATE users 
-//        SET kyc_status = ?, 
-//            age_verified = ?
-//        WHERE sumsub_applicant_id = ?`,
-//       [status, ageVerified, applicantId]
+//       "UPDATE kyc_sessions SET age_verified=1 WHERE mobile=?",
+//       [externalUserId]
 //     );
 
-//     console.log("KYC updated:", applicantId, status);
-
-//     res.send("OK");
-
-//   } catch (err) {
-
-//     console.error(err);
-//     res.status(500).send("Error");
-
 //   }
+
+//   res.send("ok");
 // };
 
 
-
-
-import db from "../../config/db.js";
-
 export const sumsubWebhook = async (req, res) => {
 
-  const { externalUserId, reviewResult } = req.body;
+ try {
 
-  if (reviewResult?.reviewAnswer === "GREEN") {
+  const { externalUserId, applicantId, reviewResult, levelName } = req.body;
+
+  const reviewAnswer = reviewResult?.reviewAnswer;
+
+  /*
+   GREEN → approved
+   RED → rejected
+  */
+
+  if (reviewAnswer === "GREEN") {
+
+   /* Age verification */
+
+   if (levelName === "age-verification") {
 
     await db.query(
-      "UPDATE kyc_sessions SET age_verified=1 WHERE mobile=?",
-      [externalUserId]
+     "UPDATE kyc_sessions SET age_verified = 1 WHERE mobile = ?",
+     [externalUserId]
     );
+
+   }
+
+   /* Address verification */
+
+   if (levelName === "address-verification") {
+
+    await db.query(
+     `UPDATE users 
+      SET address_verified = 1, kyc_status = 'approved'
+      WHERE sumsub_applicant_id = ?`,
+     [applicantId]
+    );
+
+   }
 
   }
 
-  res.send("ok");
+  if (reviewAnswer === "RED") {
+
+   await db.query(
+    `UPDATE users 
+     SET kyc_status = 'rejected'
+     WHERE sumsub_applicant_id = ?`,
+    [applicantId]
+   );
+
+  }
+
+  res.sendStatus(200);
+
+ } catch (error) {
+
+  console.error("Sumsub webhook error:", error);
+
+  res.sendStatus(500);
+
+ }
+
 };

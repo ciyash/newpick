@@ -1,51 +1,54 @@
-import { getAllPlayersService } from "./test.service.js";
+import {
+ sendMobileOtpService,
+ verifyMobileOtpService
+} from './test.service.js';
 
-import { notifyUser } from "../notification/notification.service.js"
 
-export const testNotification = async (req, res) => {
-  try {
+export const sendOtpController = async (req, res) => {
 
-    const { userId } = req.params;
+ try {
 
-    await notifyUser(
-      userId,
-      "Test Notification",
-      "This is a test notification from PICK2WIN 🚀"
-    );
+  const { mobile } = req.body;
 
-    res.json({
-      success: true,
-      message: "Notification sent successfully"
-    });
+  await sendMobileOtpService(mobile);
 
-  } catch (err) {
+  res.json({
+   success: true,
+   message: "OTP sent successfully"
+  });
 
-    console.error("Notification test error:", err);
+ } catch (error) {
 
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+  res.status(400).json({
+   success: false,
+   message: error.message
+  });
 
-  }
+ }
+
 };
 
-export const getAllPlayers = async (req, res) => {
-  try {
 
-    const data = await getAllPlayersService();
+export const verifyOtpController = async (req, res) => {
 
-    res.json({
-      success: true,
-      data
-    });
+ try {
 
-  } catch (err) {
+  const { mobile, otp } = req.body;
 
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+  await verifyMobileOtpService(mobile, otp);
 
-  }
+  res.json({
+   success: true,
+   message: "Mobile verified"
+  });
+
+ } catch (error) {
+
+  res.status(400).json({
+   success: false,
+   message: error.message
+  });
+
+ }
+
 };

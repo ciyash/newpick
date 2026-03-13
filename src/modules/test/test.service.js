@@ -1,23 +1,44 @@
-import axios from "axios";
+import redis from "../../config/redis.js";
 
-export const getAllPlayersService = async () => {
-  try {
-  
-    const response = await axios.get(
-      "https://api.sportmonks.com/v3/football/players",
-      {
-        params: {
-          api_token: process.env.SPORTMONKS_API_TOKEN
-        }
-      }
-    );
+export const sendMobileOtpService = async (mobile) => {
 
-    return response.data;  
+ const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-  } catch (err) {
+ const otp = Math.floor(100000 + Math.random() * 900000);
 
-    console.error("Sportmonks API Error:", err.response?.data || err.message);
-    throw new Error("Failed to fetch players");
+ await redis.set(
+  `MOBILE_OTP:${normalizedMobile}`,
+  otp,
+  { ex: 300 }
+ );
 
-  }
+ console.log(`OTP for ${normalizedMobile}: ${otp}`);
+
+ return true;
 };
+
+
+
+
+
+export const verifyMobileOtpService = async (mobile, otp) => {
+
+ const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+ const savedOtp = await redis.get(`MOBILE_OTP:${normalizedMobile}`);
+
+ if (!savedOtp) {
+  throw new Error("OTP expired");
+ }
+
+ if (String(savedOtp) !== String(otp)) {
+  throw new Error("Invalid OTP");
+ }
+
+ await redis.del(`MOBILE_OTP:${normalizedMobile}`);
+
+ return true;
+};
+
+
+
