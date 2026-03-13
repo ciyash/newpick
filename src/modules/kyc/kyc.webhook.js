@@ -18,6 +18,7 @@ import db from "../../config/db.js";
 
 
 
+
 export const sumsubWebhook = async (req, res) => {
 
   try {
@@ -26,9 +27,11 @@ export const sumsubWebhook = async (req, res) => {
 
     const reviewAnswer = reviewResult?.reviewAnswer;
 
+    console.log("SUMSUB WEBHOOK:", req.body);
+
     if (reviewAnswer === "GREEN") {
 
-      /* AGE VERIFICATION */
+      /* AGE VERIFICATION (registration time) */
 
       if (levelName === "age-verification") {
 
@@ -39,7 +42,7 @@ export const sumsubWebhook = async (req, res) => {
 
       }
 
-      /* ADDRESS VERIFICATION */
+      /* ADDRESS VERIFICATION (after login anytime) */
 
       if (levelName === "address-verification") {
 
@@ -52,7 +55,7 @@ export const sumsubWebhook = async (req, res) => {
 
     }
 
-    res.send("ok");
+    res.sendStatus(200);
 
   } catch (error) {
 
