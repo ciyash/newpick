@@ -26,28 +26,22 @@ export const createApplicantService = async (mobile) => {
    GENERATE ADDRESS KYC TOKEN
 ============================= */
 
+
+
 export const generateAddressKycTokenService = async (mobile) => {
 
-  try {
+  const path =
+  `/resources/accessTokens?userId=${mobile}&levelName=${process.env.SUMSUB_LEVEL}`;
 
-    const path =
-      `/resources/accessTokens?userId=${mobile}&levelName=address-verification`;
+  const headers = createSumsubHeaders("POST", path, "");
 
-    const headers = createSumsubHeaders("POST", path, "");
+  const data = await sumsubPost(
+    process.env.SUMSUB_BASE_URL + path,
+    headers
+  );
 
-    const data = await sumsubPost(
-      process.env.SUMSUB_BASE_URL + path,
-      headers
-    );
+  console.log("SUMSUB RESPONSE:", data);
 
-    return data.token;
-
-  } catch (error) {
-
-    console.error("Address KYC service error:", error);
-
-    throw error;
-
-  }
+  return data.token;
 
 };

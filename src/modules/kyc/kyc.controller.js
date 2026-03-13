@@ -109,38 +109,21 @@ export const kycComplete = async (req, res) => {
 
 
 
+
 export const startAddressVerification = async (req, res) => {
 
   try {
 
     const userId = req.user.id;
 
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "User required"
-      });
-    }
-
-    /* get mobile from DB */
-
     const [rows] = await db.query(
-      "SELECT mobile FROM users WHERE id = ?",
+      "SELECT mobile FROM users WHERE id=?",
       [userId]
     );
-
-    if (!rows.length) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
-    }
 
     const mobile = rows[0].mobile;
 
     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-    /* generate Sumsub token */
 
     const token = await generateAddressKycTokenService(normalizedMobile);
 
@@ -150,8 +133,6 @@ export const startAddressVerification = async (req, res) => {
     });
 
   } catch (error) {
-
-    console.error("Address KYC error:", error);
 
     res.status(500).json({
       success: false,
