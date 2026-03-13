@@ -716,8 +716,9 @@ export const getMyContestsService = async (userId, matchId) => {
       c.contest_type,
       c.status,
       c.first_prize,
-      c.total_winners
-
+      c.total_winners,
+      c.winner_percentage,
+      c.platform_fee_percentage
     FROM contest_entries ce
     JOIN contest c ON ce.contest_id = c.id
 
@@ -731,6 +732,49 @@ export const getMyContestsService = async (userId, matchId) => {
   return rows;
 };
 
- 
-  
+
+export const getMyJoinedContestsService = async (
+  userId,
+  matchId,
+  contestId = null
+) => {
+
+  let query = `
+    SELECT 
+      c.id AS contest_id,
+      c.match_id,
+      c.entry_fee,
+      c.prize_pool,
+      c.max_entries,
+      c.current_entries,
+      c.contest_type,
+      c.status,
+      c.first_prize,
+      c.total_winners,
+      c.winner_percentage,
+      c.platform_fee_percentage
+    FROM contest_entries ce
+    JOIN contest c ON ce.contest_id = c.id
+    WHERE ce.user_id = ?
+    AND c.match_id = ?
+  `;
+
+  const params = [userId, matchId];
+
+  // optional contest filter
+  if (contestId) {
+    query += ` AND c.id = ?`;
+    params.push(contestId);
+  }
+
+  query += `
+    GROUP BY c.id
+    ORDER BY MAX(ce.id) DESC
+  `;
+
+  const [rows] = await db.query(query, params);
+
+  return rows;
+};
+
     
