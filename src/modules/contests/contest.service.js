@@ -784,16 +784,16 @@ export const joinContestService = async (userId, amount, meta = {}) => {
   }
 
 };
-
 export const getMyContestsService = async (userId, matchId) => {
   try {
 
     if (!userId) throw new Error("userId is required");
     if (!matchId) throw new Error("matchId is required");
 
-    const [rows] = await db.query(`
+    // ✅ Step 1: get contests user joined
+    const [contestRows] = await db.query(`
       SELECT 
-        c.id            AS contest_id,
+        c.id                  AS contest_id,
         c.match_id,
         c.entry_fee,
         c.prize_pool,
@@ -805,7 +805,7 @@ export const getMyContestsService = async (userId, matchId) => {
         c.total_winners,
         c.winner_percentage,
         c.platform_fee_percentage,
-        COUNT(ce.id)    AS my_team_count
+        COUNT(ce.id)          AS my_team_count
       FROM contest_entries ce
       JOIN contest c ON ce.contest_id = c.id
       WHERE ce.user_id = ?
@@ -814,40 +814,151 @@ export const getMyContestsService = async (userId, matchId) => {
       ORDER BY MAX(ce.id) DESC
     `, [userId, matchId]);
 
-    if (!rows || rows.length === 0) {
-      return [];
+    if (!contestRows || contestRows.length === 0) return [];
+
+    // ✅ Step 2: get all contest ids
+    const contestIds = contestRows.map(c => c.contest_id);
+
+    // ✅ Step 3: get all entries for these contests by this user
+    const [entryRows] = await db.query(`
+      SELECT
+        ce.id             AS entry_id,
+        ce.contest_id,
+        ce.user_team_id,
+        ce.entry_fee,
+        ce.urank,
+        ce.winning_amount,
+        ce.status         AS entry_status,
+        ce.joined_at
+      FROM contest_entries ce
+      WHERE ce.user_id = ?
+      AND ce.contest_id IN (?)
+    `, [userId, contestIds]);
+
+    // ✅ Step 4: get all team ids from entries
+    const allTeamIds = [...new Set(
+      entryRows
+        .map(e => e.user_team_id)
+        .filter(Boolean)
+    )];
+
+    // ✅ Step 5: fetch all teams + players in one query
+    let teamsMap = {};
+
+    if (allTeamIds.length > 0) {
+
+      const [teamRows] = await db.query(`
+        SELECT
+          ut.id               AS team_id,
+          ut.team_name,
+          ut.team_rank,
+          ut.locked,
+          ut.created_at,
+          utp.id              AS player_entry_id,
+          utp.player_id,
+          utp.is_captain,
+          utp.is_vice_captain,
+          utp.points,
+          utp.role,
+          utp.is_substitude
+        FROM user_teams ut
+        LEFT JOIN user_team_players utp ON utp.user_team_id = ut.id
+        WHERE ut.id IN (?)
+        AND ut.user_id = ?
+      `, [allTeamIds, userId]);
+
+      // ✅ Step 6: group players under their team
+      teamRows.forEach((row) => {
+        if (!teamsMap[row.team_id]) {
+          teamsMap[row.team_id] = {
+            teamId:   row.team_id,
+            teamName: row.team_name  || null,
+            teamRank: row.team_rank  || null,
+            locked:   row.locked === 1,
+            createdAt: row.created_at || null,
+            players:  []
+          };
+        }
+
+        if (row.player_entry_id) {
+          teamsMap[row.team_id].players.push({
+            playerEntryId:  row.player_entry_id,
+            playerId:       row.player_id,
+            role:           row.role            || null,
+            isCaptain:      row.is_captain      === 1,
+            isViceCaptain:  row.is_vice_captain === 1,
+            isSubstitute:   row.is_substitude   === 1,
+            points:         Number(row.points)  || 0
+          });
+        }
+      });
     }
 
-    return rows.map((c) => ({
-      contestId: c.contest_id,
-      matchId: c.match_id,
+    // ✅ Step 7: group entries under their contest
+    const entriesByContest = {};
+    entryRows.forEach((e) => {
+      if (!entriesByContest[e.contest_id]) {
+        entriesByContest[e.contest_id] = [];
+      }
+      entriesByContest[e.contest_id].push(e);
+    });
 
-      entryFee: Number(c.entry_fee) || 0,
-      prizePool: Number(c.prize_pool) || 0,
+    // ✅ Step 8: build final response
+    return contestRows.map((c) => {
 
-      maxEntries: c.max_entries || 0,
-      currentEntries: c.current_entries || 0,
-      remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+      const entries = entriesByContest[c.contest_id] || [];
 
-      contestType: c.contest_type || null,
-      status: c.status || null,
+      const teams = entries.map((e) => {
+        const team = teamsMap[e.user_team_id] || null;
+        return {
+          entryId:       e.entry_id,
+          entryFee:      Number(e.entry_fee)      || 0,
+          urank:         e.urank                  || null,
+          winningAmount: Number(e.winning_amount) || 0,
+          entryStatus:   e.entry_status           || null,
+          joinedAt:      e.joined_at              || null,
+          ...(team || {
+            teamId:    null,
+            teamName:  null,
+            teamRank:  null,
+            locked:    null,
+            createdAt: null,
+            players:   []
+          })
+        };
+      });
 
-      firstPrize: Number(c.first_prize) || 0,
-      totalWinners: c.total_winners || 0,
-      winnerPercentage: Number(c.winner_percentage) || 0,
-      platformFeePercentage: Number(c.platform_fee_percentage) || 0,
+      return {
+        contestId:             c.contest_id,
+        matchId:               c.match_id,
 
-      // ✅ how many teams user joined in this contest
-      myTeamCount: Number(c.my_team_count) || 0
-    }));
+        entryFee:              Number(c.entry_fee)              || 0,
+        prizePool:             Number(c.prize_pool)             || 0,
+
+        maxEntries:            c.max_entries                    || 0,
+        currentEntries:        c.current_entries                || 0,
+        remainingSpots:        Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+
+        contestType:           c.contest_type                   || null,
+        status:                c.status                         || null,
+
+        firstPrize:            Number(c.first_prize)            || 0,
+        totalWinners:          c.total_winners                  || 0,
+        winnerPercentage:      Number(c.winner_percentage)      || 0,
+        platformFeePercentage: Number(c.platform_fee_percentage)|| 0,
+
+        myTeamCount:           Number(c.my_team_count)          || 0,
+
+        // ✅ teams with entry details + players
+        teams
+      };
+    });
 
   } catch (err) {
     console.error("[getMyContestsService]", err);
     throw err;
   }
 };
-
-
 
 export const getMyJoinedContestsService = async (
   userId,
