@@ -321,7 +321,8 @@ export const updateSeries = async (id, data, admin, ip) => {
     conn.release();
   }
 };
-//matches
+
+//match
 export const createMatch = async (data, admin, ip) => {
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
@@ -346,6 +347,21 @@ export const createMatch = async (data, admin, ip) => {
       throw new Error("Each contest must have a category_id");
     if (!c.max_entries || Number(c.max_entries) < 2)
       throw new Error(`Contest category ${c.category_id}: max_entries must be at least 2`);
+
+    // ── NEW: validate prize_distribution if provided ──────────────────────
+    if (c.prize_distribution?.length) {
+      for (const pd of c.prize_distribution) {
+        const amount = Number(pd.amount);
+        if (isNaN(amount) || amount <= 0)
+          throw new Error(`Contest category ${c.category_id}: all prize amounts must be > 0`);
+        if (pd.rank !== undefined && Number(pd.rank) <= 0)
+          throw new Error(`Contest category ${c.category_id}: rank must be a positive integer`);
+        if (pd.rank_from !== undefined && pd.rank_to !== undefined) {
+          if (pd.rank_to <= pd.rank_from)
+            throw new Error(`Contest category ${c.category_id}: rank_to must be greater than rank_from`);
+        }
+      }
+    }
   }
 
   // Guard against duplicate category_ids in the same request
@@ -439,21 +455,38 @@ export const createMatch = async (data, admin, ip) => {
       const winner_percentage       = Number(category.winner_percentage); // e.g. 20 = 20% of players win
       const is_guaranteed           = input.is_guaranteed ? 1 : 0;
       const is_cashback             = 1;
-      const cashback_percentage     = Number(category.cashback_percentage || 0); // from category directly
+      const cashback_percentage     = Number(category.winner_percentage || 0); // from category directly
       const min_entries             = 2;
 
       // ── Math ─────────────────────────────────────────────────────────
-      const prize_pool          = max_entries * entry_fee;                                    // total collected
-      const platformFeeAmount   = (prize_pool * platform_fee_percentage) / 100;              // platform cut
-      const netAfterFee         = prize_pool - platformFeeAmount;                             // after platform fee
-      const totalWinners        = Math.floor((max_entries * winner_percentage) / 100);        // winning players
-      const cashbackPerUser     = is_cashback ? entry_fee : 0;                               // per user cashback
-      const totalCashback       = is_cashback ? cashbackPerUser * max_entries : 0;           // total cashback payout
-      const netPrizePool        = Math.max(0, netAfterFee - totalCashback);                  // final prize pool
-      const first_prize         = netPrizePool;                                              // full pool — distribution set later
-      const prizeDistribution   = null;                                                      // set separately
+      const prize_pool        = max_entries * entry_fee;                                   // total collected
+      const platformFeeAmount = (prize_pool * platform_fee_percentage) / 100;             // platform cut
+      const netAfterFee       = prize_pool - platformFeeAmount;                           // after platform fee
+      const totalWinners      = Math.floor((max_entries * winner_percentage) / 100);      // winning players
+      const totalLosers       = max_entries - totalWinners;                               // losers only get cashback
+      const cashbackPerUser   = is_cashback ? entry_fee : 0;                             // per user cashback
+      const totalCashback     = is_cashback ? cashbackPerUser * totalWinners : 0;         // cashback for losers only
+      const netPrizePool      = Math.max(0, netAfterFee - totalCashback);                // final prize pool
 
-      // ── INSERT — column order matches original contest INSERT exactly ─
+      // ── NEW: prize_distribution — accept from input or null ──────────
+      const prizeDistribution = input.prize_distribution?.length
+        ? JSON.stringify(input.prize_distribution)
+        : null;
+
+      // ── NEW: first_prize — rank 1 amount from distribution, else full net pool
+      let first_prize;
+      if (input.prize_distribution?.length) {
+        // supports both { rank: 1, amount } and { rank_from: 1, rank_to: X, amount }
+        const rankOne = input.prize_distribution.find(
+          (p) => p.rank === 1 ||
+                 (p.rank_from !== undefined && p.rank_from <= 1 && p.rank_to >= 1)
+        );
+        first_prize = rankOne ? Number(rankOne.amount) : netPrizePool;
+      } else {
+        first_prize = netPrizePool; // original behaviour — full pool, distribution set later
+      }
+
+      // ── INSERT — column order unchanged ──────────────────────────────
       await conn.query(
         `INSERT INTO contest
            (match_id, contest_type, entry_fee,
@@ -477,8 +510,8 @@ export const createMatch = async (data, admin, ip) => {
           is_guaranteed,
           winner_percentage,
           totalWinners,
-          Number(first_prize.toFixed(2)),          // first_prize = full net pool
-          prizeDistribution,                       // NULL — set separately
+          Number(first_prize.toFixed(2)),          // ← NEW: rank 1 amount or full net pool
+          prizeDistribution,                       // ← NEW: JSON string or NULL
           is_cashback,
           Number(cashback_percentage.toFixed(2)),  // from category directly
           Number(cashbackPerUser.toFixed(2)),      // per-user cashback amount
@@ -503,7 +536,8 @@ export const createMatch = async (data, admin, ip) => {
         is_cashback,
         cashback_percentage:   Number(cashback_percentage.toFixed(2)),
         cashback_amount:       Number(cashbackPerUser.toFixed(2)),
-        first_prize:           Number(first_prize.toFixed(2)),
+        first_prize:           Number(first_prize.toFixed(2)),          // ← NEW
+        prize_distribution:    input.prize_distribution ?? null,        // ← NEW
       });
     }
 

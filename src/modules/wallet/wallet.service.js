@@ -229,7 +229,7 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
   const sanitizedAmount = Math.round(Number(amount) * 100) / 100;
   if (isNaN(sanitizedAmount) || sanitizedAmount <= 0) throw new Error("Invalid deposit amount");
   if (sanitizedAmount < 10)   throw new Error("Minimum deposit is £10");
-  if (sanitizedAmount > 5000) throw new Error("Maximum single deposit is £5000");
+  if (sanitizedAmount > 2000) throw new Error("Maximum single deposit is 2000");
 
   // Sanitize paymentIntentId — trim and basic format guard
   const safePaymentIntentId = typeof paymentIntentId === "string"
