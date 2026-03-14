@@ -929,23 +929,23 @@ export const getMyContestsService = async (userId, matchId) => {
       });
 
       return {
-        contestId:             c.contest_id,
-        matchId:               c.match_id,
+        contest_id:             c.contest_id,
+        match_id:               c.match_id,
 
-        entryFee:              Number(c.entry_fee)              || 0,
-        prizePool:             Number(c.prize_pool)             || 0,
+        entry_fee:              Number(c.entry_fee)              || 0,
+        prize_pool:             Number(c.prize_pool)             || 0,
 
-        maxEntries:            c.max_entries                    || 0,
-        currentEntries:        c.current_entries                || 0,
+        max_entries:            c.max_entries                    || 0,
+        current_entries:        c.current_entries                || 0,
         remainingSpots:        Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
 
-        contestType:           c.contest_type                   || null,
+        contest_type:           c.contest_type                   || null,
         status:                c.status                         || null,
 
-        firstPrize:            Number(c.first_prize)            || 0,
-        totalWinners:          c.total_winners                  || 0,
-        winnerPercentage:      Number(c.winner_percentage)      || 0,
-        platformFeePercentage: Number(c.platform_fee_percentage)|| 0,
+        first_prize:            Number(c.first_prize)            || 0,
+        total_winners:          c.total_winners                  || 0,
+        winner_percentage:      Number(c.winner_percentage)      || 0,
+        platform_fee_percentage: Number(c.platform_fee_percentage)|| 0,
 
         myTeamCount:           Number(c.my_team_count)          || 0,
 
@@ -1010,23 +1010,23 @@ export const getMyJoinedContestsService = async (
     }
 
     return rows.map((c) => ({
-      contestId: c.contest_id,
-      matchId: c.match_id,
+      contest_id: c.contest_id,
+      match_id: c.match_id,
 
-      entryFee: Number(c.entry_fee) || 0,
-      prizePool: Number(c.prize_pool) || 0,
+      entry_fee: Number(c.entry_fee) || 0,
+      prize_pool: Number(c.prize_pool) || 0,
 
-      maxEntries: c.max_entries || 0,
-      currentEntries: c.current_entries || 0,
+      max_entries: c.max_entries || 0,
+      current_entries: c.current_entries || 0,
       remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
 
-      contestType: c.contest_type || null,
+      contest_type: c.contest_type || null,
       status: c.status || null,
 
-      firstPrize: Number(c.first_prize) || 0,
-      totalWinners: c.total_winners || 0,
-      winnerPercentage: Number(c.winner_percentage) || 0,
-      platformFeePercentage: Number(c.platform_fee_percentage) || 0,
+      first_prize: Number(c.first_prize) || 0,
+      total_winners: c.total_winners || 0,
+      winner_percentage: Number(c.winner_percentage) || 0,
+      platform_fee_percentage: Number(c.platform_fee_percentage) || 0,
 
       // ✅ user joined teams count
       myTeamCount: Number(c.my_team_count) || 0
