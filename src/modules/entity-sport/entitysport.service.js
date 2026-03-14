@@ -2,51 +2,95 @@ import axios from "axios";
 import db from "../../config/db.js";
 
 const TOKEN = process.env.ENTITYSPORT_TOKEN;
-const BASE_URL = process.env.ENTITYSPORT_BASE_URL; 
+const BASE_URL = process.env.ENTITYSPORT_BASE_URL;
+
 
 /* ===============================
-   1️⃣ GET COMPETITIONS
+   SERIES
 ================================ */
 
-export const syncCompetitionsService = async () => {
+export const syncSeriesService = async () => {
 
   const url = `${BASE_URL}/competitions?token=${TOKEN}`;
 
   const response = await axios.get(url);
 
-  const competitions = response.data.response.items;
+  const series = response.data.response.items;
 
-  for (const comp of competitions) {
+  for (const s of series) {
 
     await db.query(
-      `INSERT INTO competitions 
-      (entity_competition_id,name,abbr,season,format,status)
-      VALUES (?,?,?,?,?,?)
+      `INSERT INTO series
+      (provider_series_id,name,season)
+      VALUES (?,?,?)
       ON DUPLICATE KEY UPDATE
-      name = VALUES(name),
-      status = VALUES(status)`,
+      name=VALUES(name),
+      season=VALUES(season)`,
       [
-        comp.cid,
-        comp.title,
-        comp.abbr,
-        comp.season,
-        comp.match_format,
-        comp.status
+        s.cid,
+        s.title,
+        s.season
       ]
     );
+
   }
 
-  return competitions.length;
+  return series.length;
+
 };
 
 
+
 /* ===============================
-   2️⃣ GET MATCHES
+   TEAMS
 ================================ */
 
-export const syncMatchesService = async (competitionId) => {
+export const syncTeamsService = async (seriesId) => {
 
-  const url = `${BASE_URL}/matches?token=${TOKEN}&competition_id=${competitionId}`;
+  const url = `${BASE_URL}/matches?token=${TOKEN}&competition_id=${seriesId}`;
+
+  const response = await axios.get(url);
+
+  const matches = response.data.response.items;
+
+  let count = 0;
+
+  for (const match of matches) {
+
+    const teamA = match.team_a;
+    const teamB = match.team_b;
+
+    await db.query(
+      `INSERT INTO teams (id,name)
+       VALUES (?,?)
+       ON DUPLICATE KEY UPDATE name=VALUES(name)`,
+      [teamA.tid, teamA.title]
+    );
+
+    await db.query(
+      `INSERT INTO teams (id,name)
+       VALUES (?,?)
+       ON DUPLICATE KEY UPDATE name=VALUES(name)`,
+      [teamB.tid, teamB.title]
+    );
+
+    count += 2;
+
+  }
+
+  return count;
+
+};
+
+
+
+/* ===============================
+   MATCHES
+================================ */
+
+export const syncMatchesService = async (seriesId) => {
+
+  const url = `${BASE_URL}/matches?token=${TOKEN}&competition_id=${seriesId}`;
 
   const response = await axios.get(url);
 
@@ -56,30 +100,36 @@ export const syncMatchesService = async (competitionId) => {
 
     await db.query(
       `INSERT INTO matches
-      (entity_match_id,competition_id,title,status,match_date)
-      VALUES (?,?,?,?,?)
+      (series_id,home_team_id,away_team_id,start_time,status,matchdate,seriesname,hometeamname,awayteamname)
+      VALUES (?,?,?,?,?,?,?,?,?)
       ON DUPLICATE KEY UPDATE
-      status = VALUES(status)`,
+      status=VALUES(status)`,
       [
-        match.mid,
-        competitionId,
-        match.title,
+        seriesId,
+        match.team_a.tid,
+        match.team_b.tid,
+        match.date_start,
         match.status,
-        match.date_start
+        match.date_start,
+        match.competition.title,
+        match.team_a.title,
+        match.team_b.title
       ]
     );
 
   }
 
   return matches.length;
+
 };
 
 
+
 /* ===============================
-   3️⃣ GET MATCH SQUAD
+   PLAYERS
 ================================ */
 
-export const syncMatchSquadService = async (matchId) => {
+export const syncPlayersService = async (matchId) => {
 
   const url = `${BASE_URL}/match-squad?token=${TOKEN}&match_id=${matchId}`;
 
@@ -91,12 +141,13 @@ export const syncMatchSquadService = async (matchId) => {
 
     await db.query(
       `INSERT INTO players
-      (entity_player_id,name,role,image_url)
-      VALUES (?,?,?,?)
+      (id,team_id,name,player_type,playerimage)
+      VALUES (?,?,?,?,?)
       ON DUPLICATE KEY UPDATE
-      name = VALUES(name)`,
+      name=VALUES(name)`,
       [
         player.pid,
+        player.team_id,
         player.title,
         player.playing_role,
         player.image
@@ -106,4 +157,72 @@ export const syncMatchSquadService = async (matchId) => {
   }
 
   return players.length;
+
+};
+
+
+
+/* ===============================
+   PLAYING XI
+================================ */
+
+export const syncPlayingXIService = async (matchId) => {
+
+  const url = `${BASE_URL}/matches/playing11?token=${TOKEN}&match_id=${matchId}`;
+
+  const response = await axios.get(url);
+
+  const players = response.data.response.players;
+
+  for (const player of players) {
+
+    await db.query(
+      `INSERT INTO match_players
+      (match_id,player_id,is_playing)
+      VALUES (?,?,1)
+      ON DUPLICATE KEY UPDATE is_playing=1`,
+      [
+        matchId,
+        player.pid
+      ]
+    );
+
+  }
+
+  return players.length;
+
+};
+
+
+
+/* ===============================
+   PLAYER POINTS
+================================ */
+
+export const syncPlayerPointsService = async (matchId) => {
+
+  const url = `${BASE_URL}/matches/scorecard?token=${TOKEN}&match_id=${matchId}`;
+
+  const response = await axios.get(url);
+
+  const players = response.data.response.players;
+
+  for (const player of players) {
+
+    await db.query(
+      `INSERT INTO player_match_stats
+      (match_id,player_id,points)
+      VALUES (?,?,?)
+      ON DUPLICATE KEY UPDATE points=VALUES(points)`,
+      [
+        matchId,
+        player.pid,
+        player.fantasy_points || 0
+      ]
+    );
+
+  }
+
+  return players.length;
+
 };

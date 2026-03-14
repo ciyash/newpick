@@ -1,17 +1,29 @@
 import express from "express";
 
 import {
-  syncCompetitions,
-  syncMatches,
-  syncMatchSquad
+  syncTeams,
+  syncPlayingXI,
+  syncPlayerPoints
 } from "./entitysport.controller.js";
 
 const router = express.Router();
 
-router.get("/sync-competitions", syncCompetitions);
+/* ===============================
+   TEAMS
+================================ */
 
-router.get("/sync-matches/:competition_id", syncMatches);
+router.get("/sync-teams/:competition_id", syncTeams);
 
-router.get("/sync-squad/:match_id", syncMatchSquad);
+/* ===============================
+   PLAYING XI
+================================ */
+
+router.get("/sync-playing-xi/:match_id", syncPlayingXI);
+
+/* ===============================
+   PLAYER POINTS
+================================ */
+
+router.get("/sync-player-points/:match_id", syncPlayerPoints);
 
 export default router;

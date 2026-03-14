@@ -1,19 +1,24 @@
 import {
-  syncCompetitionsService,
+  syncSeriesService,
+  syncTeamsService,
   syncMatchesService,
-  syncMatchSquadService
+  syncPlayersService,
+  syncPlayingXIService,
+  syncPlayerPointsService
 } from "./entitysport.service.js";
 
-  
-export const syncCompetitions = async (req, res) => {
+/* ===============================
+   SERIES
+================================ */
 
+export const syncSeries = async (req, res) => {
   try {
 
-    const count = await syncCompetitionsService();
+    const count = await syncSeriesService();
 
     res.json({
       success: true,
-      message: `${count} competitions synced`
+      message: `${count} series synced`
     });
 
   } catch (error) {
@@ -27,13 +32,46 @@ export const syncCompetitions = async (req, res) => {
 };
 
 
+/* ===============================
+   TEAMS
+================================ */
+
+export const syncTeams = async (req, res) => {
+
+  try {
+
+    const { series_id } = req.params;
+
+    const count = await syncTeamsService(series_id);
+
+    res.json({
+      success: true,
+      message: `${count} teams synced`
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+};
+
+
+/* ===============================
+   MATCHES
+================================ */
+
 export const syncMatches = async (req, res) => {
 
   try {
 
-    const { competition_id } = req.params;
+    const { series_id } = req.params;
 
-    const count = await syncMatchesService(competition_id);
+    const count = await syncMatchesService(series_id);
 
     res.json({
       success: true,
@@ -48,16 +86,21 @@ export const syncMatches = async (req, res) => {
     });
 
   }
+
 };
 
 
-export const syncMatchSquad = async (req, res) => {
+/* ===============================
+   PLAYERS
+================================ */
+
+export const syncPlayers = async (req, res) => {
 
   try {
 
     const { match_id } = req.params;
 
-    const count = await syncMatchSquadService(match_id);
+    const count = await syncPlayersService(match_id);
 
     res.json({
       success: true,
@@ -72,4 +115,63 @@ export const syncMatchSquad = async (req, res) => {
     });
 
   }
+
+};
+
+
+/* ===============================
+   PLAYING XI
+================================ */
+
+export const syncPlayingXI = async (req, res) => {
+
+  try {
+
+    const { match_id } = req.params;
+
+    const count = await syncPlayingXIService(match_id);
+
+    res.json({
+      success: true,
+      message: `${count} playing XI synced`
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
+};
+
+
+/* ===============================
+   PLAYER POINTS
+================================ */
+
+export const syncPlayerPoints = async (req, res) => {
+
+  try {
+
+    const { match_id } = req.params;
+
+    const count = await syncPlayerPointsService(match_id);
+
+    res.json({
+      success: true,
+      message: `${count} player points synced`
+    });
+
+  } catch (error) {
+
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+
+  }
+
 };
