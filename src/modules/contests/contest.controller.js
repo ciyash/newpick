@@ -24,28 +24,43 @@ export const getAllContests = async (req, res) => {
 
 export const getContestsByMatchId = async (req, res) => {
   try {
-    // 🔥 params nundi match_id
-    const match_id = Number(req.params.match_id);
+    const userId = req.user?.id;
+    const match_id = req.params.match_id?.trim();
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
 
     if (!match_id) {
       return res.status(400).json({
         success: false,
-        message: "match_id param required"
+        message: "match_id param is required"
       });
     }
- 
-    const contests = await getContestsService(match_id);
 
-    res.status(200).json({
+    const contests = await getContestsService(match_id, userId);
+    if (!contests || contests.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No contests found for this match"
+      });
+    }
+
+    return res.status(200).json({
       success: true,
       total: contests.length,
       data: contests
     });
 
   } catch (err) {
-    res.status(400).json({
+    console.error("[getContestsByMatchId]", err);
+
+    return res.status(err.statusCode || 500).json({
       success: false,
-      message: err.message
+      message: err.statusCode ? err.message : "Internal server error"
     });
   }
 };
@@ -61,7 +76,7 @@ export const joinContest = async (req, res) => {
 
     const response = await joinContestService(
       userId,
-      entryFee,   // ✅ correct
+      entryFee,   
       {
         contestId,
         userTeamId,
@@ -81,51 +96,91 @@ export const joinContest = async (req, res) => {
 };
 
 
-
 export const getMyContests = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { match_id } = req.params;   // ✅ matchId from params
+    const userId = req.user?.id;
+    const match_id = req.params.match_id?.trim();
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
+
+    if (!match_id) {
+      return res.status(400).json({
+        success: false,
+        message: "match_id param is required"
+      });
+    }
 
     const contests = await getMyContestsService(userId, match_id);
 
-    res.json({
+    
+    if (!contests || contests.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No contests found"
+      });
+    }
+
+    return res.status(200).json({
       success: true,
       total: contests.length,
       data: contests
     });
 
-  } catch (error) {
-    res.status(400).json({
+  } catch (err) {
+    console.error("[getMyContests]", err);
+
+    return res.status(err.statusCode || 500).json({
       success: false,
-      message: error.message
+      message: err.statusCode ? err.message : "Internal server error"
     });
   }
 };
 
-
 export const getMyJoinedContests = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId = req.user?.id;
+    const match_id = req.params.match_id?.trim();
+    const contest_id = req.params.contest_id?.trim() || null;
 
-    const { match_id, contest_id } = req.params;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+    }
 
-    const contests = await getMyJoinedContestsService(
-      userId,
-      match_id,
-      contest_id
-    );
+    if (!match_id) {
+      return res.status(400).json({
+        success: false,
+        message: "match_id param is required"
+      });
+    }
 
-    res.json({
+    const contests = await getMyJoinedContestsService(userId, match_id, contest_id);
+    if (!contests || contests.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No contests found"
+      });
+    }
+
+    return res.status(200).json({
       success: true,
       total: contests.length,
       data: contests
     });
 
-  } catch (error) {
-    res.status(400).json({
+  } catch (err) {
+    console.error("[getMyJoinedContests]", err);
+
+    return res.status(err.statusCode || 500).json({
       success: false,
-      message: error.message
+      message: err.statusCode ? err.message : "Internal server error"
     });
   }
 };

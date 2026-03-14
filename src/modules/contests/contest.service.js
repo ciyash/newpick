@@ -43,7 +43,7 @@ export const getAllContestsService = async () => {
 };
 
 
-export const getContestsService = async (matchId) => {
+export const getContestsServiceold = async (matchId) => {
 
   const [rows] = await db.query(`
     SELECT *
@@ -87,6 +87,87 @@ export const getContestsService = async (matchId) => {
     remainingSpots: Math.max(c.max_entries - c.current_entries, 0)
 
   }));
+};
+export const getContestsService = async (matchId, userId) => {
+  try {
+
+    if (!matchId) throw new Error("matchId is required");
+    if (!userId) throw new Error("userId is required");
+
+    const [rows] = await db.query(`
+      SELECT 
+        c.*,
+        COUNT(ce.id) AS my_team_count
+      FROM contest c
+      LEFT JOIN contest_entries ce 
+        ON ce.contest_id = c.id 
+        AND ce.user_id = ?
+      WHERE c.match_id = ?
+      GROUP BY c.id
+      ORDER BY c.entry_fee DESC
+    `, [userId, matchId]);
+
+    if (!rows || rows.length === 0) {
+      return [];
+    }
+
+    return rows.map((c) => {
+
+      const myTeamCount = Number(c.my_team_count) || 0;
+
+      let prizeDistribution = null;
+      try {
+        prizeDistribution = c.prize_distribution
+          ? JSON.parse(c.prize_distribution)
+          : null;
+      } catch {
+        prizeDistribution = null;
+      }
+
+      const isCashback = c.is_cashback === 1;
+
+      return {
+        id: c.id,
+        matchId: c.match_id,
+
+        entryFee: Number(c.entry_fee) || 0,
+        prizePool: Number(c.prize_pool) || 0,
+
+        maxEntries: c.max_entries || 0,
+        minEntries: c.min_entries || 0,
+        currentEntries: c.current_entries || 0,
+        remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+
+        myTeamCount,
+        isJoined: myTeamCount > 0,
+
+        contestType: c.contest_type || null,
+        isGuaranteed: c.is_guaranteed === 1,
+
+        winnerPercentage: Number(c.winner_percentage) || 0,
+        totalWinners: c.total_winners || 0,
+        firstPrize: Number(c.first_prize) || 0,
+        prizeDistribution,
+
+        isCashback,
+        ...(isCashback && {
+          cashbackPercentage: Number(c.cashback_percentage) || 0,
+          cashbackAmount: Number(c.cashback_amount) || 0
+        }),
+
+        platformFeePercentage: Number(c.platform_fee_percentage) || 0,
+        platformFeeAmount: Number(c.platform_fee_amount) || 0,
+
+        status: c.status || null,
+        createdAt: c.created_at || null
+      };
+
+    });
+
+  } catch (err) {
+    console.error("[getContestsService]", err);
+    throw err;
+  }
 };
 
 
@@ -703,34 +784,69 @@ export const joinContestService = async (userId, amount, meta = {}) => {
   }
 
 };
+
 export const getMyContestsService = async (userId, matchId) => {
+  try {
 
-  const [rows] = await db.query(`
-    SELECT 
-      c.id AS contest_id,
-      c.match_id,
-      c.entry_fee,
-      c.prize_pool,
-      c.max_entries,
-      c.current_entries,
-      c.contest_type,
-      c.status,
-      c.first_prize,
-      c.total_winners,
-      c.winner_percentage,
-      c.platform_fee_percentage
-    FROM contest_entries ce
-    JOIN contest c ON ce.contest_id = c.id
+    if (!userId) throw new Error("userId is required");
+    if (!matchId) throw new Error("matchId is required");
 
-    WHERE ce.user_id = ?
-    AND c.match_id = ?   -- ✅ filter by matchId
+    const [rows] = await db.query(`
+      SELECT 
+        c.id            AS contest_id,
+        c.match_id,
+        c.entry_fee,
+        c.prize_pool,
+        c.max_entries,
+        c.current_entries,
+        c.contest_type,
+        c.status,
+        c.first_prize,
+        c.total_winners,
+        c.winner_percentage,
+        c.platform_fee_percentage,
+        COUNT(ce.id)    AS my_team_count
+      FROM contest_entries ce
+      JOIN contest c ON ce.contest_id = c.id
+      WHERE ce.user_id = ?
+      AND c.match_id = ?
+      GROUP BY c.id
+      ORDER BY MAX(ce.id) DESC
+    `, [userId, matchId]);
 
-    GROUP BY c.id
-    ORDER BY MAX(ce.id) DESC
-  `, [userId, matchId]);
+    if (!rows || rows.length === 0) {
+      return [];
+    }
 
-  return rows;
+    return rows.map((c) => ({
+      contestId: c.contest_id,
+      matchId: c.match_id,
+
+      entryFee: Number(c.entry_fee) || 0,
+      prizePool: Number(c.prize_pool) || 0,
+
+      maxEntries: c.max_entries || 0,
+      currentEntries: c.current_entries || 0,
+      remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+
+      contestType: c.contest_type || null,
+      status: c.status || null,
+
+      firstPrize: Number(c.first_prize) || 0,
+      totalWinners: c.total_winners || 0,
+      winnerPercentage: Number(c.winner_percentage) || 0,
+      platformFeePercentage: Number(c.platform_fee_percentage) || 0,
+
+      // ✅ how many teams user joined in this contest
+      myTeamCount: Number(c.my_team_count) || 0
+    }));
+
+  } catch (err) {
+    console.error("[getMyContestsService]", err);
+    throw err;
+  }
 };
+
 
 
 export const getMyJoinedContestsService = async (
@@ -738,43 +854,77 @@ export const getMyJoinedContestsService = async (
   matchId,
   contestId = null
 ) => {
+  try {
 
-  let query = `
-    SELECT 
-      c.id AS contest_id,
-      c.match_id,
-      c.entry_fee,
-      c.prize_pool,
-      c.max_entries,
-      c.current_entries,
-      c.contest_type,
-      c.status,
-      c.first_prize,
-      c.total_winners,
-      c.winner_percentage,
-      c.platform_fee_percentage
-    FROM contest_entries ce
-    JOIN contest c ON ce.contest_id = c.id
-    WHERE ce.user_id = ?
-    AND c.match_id = ?
-  `;
+    if (!userId) throw new Error("userId is required");
+    if (!matchId) throw new Error("matchId is required");
 
-  const params = [userId, matchId];
+    let query = `
+      SELECT 
+        c.id                  AS contest_id,
+        c.match_id,
+        c.entry_fee,
+        c.prize_pool,
+        c.max_entries,
+        c.current_entries,
+        c.contest_type,
+        c.status,
+        c.first_prize,
+        c.total_winners,
+        c.winner_percentage,
+        c.platform_fee_percentage,
+        COUNT(ce.id)          AS my_team_count
+      FROM contest_entries ce
+      JOIN contest c ON ce.contest_id = c.id
+      WHERE ce.user_id = ?
+      AND c.match_id = ?
+    `;
 
-  // optional contest filter
-  if (contestId) {
-    query += ` AND c.id = ?`;
-    params.push(contestId);
+    const params = [userId, matchId];
+
+    if (contestId) {
+      query += ` AND c.id = ?`;
+      params.push(contestId);
+    }
+
+    query += `
+      GROUP BY c.id
+      ORDER BY MAX(ce.id) DESC
+    `;
+
+    const [rows] = await db.query(query, params);
+
+    if (!rows || rows.length === 0) {
+      return [];
+    }
+
+    return rows.map((c) => ({
+      contestId: c.contest_id,
+      matchId: c.match_id,
+
+      entryFee: Number(c.entry_fee) || 0,
+      prizePool: Number(c.prize_pool) || 0,
+
+      maxEntries: c.max_entries || 0,
+      currentEntries: c.current_entries || 0,
+      remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+
+      contestType: c.contest_type || null,
+      status: c.status || null,
+
+      firstPrize: Number(c.first_prize) || 0,
+      totalWinners: c.total_winners || 0,
+      winnerPercentage: Number(c.winner_percentage) || 0,
+      platformFeePercentage: Number(c.platform_fee_percentage) || 0,
+
+      // ✅ user joined teams count
+      myTeamCount: Number(c.my_team_count) || 0
+
+    }));
+
+  } catch (err) {
+    console.error("[getMyJoinedContestsService]", err);
+    throw err;
   }
-
-  query += `
-    GROUP BY c.id
-    ORDER BY MAX(ce.id) DESC
-  `;
-
-  const [rows] = await db.query(query, params);
-
-  return rows;
 };
-
     
