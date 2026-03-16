@@ -1,6 +1,7 @@
 
 import 'dotenv/config'; 
 import app from './src/app.js'; 
+import './src/modules/entity-sport/entitysport.cron.js'; 
 
 const PORT = process.env.PORT || 5000;
 

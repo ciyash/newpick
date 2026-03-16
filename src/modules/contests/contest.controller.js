@@ -101,7 +101,7 @@ export const getMyContests = async (req, res) => {
       message: error.message
     });
   }
-};
+};  
 
 
 export const getMyJoinedContests = async (req, res) => {
@@ -120,7 +120,7 @@ export const getMyJoinedContests = async (req, res) => {
       success: true,
       total: contests.length,
       data: contests
-    });
+    });   
 
   } catch (error) {
     res.status(400).json({
