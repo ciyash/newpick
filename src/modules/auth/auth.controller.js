@@ -258,22 +258,28 @@ export const sendEmailVerification = async (req, res) => {
 
 
 export const verifyEmailLink = async (req, res) => {
-
   try {
-
     const { token } = req.query;
 
-    const result = await verifyEmailLinkService(token);
+    if (!token) {
+      const url = new URL("/email-verified", process.env.FRONTEND_URL);
+      url.searchParams.set("status", "failed");
+      return res.redirect(url.toString());
+    }
 
-    res.json(result);
+    await verifyEmailLinkService(token);
+
+    const url = new URL("/email-verified", process.env.FRONTEND_URL);
+    url.searchParams.set("status", "success");
+    return res.redirect(url.toString());
 
   } catch (err) {
-
-    res.status(400).json({ error: err.message });
-
+    const url = new URL("/email-verified", process.env.FRONTEND_URL);
+    url.searchParams.set("status", "failed");
+    return res.redirect(url.toString());
   }
-
 };
+
 
 
 /* ================= REQUEST CONTACT CHANGE ================= */

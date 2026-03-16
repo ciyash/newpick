@@ -22,7 +22,7 @@ const router = Router();
 router.post("/admin/login", adminLogin);   
 router.post("/resend-otp", resendSignupOtp);
 
-
+  
 //USER ROUTES
 router.post("/signup",signup);
 router.post("/verify-signup", verifySignupOtp);
