@@ -5,7 +5,6 @@ import { signupSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../au
 import {
   signupService, sendLoginOtpService, loginService,
   requestSignupOtpService, adminLoginService, updateProfileService,
-  sendEmailVerificationService,
   verifyEmailLinkService,
   requestContactChangeService,
   verifyOldContactService,
@@ -242,18 +241,6 @@ export const updateProfile = async (req, res) => {
   }
 };
 
-  
-export const sendEmailVerification = async (req, res) => {
-  try {
-
-    const result = await sendEmailVerificationService(req.body.email);
-
-    res.json(result);
-
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-};
 
 
 
@@ -262,21 +249,29 @@ export const verifyEmailLink = async (req, res) => {
     const { token } = req.query;
 
     if (!token) {
-      const url = new URL("/email-verified", process.env.FRONTEND_URL);
-      url.searchParams.set("status", "failed");
-      return res.redirect(url.toString());
+      return res.status(400).json({ success: false, message: "Token missing" });
     }
 
     await verifyEmailLinkService(token);
 
-    const url = new URL("/email-verified", process.env.FRONTEND_URL);
-    url.searchParams.set("status", "success");
-    return res.redirect(url.toString());
+    return res.status(200).send(`
+      <html>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+          <h2 style="color: green;">✅ Email Verified Successfully!</h2>
+          <p>You can now login to the app.</p>
+        </body>
+      </html>
+    `);
 
   } catch (err) {
-    const url = new URL("/email-verified", process.env.FRONTEND_URL);
-    url.searchParams.set("status", "failed");
-    return res.redirect(url.toString());
+    return res.status(400).send(`
+      <html>
+        <body style="font-family: sans-serif; text-align: center; padding: 50px;">
+          <h2 style="color: red;">❌ Verification Failed</h2>
+          <p>${err.message}</p>
+        </body>
+      </html>
+    `);
   }
 };
 

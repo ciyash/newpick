@@ -6,7 +6,6 @@ import {
   verifySignupOtp,
   adminLogin,  
   updateProfile,
-  sendEmailVerification,
   verifyEmailLink,
   requestContactChange,
   verifyOldContact,
@@ -31,8 +30,7 @@ router.post("/login", login);
 
 router.patch("/update-profile",authenticate,checkAccountActive,updateProfile);
 
-// EMAIL VERIFICATION ROUTES
-router.post("/send-email-verification", sendEmailVerification);
+
 router.get("/verify-email", verifyEmailLink);
 
 // CONTACT CHANGE ROUTES  
