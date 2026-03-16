@@ -277,7 +277,6 @@ export const verifyEmailLink = async (req, res) => {
 
 
 
-/* ================= REQUEST CONTACT CHANGE ================= */
 
 export const requestContactChange = async (req, res) => {
   try {
