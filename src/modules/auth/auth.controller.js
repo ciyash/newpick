@@ -317,8 +317,6 @@ export const requestContactChange = async (req, res) => {
 };
 
 
-/* ================= VERIFY OLD CONTACT ================= */
-
 export const verifyOldContact = async (req, res) => {
   try {
 
