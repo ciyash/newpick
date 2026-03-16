@@ -42,6 +42,6 @@ app.use("/withdraw", withdrawRoutes);
 app.use("/bank",authenticate,checkAccountActive, bankRoutes);
 app.use("/test",testRoutes)
 app.use("/notification", authenticate, checkAccountActive, notificationRoutes);
-app.use("/entitysport", authenticate, checkAccountActive, entitySportRoutes);
+app.use("/entity",   entitySportRoutes);
 
 export default app;      

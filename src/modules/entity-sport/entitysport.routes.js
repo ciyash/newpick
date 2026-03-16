@@ -1,29 +1,36 @@
 import express from "express";
-
 import {
-  syncTeams,
+  getAvailableSeries,
+  toggleSeries,
+  getAvailableMatches,
+  toggleMatches,
+  syncPlayers,
   syncPlayingXI,
-  syncPlayerPoints
+  syncPlayerPoints,
 } from "./entitysport.controller.js";
+import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 
 const router = express.Router();
 
-/* ===============================
-   TEAMS
-================================ */
+/* ══════════════════════════════════════════
+   SERIES
+══════════════════════════════════════════ */
+router.get("/series/available",              adminAuth(), getAvailableSeries);
+router.post("/series/toggle",                adminAuth(), toggleSeries);
 
-router.get("/sync-teams/:competition_id", syncTeams);
+/* ══════════════════════════════════════════
+   MATCHES
+══════════════════════════════════════════ */
+router.get("/matches/available/:seriesid",   adminAuth(), getAvailableMatches);
+router.post("/matches/toggle",               adminAuth(), toggleMatches);
 
-/* ===============================
-   PLAYING XI
-================================ */
-
-router.get("/sync-playing-xi/:match_id", syncPlayingXI);
-
-/* ===============================
-   PLAYER POINTS
-================================ */
-
-router.get("/sync-player-points/:match_id", syncPlayerPoints);
+/* ══════════════════════════════════════════
+   SYNC — toggleMatches auto-creates teams
+   syncTeams  → not needed (auto in toggle)
+   syncMatches → not needed (auto in toggle)
+══════════════════════════════════════════ */
+router.get("/sync-players/:match_id",        adminAuth(), syncPlayers);
+router.get("/sync-playingxi/:match_id",      adminAuth(), syncPlayingXI);
+router.get("/sync-points/:match_id",         adminAuth(), syncPlayerPoints);
 
 export default router;

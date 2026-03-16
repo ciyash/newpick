@@ -139,7 +139,7 @@ export const getMyContests = async (req, res) => {
       message: err.statusCode ? err.message : "Internal server error"
     });
   }
-};
+};  
 
 export const getMyJoinedContests = async (req, res) => {
   try {
@@ -173,7 +173,7 @@ export const getMyJoinedContests = async (req, res) => {
       success: true,
       total: contests.length,
       data: contests
-    });
+    });   
 
   } catch (err) {
     console.error("[getMyJoinedContests]", err);

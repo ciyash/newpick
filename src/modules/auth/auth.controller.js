@@ -256,35 +256,25 @@ export const sendEmailVerification = async (req, res) => {
 };
 
 
+
 export const verifyEmailLink = async (req, res) => {
 
   try {
 
     const { token } = req.query;
 
-    const [rows] = await db.query(
-      "SELECT id FROM users WHERE email_token=?",
-      [token]
-    );
+    const result = await verifyEmailLinkService(token);
 
-    if (!rows.length) {
-      return res.status(400).send("Invalid or expired verification link");
-    }
-
-    await db.query(
-      "UPDATE users SET email_verify=1, email_token=NULL WHERE id=?",
-      [rows[0].id]
-    );
-
-    res.send("Email verified successfully ✅");
+    res.json(result);
 
   } catch (err) {
 
-    res.status(500).send("Verification failed");
+    res.status(400).json({ error: err.message });
 
   }
 
 };
+
 
 /* ================= REQUEST CONTACT CHANGE ================= */
 
