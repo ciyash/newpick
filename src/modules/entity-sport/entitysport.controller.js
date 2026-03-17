@@ -7,6 +7,7 @@ import {
   syncPlayingXIService,
   syncPlayerPointsService,
   getMatchesService,
+  getActiveSeriesService,
 } from "./entitysport.service.js";
 
 /* ══════════════════════════════════════════
@@ -38,6 +39,16 @@ export const toggleSeries = async (req, res) => {
     res.json({ success: true, data: results });
   } catch (err) {
     console.error("toggleSeries error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const getActiveSeries = async (req, res) => {
+  try {
+    const result = await getActiveSeriesService();
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("getActiveSeries error:", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 };
