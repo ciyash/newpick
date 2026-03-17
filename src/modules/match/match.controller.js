@@ -101,24 +101,20 @@ export const getMatchFullDetails = async (req, res) => {
 
 export const getMatchesByType = async (req, res) => {
   try {
-
     const { type } = req.params;
-    const userId = req.user.id;
 
-    const matches = await getMatchesByTypeService(userId, type);
+    const data = await getMatchesByTypeService(type);
 
     res.json({
       success: true,
-      total: matches.length,
-      data: matches
+      total: data.length,
+      data,
     });
 
-  } catch (error) {
-
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
-
+  } catch (err) {
+    console.error("getMatchesByType error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
+
+

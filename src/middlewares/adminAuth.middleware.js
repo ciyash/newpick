@@ -9,8 +9,8 @@ const TOKEN_ERRORS = {
 };
 
 export const adminLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 50,
+  windowMs: 1 * 60 * 1000,  // 1 minute
+  max: 100,
   message: { success: false, message: "Too many requests" }
 });
 export const adminAuth = (roles = []) => {
