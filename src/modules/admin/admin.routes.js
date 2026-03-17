@@ -2,6 +2,7 @@ import { Router } from "express";
 import * as c from "./admin.controller.js";
 import * as v from "./admin.validation.js";
 import { adminAuth, adminLimiter } from "../../middlewares/adminAuth.middleware.js";
+import entitySportRoutes from '../entity-sport/entitysport.routes.js'
 
 const router = Router();
 router.use(adminLimiter);
@@ -73,5 +74,9 @@ router.post("/fetchusersbykyc",       adminAuth(), c.fetchUsersByKycStatus);
 router.post("/fetchusersbyaccount",   adminAuth(), c.fetchUsersByAccountStatus);
 
 
+
+//entity-sport
+
+router.use("/entity",  adminAuth(), entitySportRoutes);
 
 export default router;

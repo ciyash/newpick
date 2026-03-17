@@ -7,6 +7,7 @@ import {
   syncPlayers,
   syncPlayingXI,
   syncPlayerPoints,
+  getMatches,
 } from "./entitysport.controller.js";
 import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 
@@ -23,6 +24,7 @@ router.post("/series/toggle",                adminAuth(), toggleSeries);
 ══════════════════════════════════════════ */
 router.get("/matches/available/:seriesid",   adminAuth(), getAvailableMatches);
 router.post("/matches/toggle",               adminAuth(), toggleMatches);
+router.get("/matches/:seriesid", adminAuth(), getMatches);
 
 /* ══════════════════════════════════════════
    SYNC — toggleMatches auto-creates teams

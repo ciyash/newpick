@@ -12,7 +12,6 @@ export const sumsubWebhook = async (req, res) => {
     );
 
   }
-
   res.send("ok");
 };
 
