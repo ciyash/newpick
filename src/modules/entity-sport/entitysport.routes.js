@@ -10,7 +10,7 @@ import {
   getMatches,
   getActiveSeries,
 } from "./entitysport.controller.js";
-import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
+
 
 const router = express.Router();
 
@@ -36,4 +36,4 @@ router.get("/sync-players/:match_id",         syncPlayers);
 router.get("/sync-playingxi/:match_id",       syncPlayingXI);
 router.get("/sync-points/:match_id",          syncPlayerPoints);
 
-export default router;
+export default router;   

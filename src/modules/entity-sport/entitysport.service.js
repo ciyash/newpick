@@ -96,68 +96,187 @@ export const getAvailableSeriesService = async () => {
   });
 };
 
+// export const toggleSeriesService = async (seriesIds, isActive) => {
+//   const results   = [];
+//   const uniqueIds = [...new Set(seriesIds.map(String))];
+
+//   for (const seriesid of uniqueIds) {
+//     const [[existing]] = await db.query(
+//       `SELECT id, name FROM series WHERE seriesid = ? LIMIT 1`,
+//       [String(seriesid)]
+//     );
+
+//     if (!existing) {
+//       if (!isActive) {
+//         results.push({ seriesid: String(seriesid), error: "Series not in DB yet — toggle ON చేయి ముందు" });
+//         continue;
+//       }
+
+//       const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
+//       let seriesName  = null;
+
+//       const findName = (items) => {
+//         for (const match of items) {
+//           if (String(match.competition?.cid) === String(seriesid)) {
+//             seriesName = match.competition.cname;
+//             return true;
+//           }
+//         }
+//         return false;
+//       };
+
+//       if (!findName(firstData.response.items)) {
+//         const totalPages = firstData.response.total_pages;
+//         for (let page = 2; page <= Math.min(totalPages, 10); page++) {
+//           const data = await apiGet("/matches", { paged: page, per_page: 100 });
+//           if (findName(data.response.items)) break;
+//         }
+//       }
+
+//       if (!seriesName) {
+//         results.push({ seriesid: String(seriesid), error: "Series not found in API" });
+//         continue;
+//       }
+
+//       await db.query(
+//         `INSERT INTO series (seriesid, name, status, is_selected)
+//          VALUES (?, ?, 'active', 1)
+//          ON DUPLICATE KEY UPDATE
+//            name        = VALUES(name),
+//            status      = 'active',
+//            is_selected = 1`,
+//         [String(seriesid), seriesName]
+//       );
+
+//       results.push({ seriesid: String(seriesid), name: seriesName, is_active: true });
+//       continue;
+//     }
+
+//     await db.query(
+//       `UPDATE series SET status = ?, is_selected = ? WHERE seriesid = ?`,
+//       [isActive ? "active" : "inactive", isActive ? 1 : 0, String(seriesid)]
+//     );
+
+//     results.push({ seriesid: String(seriesid), name: existing.name, is_active: isActive });
+//   }
+
+//   return results;
+// };
+
 export const toggleSeriesService = async (seriesIds, isActive) => {
-  const results   = [];
+  const results = [];
   const uniqueIds = [...new Set(seriesIds.map(String))];
 
   for (const seriesid of uniqueIds) {
+    /* 1️⃣ Check DB */
     const [[existing]] = await db.query(
       `SELECT id, name FROM series WHERE seriesid = ? LIMIT 1`,
-      [String(seriesid)]
+      [seriesid]
     );
 
+    /* ─────────────────────────────────────
+       2️⃣ If NOT exists → Fetch from API
+    ───────────────────────────────────── */
     if (!existing) {
       if (!isActive) {
-        results.push({ seriesid: String(seriesid), error: "Series not in DB yet — toggle ON చేయి ముందు" });
+        results.push({
+          seriesid,
+          error: "Series not in DB yet — toggle ON చేయి ముందు",
+        });
         continue;
       }
 
-      const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
-      let seriesName  = null;
+      const firstData = await apiGet("/matches", {
+        paged: 1,
+        per_page: 100,
+      });
 
-      const findName = (items) => {
+      let foundSeries = null;
+
+      const findSeries = (items) => {
         for (const match of items) {
-          if (String(match.competition?.cid) === String(seriesid)) {
-            seriesName = match.competition.cname;
+          if (String(match.competition?.cid) === seriesid) {
+            foundSeries = {
+              name: match.competition.cname,
+              start_date: match.competition.startdate || null,
+              end_date: match.competition.enddate || null,
+              season: match.competition.year || null,
+            };
             return true;
           }
         }
         return false;
       };
 
-      if (!findName(firstData.response.items)) {
+      /* First page */
+      if (!findSeries(firstData.response.items)) {
         const totalPages = firstData.response.total_pages;
+
         for (let page = 2; page <= Math.min(totalPages, 10); page++) {
-          const data = await apiGet("/matches", { paged: page, per_page: 100 });
-          if (findName(data.response.items)) break;
+          const data = await apiGet("/matches", {
+            paged: page,
+            per_page: 100,
+          });
+          if (findSeries(data.response.items)) break;
         }
       }
 
-      if (!seriesName) {
-        results.push({ seriesid: String(seriesid), error: "Series not found in API" });
+      if (!foundSeries) {
+        results.push({
+          seriesid,
+          error: "Series not found in API",
+        });
         continue;
       }
 
+      /* 🔥 INSERT WITH FULL DATA */
       await db.query(
-        `INSERT INTO series (seriesid, name, status, is_selected)
-         VALUES (?, ?, 'active', 1)
+        `INSERT INTO series
+          (seriesid, name, season, start_date, end_date, status, is_selected, created_at)
+         VALUES (?, ?, ?, ?, ?, 'active', 1, NOW())
          ON DUPLICATE KEY UPDATE
            name        = VALUES(name),
+           season      = VALUES(season),
+           start_date  = VALUES(start_date),
+           end_date    = VALUES(end_date),
            status      = 'active',
            is_selected = 1`,
-        [String(seriesid), seriesName]
+        [
+          seriesid,
+          foundSeries.name,
+          foundSeries.season,
+          foundSeries.start_date,
+          foundSeries.end_date,
+        ]
       );
 
-      results.push({ seriesid: String(seriesid), name: seriesName, is_active: true });
+      results.push({
+        seriesid,
+        name: foundSeries.name,
+        season: foundSeries.season,
+        start_date: foundSeries.start_date,
+        end_date: foundSeries.end_date,
+        is_active: true,
+      });
+
       continue;
     }
 
+    /* ─────────────────────────────────────
+       3️⃣ If EXISTS → just toggle
+    ───────────────────────────────────── */
     await db.query(
-      `UPDATE series SET status = ?, is_selected = ? WHERE seriesid = ?`,
-      [isActive ? "active" : "inactive", isActive ? 1 : 0, String(seriesid)]
+      `UPDATE series
+       SET status = ?, is_selected = ?
+       WHERE seriesid = ?`,
+      [isActive ? "active" : "inactive", isActive ? 1 : 0, seriesid]
     );
 
-    results.push({ seriesid: String(seriesid), name: existing.name, is_active: isActive });
+    results.push({
+      seriesid,
+      name: existing.name,
+      is_active: isActive,
+    });
   }
 
   return results;

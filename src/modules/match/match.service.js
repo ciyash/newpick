@@ -1,6 +1,7 @@
 import db from "../../config/db.js";
 
 
+
 export const getMatchesByTypeService = async (userId, type) => {
 
   let statusList = [];
@@ -8,23 +9,26 @@ export const getMatchesByTypeService = async (userId, type) => {
   switch (type) {
 
     case "upcoming":
-      statusList = ["UPCOMING"];
+      statusList = ["upcoming"];
       break;
 
     case "live":
-      statusList = ["LIVE"];
+      statusList = ["live"];
       break;
 
     case "completed":
-      statusList = ["COMPLETED", "ABANDONED", "INREVIEW"];
+      statusList = ["result", "completed"];
       break;
 
     default:
       throw new Error("Invalid match type");
   }
 
+  // dynamic placeholders
+  const placeholders = statusList.map(() => "?").join(",");
+
   const [rows] = await db.query(
-    `SELECT DISTINCT
+    `SELECT 
         m.id,
         m.series_id,
         m.seriesname,
@@ -39,9 +43,10 @@ export const getMatchesByTypeService = async (userId, type) => {
      JOIN contest c ON c.match_id = m.id
      JOIN contest_entries ce ON ce.contest_id = c.id
      WHERE ce.user_id = ?
-     AND m.status IN (?)
+     AND m.status IN (${placeholders})
+     GROUP BY m.id
      ORDER BY m.start_time DESC`,
-    [userId, statusList]
+    [userId, ...statusList]
   );
 
   return rows;
