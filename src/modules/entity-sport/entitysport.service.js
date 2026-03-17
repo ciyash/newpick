@@ -93,7 +93,7 @@ export const getAvailableSeriesService = async () => {
       is_active:  dbRow ? dbRow.is_selected === 1 : false,
       status:     dbRow ? dbRow.status : "pending",
     };
-  });
+  }); 
 };
 
 // export const toggleSeriesService = async (seriesIds, isActive) => {
@@ -316,7 +316,12 @@ export const getAvailableMatchesService = async (seriesid) => {
     allMatches.push(...data.response.items);
   }
 
-  const providerIds = allMatches.map((m) => String(m.mid));
+  // ✅ seriesid filter — ఆ series కి చెందిన matches మాత్రమే
+  const filteredMatches = allMatches.filter(
+    (m) => String(m.competition?.cid) === String(seriesid)
+  );
+
+  const providerIds = filteredMatches.map((m) => String(m.mid));
 
   let activeSet = new Set();
   if (providerIds.length) {
@@ -328,7 +333,7 @@ export const getAvailableMatchesService = async (seriesid) => {
     activeSet = new Set(dbRows.map((r) => String(r.provider_match_id)));
   }
 
-  return allMatches.map((m) => ({
+  return filteredMatches.map((m) => ({
     match_id:   String(m.mid),
     home:       m.teams.home.fullname || m.teams.home.tname,
     away:       m.teams.away.fullname || m.teams.away.tname,
@@ -340,8 +345,7 @@ export const getAvailableMatchesService = async (seriesid) => {
 };
 
 
-
-export const toggleMatchesService = async (matchIds, isActive) => {
+export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
   const results   = [];
   const uniqueIds = [...new Set(matchIds.map(String))];
 
@@ -367,9 +371,12 @@ export const toggleMatchesService = async (matchIds, isActive) => {
         continue;
       }
 
+      // ✅ body లో seriesId వస్తే దాన్ని వాడు, లేకపోతే API cid వాడు
+      const lookupCid = seriesId ? String(seriesId) : String(matchInfo.competition?.cid);
+
       const [[seriesRow]] = await db.query(
         `SELECT id, seriesid FROM series WHERE seriesid = ? LIMIT 1`,
-        [String(matchInfo.competition?.cid)]
+        [lookupCid]
       );
 
       if (!seriesRow) {
@@ -405,7 +412,7 @@ export const toggleMatchesService = async (matchIds, isActive) => {
             [
               team?.fullname || team?.tname,
               team?.abbr || (team?.tname || "").substring(0, 3),
-              seriesRow.seriesid,  // ✅ seriesid వాడు
+              seriesRow.seriesid,
               tid,
             ]
           );
@@ -427,7 +434,7 @@ export const toggleMatchesService = async (matchIds, isActive) => {
          ON DUPLICATE KEY UPDATE is_active = 1`,
         [
           String(matchId),
-          seriesRow.seriesid,  // ✅ seriesid వాడు
+          seriesRow.seriesid,
           teamMap.get(homeTid) || null,
           teamMap.get(awayTid) || null,
           matchInfo.datestart,
@@ -436,7 +443,7 @@ export const toggleMatchesService = async (matchIds, isActive) => {
           matchInfo.teams?.home?.fullname || matchInfo.teams?.home?.tname,
           matchInfo.teams?.away?.fullname || matchInfo.teams?.away?.tname,
           matchInfo.datestart,
-          ]
+        ]
       );
 
       results.push({
@@ -564,7 +571,10 @@ export const syncPlayersService = async (matchId) => {
   return totalInserted;
 };  
 
-//  
+ 
+
+
+
 
 /* ══════════════════════════════════════════
    PLAYING XI

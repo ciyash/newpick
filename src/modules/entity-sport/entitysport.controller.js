@@ -71,18 +71,37 @@ export const getAvailableMatches = async (req, res) => {
   }
 };
 
+// export const toggleMatches = async (req, res) => {
+//   try {
+//     const { match_ids, is_active } = req.body;
+
+//     if (!match_ids || !Array.isArray(match_ids) || !match_ids.length) {
+//       return res.status(400).json({ success: false, message: "match_ids array is required" });
+//     }
+//     if (is_active === undefined) {
+//       return res.status(400).json({ success: false, message: "is_active (true/false) required" });
+//     }
+
+//     const results = await toggleMatchesService(match_ids, is_active);
+//     res.json({ success: true, data: results });
+//   } catch (err) {
+//     console.error("toggleMatches error:", err.message);
+//     res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
 export const toggleMatches = async (req, res) => {
   try {
-    const { match_ids, is_active } = req.body;
+    const { match_ids, is_active, series_id } = req.body;
 
-    if (!match_ids || !Array.isArray(match_ids) || !match_ids.length) {
+    if (!match_ids || !series_id || !Array.isArray(match_ids) || !match_ids.length) {
       return res.status(400).json({ success: false, message: "match_ids array is required" });
     }
     if (is_active === undefined) {
       return res.status(400).json({ success: false, message: "is_active (true/false) required" });
     }
 
-    const results = await toggleMatchesService(match_ids, is_active);
+    const results = await toggleMatchesService(match_ids, is_active, series_id);
     res.json({ success: true, data: results });
   } catch (err) {
     console.error("toggleMatches error:", err.message);
@@ -90,12 +109,11 @@ export const toggleMatches = async (req, res) => {
   }
 };
 
-
-
+ 
 export const getMatches = async (req, res) => {
   try {
     const { seriesid } = req.params;
-
+  
     if (!seriesid) {
       return res.status(400).json({ success: false, message: "seriesid is required" });
     }
