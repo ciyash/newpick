@@ -3,19 +3,20 @@ import  db  from "../../config/db.js";
 export const getAllSeries = async (req, res) => {
   try {
     // 1️⃣ Get all series
-    const [seriesRows] = await db.execute(`
-      SELECT 
-        id,
-        seriesid,
-        name,
-        season,
-        start_date,
-        end_date,
-        created_at,
-        provider_series_id
-      FROM series
-      ORDER BY created_at DESC
-    `);
+  const [seriesRows] = await db.execute(`
+  SELECT 
+    id,
+    seriesid,
+    name,
+    season,
+    start_date,
+    end_date,
+    created_at,
+    status,
+    is_selected
+  FROM series
+  ORDER BY created_at DESC
+  `);
 
     // 2️⃣ For each series → get matches WITH TEAM NAMES
     const result = await Promise.all(
