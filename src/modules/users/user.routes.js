@@ -18,7 +18,6 @@ import withdrawRoutes from '../withdraw/withdraw.routes.js'
 import bankRoutes from '../bank/bank.route.js'
 import testRoutes from '../test/test.routes.js'
 import notificationRoutes from '../notification/notification.routes.js'
-import entitySportRoutes from '../entity-sport/entitysport.routes.js'
 const app = express.Router();
 
 app.get("/userprofile", authenticate, getUserProfile);
@@ -42,6 +41,6 @@ app.use("/withdraw", withdrawRoutes);
 app.use("/bank",authenticate,checkAccountActive, bankRoutes);
 app.use("/test",testRoutes)
 app.use("/notification", authenticate, checkAccountActive, notificationRoutes);
-app.use("/entity",   entitySportRoutes);
+
 
 export default app;      
