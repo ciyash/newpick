@@ -1,7 +1,7 @@
 import axios from "axios";
 import db from "../../config/db.js";
 
-const TOKEN    = process.env.ENTITYSPORT_TOKEN;
+const TOKEN = process.env.ENTITYSPORT_TOKEN;
 const BASE_URL = "https://soccerapi.entitysport.com";
 
 const getApi = () =>
@@ -34,7 +34,7 @@ const mapPositionType = (type) => {
     case "D": return "DEF";
     case "M": return "MID";
     case "F": return "FWD";
-    default:  return "MID";
+    default: return "MID";
   }
 };
 
@@ -44,19 +44,19 @@ const mapPositionType = (type) => {
 
 export const getAvailableSeriesService = async () => {
   const competitionsMap = new Map();
-  const firstData       = await apiGet("/matches", { paged: 1, per_page: 100 });
-  const totalPages      = firstData.response.total_pages;
+  const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
+  const totalPages = firstData.response.total_pages;
 
   const collectCompetitions = (items) => {
     for (const match of items) {
       const c = match.competition;
       if (c?.cid && !competitionsMap.has(String(c.cid))) {
         competitionsMap.set(String(c.cid), {
-          cid:        String(c.cid),
-          name:       c.cname,
+          cid: String(c.cid),
+          name: c.cname,
           start_date: c.startdate || null,
-          end_date:   c.enddate   || null,
-          year:       c.year      || null,
+          end_date: c.enddate || null,
+          year: c.year || null,
         });
       }
     }
@@ -69,8 +69,8 @@ export const getAvailableSeriesService = async () => {
     collectCompetitions(data.response.items);
   }
 
-  const cids      = [...competitionsMap.keys()];
-  const [dbRows]  = await db.query(
+  const cids = [...competitionsMap.keys()];
+  const [dbRows] = await db.query(
     `SELECT seriesid, status, is_selected FROM series WHERE seriesid IN (?)`,
     [cids]
   );
@@ -79,19 +79,19 @@ export const getAvailableSeriesService = async () => {
   return [...competitionsMap.values()].map((c) => {
     const dbRow = dbMap.get(c.cid);
     return {
-      cid:        c.cid,
-      name:       c.name,
+      cid: c.cid,
+      name: c.name,
       start_date: c.start_date,
-      end_date:   c.end_date,
-      year:       c.year,
-      is_active:  dbRow ? dbRow.is_selected === 1 : false,
-      status:     dbRow ? dbRow.status : "pending",
+      end_date: c.end_date,
+      year: c.year,
+      is_active: dbRow ? dbRow.is_selected === 1 : false,
+      status: dbRow ? dbRow.status : "pending",
     };
   });
 };
 
 export const toggleSeriesService = async (seriesIds, isActive) => {
-  const results   = [];
+  const results = [];
   const uniqueIds = [...new Set(seriesIds.map(String))];
 
   for (const seriesid of uniqueIds) {
@@ -106,17 +106,17 @@ export const toggleSeriesService = async (seriesIds, isActive) => {
         continue;
       }
 
-      const firstData  = await apiGet("/matches", { paged: 1, per_page: 100 });
-      let foundSeries  = null;
+      const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
+      let foundSeries = null;
 
       const findSeries = (items) => {
         for (const match of items) {
           if (String(match.competition?.cid) === seriesid) {
             foundSeries = {
-              name:       match.competition.cname,
+              name: match.competition.cname,
               start_date: match.competition.startdate || null,
-              end_date:   match.competition.enddate   || null,
-              season:     match.competition.year      || null,
+              end_date: match.competition.enddate || null,
+              season: match.competition.year || null,
             };
             return true;
           }
@@ -153,11 +153,11 @@ export const toggleSeriesService = async (seriesIds, isActive) => {
 
       results.push({
         seriesid,
-        name:       foundSeries.name,
-        season:     foundSeries.season,
+        name: foundSeries.name,
+        season: foundSeries.season,
         start_date: foundSeries.start_date,
-        end_date:   foundSeries.end_date,
-        is_active:  true,
+        end_date: foundSeries.end_date,
+        is_active: true,
       });
       continue;
     }
@@ -186,7 +186,7 @@ export const getActiveSeriesService = async () => {
 ══════════════════════════════════════════ */
 
 export const getAvailableMatchesService = async (seriesid) => {
-  const firstData  = await apiGet("/matches", { competition_id: seriesid, per_page: 100, paged: 1 });
+  const firstData = await apiGet("/matches", { competition_id: seriesid, per_page: 100, paged: 1 });
   const totalPages = firstData.response.total_pages;
   const allMatches = [...firstData.response.items];
 
@@ -200,7 +200,7 @@ export const getAvailableMatchesService = async (seriesid) => {
   );
 
   const providerIds = filteredMatches.map((m) => String(m.mid));
-  let activeSet     = new Set();
+  let activeSet = new Set();
 
   if (providerIds.length) {
     const [dbRows] = await db.query(
@@ -211,18 +211,18 @@ export const getAvailableMatchesService = async (seriesid) => {
   }
 
   return filteredMatches.map((m) => ({
-    match_id:   String(m.mid),
-    home:       m.teams.home.fullname || m.teams.home.tname,
-    away:       m.teams.away.fullname || m.teams.away.tname,
+    match_id: String(m.mid),
+    home: m.teams.home.fullname || m.teams.home.tname,
+    away: m.teams.away.fullname || m.teams.away.tname,
     start_time: m.datestart,
-    status:     m.status_str,
-    round:      m.round || null,
-    is_active:  activeSet.has(String(m.mid)),
+    status: m.status_str,
+    round: m.round || null,
+    is_active: activeSet.has(String(m.mid)),
   }));
 };
 
 export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
-  const results   = [];
+  const results = [];
   const uniqueIds = [...new Set(matchIds.map(String))];
 
   for (const matchId of uniqueIds) {
@@ -238,8 +238,8 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
         continue;
       }
 
-      const data      = await apiGet(`/matches/${matchId}/info`);
-      const items     = data?.response?.items;
+      const data = await apiGet(`/matches/${matchId}/info`);
+      const items = data?.response?.items;
       const matchInfo = items?.match_info?.[0];
 
       if (!matchInfo) {
@@ -325,11 +325,11 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
       }
 
       results.push({
-        match_id:   String(matchId),
-        home:       matchInfo.teams?.home?.fullname || matchInfo.teams?.home?.tname,
-        away:       matchInfo.teams?.away?.fullname || matchInfo.teams?.away?.tname,
+        match_id: String(matchId),
+        home: matchInfo.teams?.home?.fullname || matchInfo.teams?.home?.tname,
+        away: matchInfo.teams?.away?.fullname || matchInfo.teams?.away?.tname,
         start_time: matchInfo.datestart,
-        is_active:  true,
+        is_active: true,
       });
       continue;
     }
@@ -364,11 +364,11 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
     }
 
     results.push({
-      match_id:   String(matchId),
-      home:       existing.hometeamname,
-      away:       existing.awayteamname,
+      match_id: String(matchId),
+      home: existing.hometeamname,
+      away: existing.awayteamname,
       start_time: existing.start_time,
-      is_active:  isActive,
+      is_active: isActive,
     });
   }
 
@@ -412,9 +412,10 @@ export const syncPlayersService = async (matchId) => {
 
       const { provider_team_id: providerTeamId, name: teamName, id: internalTeamId } = teamRows[0];
 
-      const data       = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
+      const data = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
       const allPlayers = (data.response.items || []).slice(0, 25);
 
+      console.log(JSON.stringify(allPlayers[0], null, 2));
       console.log(`Syncing ${allPlayers.length} players for team: ${teamName}`);
 
       return { allPlayers, internalTeamId, teamName };
@@ -430,8 +431,9 @@ export const syncPlayersService = async (matchId) => {
         if (!allPlayers.length) return;
 
         const values = allPlayers.map((p) => {
-          const pos              = mapPositionType(p.positiontype);
+          const pos = mapPositionType(p.positiontype);
           const providerPlayerId = String(p.pid || p.player_id || p.id);
+          const playerImage = `${process.env.ENTITY_IMAGE_BASE_URL}/player/${providerPlayerId}.png`;
           return [
             internalTeamId,
             p.fullname || p.title,
@@ -440,9 +442,24 @@ export const syncPlayersService = async (matchId) => {
             p.nationality?.name || "",
             parseFloat(p.fantasy_player_rating) || 8.0,
             providerPlayerId,
+            playerImage, // ✅
             0,
           ];
         });
+
+        await db.query(
+          `INSERT INTO players
+     (team_id, name, position, player_type, country, playercredits, provider_player_id, playerimage, points)
+   VALUES ?
+   ON DUPLICATE KEY UPDATE
+     name               = VALUES(name),
+     position           = VALUES(position),
+     playercredits      = VALUES(playercredits),
+     country            = VALUES(country),
+     playerimage        = VALUES(playerimage),
+     provider_player_id = VALUES(provider_player_id)`,
+          [values]
+        );
 
         await db.query(
           `INSERT INTO players
@@ -480,9 +497,9 @@ export const syncPlayingXIService = async (matchId) => {
   const internalMatchId = matchRows[0].id;
   const providerMatchId = matchRows[0].provider_match_id;
 
-  const infoData        = await apiGet(`/matches/${providerMatchId}/info`);
-  const items           = infoData?.response?.items;
-  const matchInfo       = items?.match_info?.[0];
+  const infoData = await apiGet(`/matches/${providerMatchId}/info`);
+  const items = infoData?.response?.items;
+  const matchInfo = items?.match_info?.[0];
   const lineupAvailable = matchInfo?.lineupavailable === "true";
 
   if (!lineupAvailable) {
@@ -495,7 +512,7 @@ export const syncPlayingXIService = async (matchId) => {
     return { count: 0, reason: "Lineup array is empty despite lineupavailable=true" };
   }
 
-  const pids        = [...new Set(lineup.map((p) => String(p.pid)))];
+  const pids = [...new Set(lineup.map((p) => String(p.pid)))];
   const [playerRows] = await db.query(
     `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
     [pids]
@@ -538,8 +555,8 @@ export const syncPlayerPointsService = async (matchId) => {
   const internalMatchId = matchRows[0].id;
   const providerMatchId = matchRows[0].provider_match_id;
 
-  const data      = await apiGet(`/matches/${providerMatchId}/info`);
-  const items     = data?.response?.items;
+  const data = await apiGet(`/matches/${providerMatchId}/info`);
+  const items = data?.response?.items;
   const matchInfo = items?.match_info?.[0];
 
   const isCompleted =
@@ -551,17 +568,17 @@ export const syncPlayerPointsService = async (matchId) => {
   }
 
   const players =
-    items?.scorecard   ||
-    items?.players     ||
+    items?.scorecard ||
+    items?.players ||
     matchInfo?.players ||
-    matchInfo?.lineup  ||
+    matchInfo?.lineup ||
     [];
 
   if (!players.length) {
     return { count: 0, reason: "No player points data in API response" };
   }
 
-  const pids        = [...new Set(players.map((p) => String(p.pid)))];
+  const pids = [...new Set(players.map((p) => String(p.pid)))];
   const [playerRows] = await db.query(
     `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
     [pids]
