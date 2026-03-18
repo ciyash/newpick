@@ -6,74 +6,75 @@ import {
 } from "./entitysport.service.js";
 
 /* ══════════════════════════════════════════
-   EVERY 15 MINUTES — kick-off 3 గంటల లోపు
-   ఉన్న matches కి playing XI poll చేయి
+   EVERY 15 MINUTES — match start కి 1 hr 
+   లోపు ఉన్న matches కి playing XI poll
 ══════════════════════════════════════════ */
 
 cron.schedule("*/15 * * * *", async () => {
-  console.log("[CRON] Polling playing XI...");
   try {
     const [matches] = await db.query(
       `SELECT provider_match_id FROM matches
        WHERE is_active = 1
          AND status = 'upcoming'
-         AND start_time BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 HOUR)`
+         AND CONCAT(matchdate, ' ', start_time)
+             BETWEEN DATE_SUB(NOW(), INTERVAL 30 MINUTE)
+             AND DATE_ADD(NOW(), INTERVAL 1 HOUR)`
     );
 
-    if (!matches.length) {
-      console.log("[CRON] No upcoming matches within 3 hours — skipping");
-      return;
-    }
+    if (!matches.length) return; // ✅ silent — no log, no API call
+
+    console.log(`[CRON] Playing XI — ${matches.length} matches to check`);
 
     for (const match of matches) {
       try {
         const result = await syncPlayingXIService(match.provider_match_id);
         if (result.count > 0) {
-          console.log(`[CRON] ✓ Playing XI synced for match ${match.provider_match_id} (${result.count} players)`);
+          console.log(`[CRON] ✓ Playing XI synced: ${match.provider_match_id} (${result.count} players)`);
         } else {
-          console.log(`[CRON] — Match ${match.provider_match_id}: ${result.reason}`);
+          console.log(`[CRON] — ${match.provider_match_id}: ${result.reason}`);
         }
       } catch (err) {
-        console.error(`[CRON] ✗ Playing XI failed for match ${match.provider_match_id}:`, err.message);
+        console.error(`[CRON] ✗ Playing XI failed: ${match.provider_match_id}:`, err.message);
       }
     }
   } catch (err) {
-    console.error("[CRON] ✗ Playing XI poll failed:", err.message);
+    console.error("[CRON] ✗ Playing XI poll error:", err.message);
   }
 });
 
 /* ══════════════════════════════════════════
-   EVERY 10 MINUTES — live/completed matches కి
-   player points sync చేయి
+   EVERY 10 MINUTES — live/completed matches
+   కి player points sync
 ══════════════════════════════════════════ */
 
 cron.schedule("*/10 * * * *", async () => {
-  console.log("[CRON] Syncing player points...");
   try {
     const [matches] = await db.query(
       `SELECT provider_match_id FROM matches
        WHERE is_active = 1
-         AND status IN ('live', 'result')`
+         AND status IN ('live', 'result')
+         AND CONCAT(matchdate, ' ', start_time)
+             BETWEEN DATE_SUB(NOW(), INTERVAL 5 HOUR)
+             AND DATE_ADD(NOW(), INTERVAL 2 HOUR)`
     );
 
-    if (!matches.length) {
-      console.log("[CRON] No live/completed matches — skipping");
-      return;
-    }
+    if (!matches.length) return; // ✅ silent — no log, no API call
+
+    console.log(`[CRON] Points sync — ${matches.length} matches to check`);
 
     for (const match of matches) {
       try {
         const result = await syncPlayerPointsService(match.provider_match_id);
         if (result.count > 0) {
-          console.log(`[CRON] ✓ Points synced for match ${match.provider_match_id} (${result.count} players)`);
+          console.log(`[CRON] ✓ Points synced: ${match.provider_match_id} (${result.count} players)`);
         } else {
-          console.log(`[CRON] — Match ${match.provider_match_id}: ${result.reason}`);
+          console.log(`[CRON] — ${match.provider_match_id}: ${result.reason}`);
         }
       } catch (err) {
-        console.error(`[CRON] ✗ Points sync failed for match ${match.provider_match_id}:`, err.message);
+        console.error(`[CRON] ✗ Points failed: ${match.provider_match_id}:`, err.message);
       }
     }
   } catch (err) {
-    console.error("[CRON] ✗ Player points sync failed:", err.message);
+    console.error("[CRON] ✗ Points sync error:", err.message);
   }
 });
