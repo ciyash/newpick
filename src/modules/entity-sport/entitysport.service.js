@@ -412,10 +412,9 @@ export const syncPlayersService = async (matchId) => {
 
       const { provider_team_id: providerTeamId, name: teamName, id: internalTeamId } = teamRows[0];
 
-      const data = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
+      const data       = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
       const allPlayers = (data.response.items || []).slice(0, 25);
 
-      console.log(JSON.stringify(allPlayers[0], null, 2));
       console.log(`Syncing ${allPlayers.length} players for team: ${teamName}`);
 
       return { allPlayers, internalTeamId, teamName };
@@ -431,9 +430,10 @@ export const syncPlayersService = async (matchId) => {
         if (!allPlayers.length) return;
 
         const values = allPlayers.map((p) => {
-          const pos = mapPositionType(p.positiontype);
+          const pos              = mapPositionType(p.positiontype);
           const providerPlayerId = String(p.pid || p.player_id || p.id);
-          const playerImage = `${process.env.ENTITY_IMAGE_BASE_URL}/player/${providerPlayerId}.png`;
+          const playerImage      = `${process.env.ENTITY_IMAGE_BASE_URL}/player/${providerPlayerId}.png`;
+
           return [
             internalTeamId,
             p.fullname || p.title,
@@ -442,34 +442,22 @@ export const syncPlayersService = async (matchId) => {
             p.nationality?.name || "",
             parseFloat(p.fantasy_player_rating) || 8.0,
             providerPlayerId,
-            playerImage, // ✅
+            playerImage,
             0,
           ];
         });
 
+        // ✅ ఒక్క query మాత్రమే — playerimage తో
         await db.query(
           `INSERT INTO players
-     (team_id, name, position, player_type, country, playercredits, provider_player_id, playerimage, points)
-   VALUES ?
-   ON DUPLICATE KEY UPDATE
-     name               = VALUES(name),
-     position           = VALUES(position),
-     playercredits      = VALUES(playercredits),
-     country            = VALUES(country),
-     playerimage        = VALUES(playerimage),
-     provider_player_id = VALUES(provider_player_id)`,
-          [values]
-        );
-
-        await db.query(
-          `INSERT INTO players
-             (team_id, name, position, player_type, country, playercredits, provider_player_id, points)
+             (team_id, name, position, player_type, country, playercredits, provider_player_id, playerimage, points)
            VALUES ?
            ON DUPLICATE KEY UPDATE
              name               = VALUES(name),
              position           = VALUES(position),
              playercredits      = VALUES(playercredits),
              country            = VALUES(country),
+             playerimage        = VALUES(playerimage),
              provider_player_id = VALUES(provider_player_id)`,
           [values]
         );
