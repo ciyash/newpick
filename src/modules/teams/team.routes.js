@@ -26,4 +26,4 @@ router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers)
 
 router.get("/my-teams-with-players", authenticate, checkAccountActive, getMyTeamsWithPlayers);
  
-export default router;
+export default router;  
