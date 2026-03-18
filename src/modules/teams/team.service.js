@@ -1,6 +1,7 @@
 import db from "../../config/db.js";
 
 
+
 // export const createTeamService = async (
 //   userId,
 //   matchId,
@@ -12,10 +13,11 @@ import db from "../../config/db.js";
 //   const conn = await db.getConnection();
 
 //   try {
+
 //     await conn.beginTransaction();
 
 //     /* ================================
-//        0️⃣ MATCH STATUS & DEADLINE CHECK
+//        0️⃣ MATCH CHECK
 //     ================================= */
 
 //     const [[match]] = await conn.query(
@@ -29,132 +31,123 @@ import db from "../../config/db.js";
 //       throw new Error("Match not found");
 //     }
 
+//     // ✅ Normalized to lowercase — handles "UPCOMING", "Upcoming", "upcoming"
 //     const now = new Date();
-
-//     // ❌ If match started or completed → block
-//     // if (
-//     //   match.status !== "upcoming" ||
-//     //   now >= new Date(match.start_time)
-//     // ) {
-//     //   throw new Error("Team creation closed for this match");
-//     // }
-
-//     /* ================================
-//        1️⃣ BASIC VALIDATIONS
-//     ================================= */
-//  //
-//     if (!Array.isArray(players) || players.length !== 11) {
-//       throw new Error("Team must have exactly 11 players");
-//     }
-
-//     if (new Set(players).size !== players.length) {
-//       throw new Error("Duplicate players not allowed");
-//     }
-
-//     if (captainId === viceCaptainId) {
-//       throw new Error("Captain and VC must be different");
+//     const matchStatus = match.status?.trim().toLowerCase();
+//     if (matchStatus !== "upcoming" || now >= new Date(match.start_time)) {
+//       throw new Error("Team creation is closed for this match");
 //     }
 
 //     /* ================================
-//        2️⃣ CHECK PLAYERS EXIST
+//        1️⃣ FETCH PLAYERS & ROLES
+//           Validate all player IDs exist and
+//           grab their position in one query
 //     ================================= */
 
-//     const [existing] = await conn.query(
-//       `SELECT id FROM players WHERE id IN (?)`,
+//     const [playersData] = await conn.query(
+//       `SELECT id AS player_id, position AS role
+//        FROM players
+//        WHERE id IN (?)`,
 //       [players]
 //     );
 
-//     if (existing.length !== players.length) {
-//       throw new Error("Some players not found");
+//     if (playersData.length !== players.length) {
+//       throw new Error("One or more players do not exist");
 //     }
 
+//     // Build a map of playerId → role for quick lookup
+//     const playerRoleMap = Object.fromEntries(
+//       playersData.map(({ player_id, role }) => [player_id, role])
+//     );
+
 //     /* ================================
-//        3️⃣ DUPLICATE TEAM CHECK
+//        2️⃣ TEAM SIGNATURE
+//     ================================= */
+
+//     const sortedPlayers = [...players].sort((a, b) => a - b);
+
+//     const teamSignature =
+//       sortedPlayers.join(",") +
+//       `|C${captainId}|VC${viceCaptainId}`;
+
+//     /* ================================
+//        3️⃣ MAX 20 TEAMS CHECK
+//           Lock actual rows (not COUNT) to prevent
+//           race condition with concurrent requests
 //     ================================= */
 
 //     const [existingTeams] = await conn.query(
-//       `SELECT id FROM user_teams
-//        WHERE user_id = ? AND match_id = ?`,
-//       [userId, matchId]
-//     );
-
-//     for (const team of existingTeams) {
-
-//       const [teamPlayers] = await conn.query(
-//         `SELECT player_id, is_captain, is_vice_captain
-//          FROM user_team_players
-//          WHERE user_team_id = ?`,
-//         [team.id]
-//       );
-
-//       const existingSet = new Set(
-//         teamPlayers.map(p =>
-//           `${p.player_id}-${p.is_captain}-${p.is_vice_captain}`
-//         )
-//       );
-
-//       const newSet = new Set(
-//         players.map(id => {
-//           const c = id === captainId ? 1 : 0;
-//           const v = id === viceCaptainId ? 1 : 0;
-//           return `${id}-${c}-${v}`;
-//         })
-//       );
-
-//       if (
-//         existingSet.size === newSet.size &&
-//         [...existingSet].every(x => newSet.has(x))
-//       ) {
-//         throw new Error("Duplicate team not allowed");
-//       }
-//     }
-
-//     /* ================================
-//        4️⃣ MAX 20 TEAMS CHECK (PER MATCH)
-//     ================================= */
-
-//     const [[count]] = await conn.query(
-//       `SELECT COUNT(*) AS total
+//       `SELECT id
 //        FROM user_teams
 //        WHERE user_id = ? AND match_id = ?
 //        FOR UPDATE`,
 //       [userId, matchId]
 //     );
 
-//     if (count.total >= 20) {
+//     if (existingTeams.length >= 20) {
 //       throw new Error("Maximum 20 teams allowed per match");
 //     }
 
-//     const teamName = `Team ${count.total + 1}`;
+//     const teamName = `Team ${existingTeams.length + 1}`;
 
 //     /* ================================
-//        5️⃣ INSERT TEAM
+//        4️⃣ INSERT TEAM
+//           teamSignature unique constraint is the
+//           final DB-level guard against duplicates
 //     ================================= */
 
-//     const [teamResult] = await conn.execute(
-//       `INSERT INTO user_teams
-//        (user_id, match_id, team_name, locked)
-//        VALUES (?, ?, ?, 0)`,
-//       [userId, matchId, teamName]
-//     );
+//     let teamId;
 
-//     const teamId = teamResult.insertId;
+//     try {
 
-//     /* ================================
-//        6️⃣ INSERT TEAM PLAYERS
-//     ================================= */
-
-//     for (const playerId of players) {
-
-//       const isCaptain = playerId === captainId ? 1 : 0;
-//       const isViceCaptain = playerId === viceCaptainId ? 1 : 0;
-
-//       await conn.execute(
-//         `INSERT INTO user_team_players
-//          (user_team_id, player_id, is_captain, is_vice_captain)
-//          VALUES (?, ?, ?, ?)`,
-//         [teamId, playerId, isCaptain, isViceCaptain]
+//       const [teamResult] = await conn.execute(
+//         `INSERT INTO user_teams
+//          (user_id, match_id, team_name, team_signature, locked)
+//          VALUES (?, ?, ?, ?, 0)`,
+//         [userId, matchId, teamName, teamSignature]
 //       );
+
+//       teamId = teamResult.insertId;
+
+//     } catch (err) {
+
+//       if (err.code === "ER_DUP_ENTRY") {
+//         throw new Error("Duplicate team not allowed");
+//       }
+
+//       throw err;
+//     }
+
+//     /* ================================
+//        5️⃣ BULK INSERT TEAM PLAYERS
+//           Includes role fetched from players table —
+//           single query, atomic, no loop
+//     ================================= */
+
+//     const playerRows = players.map((playerId) => [
+//       teamId,
+//       playerId,
+//       playerRoleMap[playerId] ?? null,
+//       playerId === captainId ? 1 : 0,
+//       playerId === viceCaptainId ? 1 : 0,
+//     ]);
+
+//     try {
+
+//       await conn.query(
+//         `INSERT INTO user_team_players
+//          (user_team_id, player_id, role, is_captain, is_vice_captain)
+//          VALUES ?`,
+//         [playerRows]
+//       );
+
+//     } catch (err) {
+
+//       if (err.code === "ER_NO_REFERENCED_ROW_2") {
+//         throw new Error("One or more players do not exist");
+//       }
+
+//       throw err;
 //     }
 
 //     await conn.commit();
@@ -163,181 +156,22 @@ import db from "../../config/db.js";
 //       success: true,
 //       message: "Team created successfully",
 //       teamId,
-//       teamName
+//       teamName,
 //     };
 
 //   } catch (err) {
+
 //     await conn.rollback();
 //     throw err;
+
 //   } finally {
+
 //     conn.release();
+
 //   }
+
 // };
 
-export const createTeamServicchandu = async (
-  userId,
-  matchId,
-  players,
-  captainId,
-  viceCaptainId
-) => {
-
-  const conn = await db.getConnection();
-
-  try {
-
-    await conn.beginTransaction();
-
-    /* ================================
-       0️⃣ MATCH CHECK
-    ================================= */
-
-    const [[match]] = await conn.query(
-      `SELECT status, start_time
-       FROM matches
-       WHERE id = ?`,
-      [matchId]
-    );
-
-    if (!match) {
-      throw new Error("Match not found");
-    }
-
-    const now = new Date();
-
-    // Optional
-    // if (match.status !== "upcoming" || now >= new Date(match.start_time)) {
-    //   throw new Error("Team creation closed for this match");
-    // }
-
-    /* ================================
-       1️⃣ VALIDATIONS
-    ================================= */
-
-    if (!Array.isArray(players) || players.length !== 11) {
-      throw new Error("Team must have exactly 11 players");
-    }
-
-    if (new Set(players).size !== players.length) {
-      throw new Error("Duplicate players not allowed");
-    }
-
-    if (captainId === viceCaptainId) {
-      throw new Error("Captain and VC must be different");
-    }
-
-    if (!players.includes(captainId)) {
-      throw new Error("Captain must be part of team");
-    }
-
-    if (!players.includes(viceCaptainId)) {
-      throw new Error("Vice captain must be part of team");
-    }
-
-    /* ================================
-       2️⃣ CHECK PLAYERS EXIST
-    ================================= */
-
-    const [existingPlayers] = await conn.query(
-      `SELECT id FROM players WHERE id IN (?)`,
-      [players]
-    );
-
-    if (existingPlayers.length !== players.length) {
-      throw new Error("Some players not found");
-    }
-
-    /* ================================
-       3️⃣ TEAM SIGNATURE
-    ================================= */
-
-    const sortedPlayers = [...players].sort((a, b) => a - b);
-
-    const teamSignature =
-      sortedPlayers.join(",") +
-      `|C${captainId}|VC${viceCaptainId}`;
-
-    /* ================================
-       4️⃣ MAX 20 TEAMS CHECK
-    ================================= */
-
-    const [[count]] = await conn.query(
-      `SELECT COUNT(*) AS total
-       FROM user_teams
-       WHERE user_id = ? AND match_id = ?
-       FOR UPDATE`,
-      [userId, matchId]
-    );
-
-    if (count.total >= 20) {
-      throw new Error("Maximum 20 teams allowed per match");
-    }
-
-    const teamName = `Team ${count.total + 1}`;
-
-    /* ================================
-       5️⃣ INSERT TEAM
-    ================================= */
-
-    let teamId;
-
-    try {
-
-      const [teamResult] = await conn.execute(
-        `INSERT INTO user_teams
-         (user_id, match_id, team_name, team_signature, locked)
-         VALUES (?, ?, ?, ?, 0)`,
-        [userId, matchId, teamName, teamSignature]
-      );
-
-      teamId = teamResult.insertId;
-
-    } catch (err) {
-
-      if (err.code === "ER_DUP_ENTRY") {
-        throw new Error("Duplicate team not allowed");
-      }
-
-      throw err;
-    }
-
-    /* ================================
-       6️⃣ INSERT TEAM PLAYERS
-    ================================= */
-
-    for (const playerId of players) {
-
-      const isCaptain = playerId === captainId ? 1 : 0;
-      const isViceCaptain = playerId === viceCaptainId ? 1 : 0;
-
-      await conn.execute(
-        `INSERT INTO user_team_players
-         (user_team_id, player_id, is_captain, is_vice_captain)
-         VALUES (?, ?, ?, ?)`,
-        [teamId, playerId, isCaptain, isViceCaptain]
-      );
-    }
-
-    await conn.commit();
-
-    return {
-      success: true,
-      message: "Team created successfully",
-      teamId,
-      teamName
-    };
-
-  } catch (err) {
-
-    await conn.rollback();
-    throw err;
-
-  } finally {
-
-    conn.release();
-
-  }
-};
 
 export const createTeamService = async (
   userId,
@@ -346,45 +180,33 @@ export const createTeamService = async (
   captainId,
   viceCaptainId
 ) => {
-
   const conn = await db.getConnection();
 
   try {
-
     await conn.beginTransaction();
 
     /* ================================
        0️⃣ MATCH CHECK
     ================================= */
-
     const [[match]] = await conn.query(
-      `SELECT status, start_time
-       FROM matches
-       WHERE id = ?`,
+      `SELECT status, start_time FROM matches WHERE id = ?`,
       [matchId]
     );
 
-    if (!match) {
-      throw new Error("Match not found");
-    }
+    if (!match) throw new Error("Match not found");
 
-    // ✅ Normalized to lowercase — handles "UPCOMING", "Upcoming", "upcoming"
-    const now = new Date();
+    const now         = new Date();
     const matchStatus = match.status?.trim().toLowerCase();
+
     if (matchStatus !== "upcoming" || now >= new Date(match.start_time)) {
       throw new Error("Team creation is closed for this match");
     }
 
     /* ================================
        1️⃣ FETCH PLAYERS & ROLES
-          Validate all player IDs exist and
-          grab their position in one query
     ================================= */
-
     const [playersData] = await conn.query(
-      `SELECT id AS player_id, position AS role
-       FROM players
-       WHERE id IN (?)`,
+      `SELECT id AS player_id, position AS role FROM players WHERE id IN (?)`,
       [players]
     );
 
@@ -392,7 +214,6 @@ export const createTeamService = async (
       throw new Error("One or more players do not exist");
     }
 
-    // Build a map of playerId → role for quick lookup
     const playerRoleMap = Object.fromEntries(
       playersData.map(({ player_id, role }) => [player_id, role])
     );
@@ -400,24 +221,14 @@ export const createTeamService = async (
     /* ================================
        2️⃣ TEAM SIGNATURE
     ================================= */
-
     const sortedPlayers = [...players].sort((a, b) => a - b);
-
-    const teamSignature =
-      sortedPlayers.join(",") +
-      `|C${captainId}|VC${viceCaptainId}`;
+    const teamSignature = sortedPlayers.join(",") + `|C${captainId}|VC${viceCaptainId}`;
 
     /* ================================
        3️⃣ MAX 20 TEAMS CHECK
-          Lock actual rows (not COUNT) to prevent
-          race condition with concurrent requests
     ================================= */
-
     const [existingTeams] = await conn.query(
-      `SELECT id
-       FROM user_teams
-       WHERE user_id = ? AND match_id = ?
-       FOR UPDATE`,
+      `SELECT id FROM user_teams WHERE user_id = ? AND match_id = ? FOR UPDATE`,
       [userId, matchId]
     );
 
@@ -429,38 +240,25 @@ export const createTeamService = async (
 
     /* ================================
        4️⃣ INSERT TEAM
-          teamSignature unique constraint is the
-          final DB-level guard against duplicates
     ================================= */
-
     let teamId;
 
     try {
-
       const [teamResult] = await conn.execute(
         `INSERT INTO user_teams
-         (user_id, match_id, team_name, team_signature, locked)
+           (user_id, match_id, team_name, team_signature, locked)
          VALUES (?, ?, ?, ?, 0)`,
         [userId, matchId, teamName, teamSignature]
       );
-
       teamId = teamResult.insertId;
-
     } catch (err) {
-
-      if (err.code === "ER_DUP_ENTRY") {
-        throw new Error("Duplicate team not allowed");
-      }
-
+      if (err.code === "ER_DUP_ENTRY") throw new Error("Duplicate team not allowed");
       throw err;
     }
 
     /* ================================
        5️⃣ BULK INSERT TEAM PLAYERS
-          Includes role fetched from players table —
-          single query, atomic, no loop
     ================================= */
-
     const playerRows = players.map((playerId) => [
       teamId,
       playerId,
@@ -470,44 +268,65 @@ export const createTeamService = async (
     ]);
 
     try {
-
       await conn.query(
         `INSERT INTO user_team_players
-         (user_team_id, player_id, role, is_captain, is_vice_captain)
+           (user_team_id, player_id, role, is_captain, is_vice_captain)
          VALUES ?`,
         [playerRows]
       );
-
     } catch (err) {
-
       if (err.code === "ER_NO_REFERENCED_ROW_2") {
         throw new Error("One or more players do not exist");
       }
-
       throw err;
+    }
+
+    /* ================================
+       6️⃣ UPDATE PLAYER PERCENTAGES
+    ================================= */
+    const [[{ totalTeams }]] = await conn.query(
+      `SELECT COUNT(*) as totalTeams FROM user_teams WHERE match_id = ?`,
+      [matchId]
+    );
+
+    if (totalTeams > 0) {
+      await conn.query(
+        `UPDATE players p
+         SET
+           selectpercent = ROUND(
+             (SELECT COUNT(*) FROM user_team_players utp
+              JOIN user_teams ut ON ut.id = utp.user_team_id
+              WHERE utp.player_id = p.id AND ut.match_id = ?) / ? * 100, 2),
+           captainper = ROUND(
+             (SELECT COUNT(*) FROM user_team_players utp
+              JOIN user_teams ut ON ut.id = utp.user_team_id
+              WHERE utp.player_id = p.id AND ut.match_id = ? AND utp.is_captain = 1) / ? * 100, 2),
+           vcper = ROUND(
+             (SELECT COUNT(*) FROM user_team_players utp
+              JOIN user_teams ut ON ut.id = utp.user_team_id
+              WHERE utp.player_id = p.id AND ut.match_id = ? AND utp.is_vice_captain = 1) / ? * 100, 2)
+         WHERE p.id IN (?)`,
+        [matchId, totalTeams, matchId, totalTeams, matchId, totalTeams, players]
+      );
     }
 
     await conn.commit();
 
     return {
       success: true,
-      message: "Team created successfully",
+      message:  "Team created successfully",
       teamId,
       teamName,
     };
 
   } catch (err) {
-
     await conn.rollback();
     throw err;
-
   } finally {
-
     conn.release();
-
   }
-
 };
+
 
 export const getMyTeamsMatchIdPlayersService = async (userId, matchId) => {
 
@@ -637,8 +456,6 @@ export const getTeamPlayersService = async (teamId) => {
 
   return rows;
 };
-
-
 
 
 export const getMyTeamsWithPlayersService = async (
@@ -788,7 +605,6 @@ export const getMyTeamsWithPlayersService = async (
 
   return Object.values(teams);
 };
-
 
 
 export const updateTeamService = async (
