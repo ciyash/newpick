@@ -4,7 +4,6 @@ import {
   toggleSeries,
   getAvailableMatches,
   toggleMatches,
-  syncPlayers,
   syncPlayingXI,
   syncPlayerPoints,
   getMatches,
@@ -32,7 +31,7 @@ router.get("/matches/:seriesid",  getMatches);
    syncTeams  → not needed (auto in toggle)
    syncMatches → not needed (auto in toggle)
 ══════════════════════════════════════════ */
-router.get("/sync-players/:match_id",         syncPlayers);
+
 router.get("/sync-playingxi/:match_id",       syncPlayingXI);
 router.get("/sync-points/:match_id",          syncPlayerPoints);
 
