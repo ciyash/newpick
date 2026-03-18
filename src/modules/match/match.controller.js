@@ -79,7 +79,7 @@ export const getMatchFullDetails = async (req, res) => {
     const homeTeam = teams.find((t) => t.id === match.home_team_id);
     const awayTeam = teams.find((t) => t.id === match.away_team_id);
 
-    // 3️⃣ Get players of both teams
+    // 3️⃣ Get players of both teams, 
     const [players] = await db.execute(
       `SELECT 
          id, name, position, player_type, country,
