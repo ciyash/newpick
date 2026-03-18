@@ -15,7 +15,7 @@ router.get("/team-players/team/:id", authenticate, checkAccountActive, getPlayer
 
 router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById);  
 
-// user created teams
+// user created teams after joining contest
 router.post("/create", authenticate, checkAccountActive, createTeamRateLimit, createTeam);
 
 router.put("/update-team/:teamId", authenticate, checkAccountActive, updateTeamRateLimit, updateTeam);

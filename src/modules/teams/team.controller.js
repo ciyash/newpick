@@ -27,8 +27,6 @@ export const getAllTeams = async (req, res) => {
   }
 };
 
-
-
 export const getTeamById = async (req, res) => {
   try {
     const id = Number(req.params.id);
@@ -70,7 +68,6 @@ export const getTeamById = async (req, res) => {
   }
 };
 
-
 export const getAllPlayers = async (req, res) => {
   try {
     const [rows] = await db.execute(`
@@ -93,7 +90,6 @@ export const getAllPlayers = async (req, res) => {
     });
   }
 };
-
 
 export const getPlayerById = async (req, res) => {
   console.log("✅ getPlayerById API HIT");
@@ -245,29 +241,6 @@ export const createTeam = async (req, res) => {
   }
 };
 
-// export const getMyTeams = async (req, res) => {
-//   try {
-
-//     const userId = req.user.id;
-
-//     // 🔥 PARAMS nundi matchId theeyali
-//     const { matchId } = req.params;
-
-//     const teams = await getMyTeamsWithPlayersService(userId, matchId);
-
-//     res.status(200).json({
-//       success: true,
-//       total: teams.length,
-//       data: teams
-//     });
-
-//   } catch (error) {
-//     res.status(400).json({
-//       success: false,
-//       message: error.message
-//     });
-//   }
-// };
 
 
 export const getMyTeams = async (req, res) => {
@@ -317,8 +290,6 @@ export const getTeamPlayers = async (req, res) => {
     });
   }
 };
-
-
 
 
 export const getMyTeamsWithPlayers = async (req, res) => {
