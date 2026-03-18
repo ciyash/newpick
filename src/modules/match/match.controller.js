@@ -121,7 +121,8 @@ export const getAllMatches = async (req, res) => {
 
 
 
-//correct code  
+//correct code  means updated code new response
+
 // export const getMatchFullDetails = async (req, res) => {
 //   try {
 //     const { id } = req.params;
