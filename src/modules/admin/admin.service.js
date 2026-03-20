@@ -1430,7 +1430,7 @@ export const createContestold = async (data, admin, ip) => {
   }
 };
 
-export const createContest = async (data, admin, ip) => {
+export const createContestol = async (data, admin, ip) => {
 
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
@@ -1518,7 +1518,182 @@ export const createContest = async (data, admin, ip) => {
     conn.release();
   }
 };
+export const createContest = async (data, admin, ip) => {
+  if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
+  console.log("RAW data received:", JSON.stringify(data));
+  console.log("max_entries value:", data.max_entries);
+  console.log("max_entries type:", typeof data.max_entries);
+  console.log("parseInt result:", parseInt(data.max_entries));
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // ── Validate match ────────────────────────────────────────────────────
+    const [[match]] = await conn.query(
+      `SELECT id, status FROM matches WHERE id = ?`,
+      [data.match_id]
+    );
+    if (!match) throw new Error("Invalid match_id — match not found");
+    if (match.status !== "UPCOMING")
+      throw new Error(`Contests can only be created for UPCOMING matches — match is currently ${match.status}`);
+
+    // ── Validate contest category by name ─────────────────────────────────
+    const [[category]] = await conn.query(
+      `SELECT id, name, entryfee, platformfee,
+              percentage AS winner_percentage
+       FROM contestcategory WHERE name = ?`,
+      [data.contest_type]
+    );
+    if (!category) throw new Error(`Invalid contest_type — '${data.contest_type}' not found`);
+
+    // ── Duplicate check ───────────────────────────────────────────────────
+    const [[existing]] = await conn.query(
+      `SELECT id FROM contest WHERE match_id = ? AND contest_type = ?`,
+      [data.match_id, category.name]
+    );
+    if (existing)
+      throw new Error(`Contest type '${category.name}' already exists for this match`);
+
+    // ── Coerce numerics ───────────────────────────────────────────────────
+    const max_entries             = parseInt(data.max_entries)         || 0;
+    const entry_fee               = Number(category.entryfee)          || 0;
+    const platform_fee_percentage = Number(category.platformfee)       || 0;
+    const winner_percentage       = Number(category.winner_percentage)  || 0;
+    const is_guaranteed           = data.is_guaranteed ? 1 : 0;
+    const is_cashback             = 1;
+    const cashback_percentage     = Number(category.winner_percentage   || 0);
+    const min_entries             = 2;
+
+    if (!max_entries || max_entries < 2)
+      throw new Error("max_entries must be at least 2");
+
+    // ── Math ──────────────────────────────────────────────────────────────
+    const prize_pool        = max_entries * entry_fee;
+    const platformFeeAmount = (prize_pool * platform_fee_percentage) / 100;
+    const netAfterFee       = prize_pool - platformFeeAmount;
+    const totalWinners      = Math.floor((max_entries * winner_percentage) / 100);
+    const cashbackPerUser   = is_cashback ? entry_fee : 0;
+    const totalCashback     = is_cashback ? cashbackPerUser * totalWinners : 0;
+    const netPrizePool      = Math.max(0, netAfterFee - totalCashback);
+
+    // ── prize_distribution — support BOTH array and object formats ────────
+    let parsedDistribution = null;
+
+    if (data.prize_distribution) {
+      if (Array.isArray(data.prize_distribution)) {
+        // [ { rank: 1, amount: 40 }, ... ]
+        parsedDistribution = data.prize_distribution;
+      } else if (typeof data.prize_distribution === "object") {
+        // { "rank1": 40, "rank2": 30, ... }
+        parsedDistribution = Object.entries(data.prize_distribution).map(([key, amount]) => ({
+          rank:   parseInt(key.replace(/\D/g, "")),
+          amount: Number(amount),
+        }));
+      }
+    }
+
+    // ── Validate prize_distribution entries ───────────────────────────────
+    if (parsedDistribution?.length) {
+      for (const pd of parsedDistribution) {
+        const amount = Number(pd.amount);
+        if (isNaN(amount) || amount <= 0)
+          throw new Error(`All prize amounts must be > 0`);
+        if (pd.rank !== undefined && Number(pd.rank) <= 0)
+          throw new Error(`Rank must be a positive integer`);
+        if (pd.rank_from !== undefined && pd.rank_to !== undefined) {
+          if (pd.rank_to <= pd.rank_from)
+            throw new Error(`rank_to must be greater than rank_from`);
+        }
+      }
+    }
+
+    const prizeDistribution = parsedDistribution?.length
+      ? JSON.stringify(parsedDistribution)
+      : null;
+
+    // ── first_prize ───────────────────────────────────────────────────────
+    let first_prize;
+    if (parsedDistribution?.length) {
+      const rankOne = parsedDistribution.find(
+        (p) => p.rank === 1 ||
+               (p.rank_from !== undefined && p.rank_from <= 1 && p.rank_to >= 1)
+      );
+      first_prize = rankOne ? Number(rankOne.amount) : netPrizePool;
+    } else {
+      first_prize = netPrizePool;
+    }
+
+    // ── INSERT ────────────────────────────────────────────────────────────
+    const [result] = await conn.query(
+      `INSERT INTO contest
+         (match_id, contest_type, entry_fee,
+          prize_pool, net_pool_prize,
+          max_entries, min_entries, current_entries,
+          is_guaranteed, winner_percentage, total_winners,
+          first_prize, prize_distribution,
+          is_cashback, cashback_percentage, cashback_amount,
+          platform_fee_percentage, platform_fee_amount,
+          status, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+      [
+        data.match_id,
+        category.name,
+        entry_fee,
+        Number(prize_pool.toFixed(2)),
+        Number(netPrizePool.toFixed(2)),
+        max_entries,
+        min_entries,
+        0,
+        is_guaranteed,
+        winner_percentage,
+        totalWinners,
+        Number(first_prize.toFixed(2)),
+        prizeDistribution,
+        is_cashback,
+        Number(cashback_percentage.toFixed(2)),
+        Number(cashbackPerUser.toFixed(2)),
+        platform_fee_percentage,
+        Number(platformFeeAmount.toFixed(2)),
+        data.status ?? "UPCOMING",
+      ]
+    );
+
+    if (result.affectedRows === 0) throw new Error("Failed to create contest");
+
+    await logAdmin(conn, admin, "CREATE_CONTEST", "contest", result.insertId, ip || null);
+    await conn.commit();
+
+    return {
+      success: true,
+      id:      result.insertId,
+      details: {
+        category:            category.name,
+        max_entries,
+        min_entries,
+        entry_fee,
+        platform_fee_percentage,
+        platform_fee_amount: Number(platformFeeAmount.toFixed(2)),
+        prize_pool:          Number(prize_pool.toFixed(2)),
+        net_prize_pool:      Number(netPrizePool.toFixed(2)),
+        winner_percentage,
+        total_winners:       totalWinners,
+        is_guaranteed,
+        is_cashback,
+        cashback_percentage: Number(cashback_percentage.toFixed(2)),
+        cashback_amount:     Number(cashbackPerUser.toFixed(2)),
+        first_prize:         Number(first_prize.toFixed(2)),
+        prize_distribution:  parsedDistribution ?? null,
+      },
+    };
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
 // MATCH_STATUSES  : UPCOMING, LIVE, INREVIEW, COMPLETED, ABANDONED
 // CONTEST_STATUSES: UPCOMING, LIVE, FULL,     COMPLETED, CANCELLED
 const CONTEST_STATUSES = ["UPCOMING", "LIVE", "FULL", "COMPLETED", "CANCELLED"];
