@@ -1521,10 +1521,7 @@ export const createContestol = async (data, admin, ip) => {
 export const createContest = async (data, admin, ip) => {
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
-  console.log("RAW data received:", JSON.stringify(data));
-  console.log("max_entries value:", data.max_entries);
-  console.log("max_entries type:", typeof data.max_entries);
-  console.log("parseInt result:", parseInt(data.max_entries));
+
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
