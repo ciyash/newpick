@@ -283,15 +283,20 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
         ].filter(({ tid }) => missingTids.includes(tid));
 
         for (const { tid, team } of teamsData) {
+          // matchInfo.teams.home.logo వాడు
           await db.query(
-            `INSERT INTO teams (name, short_name, series_id, provider_team_id)
-             VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE name = VALUES(name), short_name = VALUES(short_name)`,
+            `INSERT INTO teams (name, short_name, series_id, provider_team_id, logo)
+   VALUES (?, ?, ?, ?, ?)
+   ON DUPLICATE KEY UPDATE
+     name = VALUES(name),
+     short_name = VALUES(short_name),
+     logo = VALUES(logo)`,
             [
               team?.fullname || team?.tname,
               team?.abbr || (team?.tname || "").substring(0, 3),
               seriesRow.seriesid,
               tid,
+              team?.logo || `${process.env.ENTITY_TEAM_IMAGE_URL}/${tid}.png`, // ✅ API logo వాడు
             ]
           );
         }
@@ -397,6 +402,9 @@ export const getMatchesService = async (seriesid) => {
    PLAYERS
 ══════════════════════════════════════════ */
 
+
+
+
 // export const syncPlayersService = async (matchId) => {
 //   const [matchRows] = await db.query(
 //     `SELECT home_team_id, away_team_id FROM matches WHERE provider_match_id = ? LIMIT 1`,
@@ -418,10 +426,9 @@ export const getMatchesService = async (seriesid) => {
 
 //       const { provider_team_id: providerTeamId, name: teamName, id: internalTeamId } = teamRows[0];
 
-//       const data       = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
-//       const allPlayers = (data.response.items || []).slice(0, 25);
-
-//       console.log(`Syncing ${allPlayers.length} players for team: ${teamName}`);
+//      const data = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
+// console.log(`Team: ${teamName} (tid: ${providerTeamId})`);
+// console.log(data.response.items.map(p => ({ pid: p.pid, name: p.fullname })));
 
 //       return { allPlayers, internalTeamId, teamName };
 //     })
@@ -438,25 +445,35 @@ export const getMatchesService = async (seriesid) => {
 //         const values = allPlayers.map((p) => {
 //           const pos              = mapPositionType(p.positiontype);
 //           const providerPlayerId = String(p.pid || p.player_id || p.id);
-//           const playerImage      = `${process.env.ENTITY_IMAGE_BASE_URL}/player/${providerPlayerId}.png`;
+
+//           // ✅ Player image
+//           const playerImage = `${process.env.ENTITY_PLAYER_IMAGE_URL}/${providerPlayerId}.png`;
+
+//           // ✅ Flag image
+//           const countryName = p.nationality?.name || "";
+//           const countryCode = countries.getAlpha2Code(countryName, "en");
+//           const flagImage   = countryCode
+//             ? `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`
+//             : null;
 
 //           return [
 //             internalTeamId,
 //             p.fullname || p.title,
 //             pos,
 //             pos,
-//             p.nationality?.name || "",
+//             countryName,
 //             parseFloat(p.fantasy_player_rating) || 8.0,
 //             providerPlayerId,
 //             playerImage,
+//             flagImage,
 //             0,
 //           ];
 //         });
 
-//         // ✅ ఒక్క query మాత్రమే — playerimage తో
 //         await db.query(
 //           `INSERT INTO players
-//              (team_id, name, position, player_type, country, playercredits, provider_player_id, playerimage, points)
+//              (team_id, name, position, player_type, country, playercredits,
+//               provider_player_id, playerimage, flag_image, points)
 //            VALUES ?
 //            ON DUPLICATE KEY UPDATE
 //              name               = VALUES(name),
@@ -464,6 +481,7 @@ export const getMatchesService = async (seriesid) => {
 //              playercredits      = VALUES(playercredits),
 //              country            = VALUES(country),
 //              playerimage        = VALUES(playerimage),
+//              flag_image         = VALUES(flag_image),
 //              provider_player_id = VALUES(provider_player_id)`,
 //           [values]
 //         );
@@ -473,11 +491,8 @@ export const getMatchesService = async (seriesid) => {
 //       })
 //   );
 
-//   return totalInserted;  
+//   return totalInserted;
 // };
-
-
-
 
 export const syncPlayersService = async (matchId) => {
   const [matchRows] = await db.query(
@@ -500,10 +515,11 @@ export const syncPlayersService = async (matchId) => {
 
       const { provider_team_id: providerTeamId, name: teamName, id: internalTeamId } = teamRows[0];
 
-      const data       = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
-      const allPlayers = (data.response.items || []).slice(0, 25);
+      const data = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
+      const allPlayers = (data.response.items || []).slice(0, 25); // ✅ fix
 
-      console.log(`Syncing ${allPlayers.length} players for team: ${teamName}`);
+      console.log(`Team: ${teamName} (tid: ${providerTeamId})`);
+      console.log(allPlayers.map(p => ({ pid: p.pid, name: p.fullname })));
 
       return { allPlayers, internalTeamId, teamName };
     })
@@ -518,16 +534,13 @@ export const syncPlayersService = async (matchId) => {
         if (!allPlayers.length) return;
 
         const values = allPlayers.map((p) => {
-          const pos              = mapPositionType(p.positiontype);
+          const pos = mapPositionType(p.positiontype);
           const providerPlayerId = String(p.pid || p.player_id || p.id);
-
-          // ✅ Player image
           const playerImage = `${process.env.ENTITY_PLAYER_IMAGE_URL}/${providerPlayerId}.png`;
 
-          // ✅ Flag image
           const countryName = p.nationality?.name || "";
           const countryCode = countries.getAlpha2Code(countryName, "en");
-          const flagImage   = countryCode
+          const flagImage = countryCode
             ? `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`
             : null;
 
@@ -547,29 +560,26 @@ export const syncPlayersService = async (matchId) => {
 
         await db.query(
           `INSERT INTO players
-             (team_id, name, position, player_type, country, playercredits,
-              provider_player_id, playerimage, flag_image, points)
-           VALUES ?
-           ON DUPLICATE KEY UPDATE
-             name               = VALUES(name),
-             position           = VALUES(position),
-             playercredits      = VALUES(playercredits),
-             country            = VALUES(country),
-             playerimage        = VALUES(playerimage),
-             flag_image         = VALUES(flag_image),
-             provider_player_id = VALUES(provider_player_id)`,
+     (team_id, name, position, player_type, country, playercredits,
+      provider_player_id, playerimage, flag_image, points)
+   VALUES ?
+   ON DUPLICATE KEY UPDATE
+     name               = VALUES(name),
+     position           = VALUES(position),
+     playercredits      = VALUES(playercredits),
+     country            = VALUES(country),
+     playerimage        = VALUES(playerimage),
+     flag_image         = VALUES(flag_image)`,
           [values]
         );
 
-        console.log(`Inserted ${allPlayers.length} players for team: ${teamName}`);
+        console.log(`Inserted/Updated ${allPlayers.length} players for team: ${teamName}`);
         totalInserted += allPlayers.length;
       })
   );
 
   return totalInserted;
 };
-
-
 
 /* ══════════════════════════════════════════
    PLAYING XI
