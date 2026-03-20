@@ -403,8 +403,6 @@ export const getMatchesService = async (seriesid) => {
 ══════════════════════════════════════════ */
 
 
-
-
 // export const syncPlayersService = async (matchId) => {
 //   const [matchRows] = await db.query(
 //     `SELECT home_team_id, away_team_id FROM matches WHERE provider_match_id = ? LIMIT 1`,
@@ -432,7 +430,7 @@ export const getMatchesService = async (seriesid) => {
 
 //       return { allPlayers, internalTeamId, teamName };
 //     })
-//   );
+//   ); 
 
 //   let totalInserted = 0;
 
@@ -515,8 +513,6 @@ export const syncPlayersService = async (matchId) => {
 
       const { provider_team_id: providerTeamId, name: teamName, id: internalTeamId } = teamRows[0];
 
-      // const data = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
-      // const allPlayers = (data.response.items || []).slice(0, 25); // ✅ fix
 
       const data = await apiGet(`/team/${providerTeamId}/info`);
       const allPlayers = (data.response.items?.[0]?.player || []).slice(0, 25);

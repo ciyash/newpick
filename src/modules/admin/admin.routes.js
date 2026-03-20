@@ -74,9 +74,8 @@ router.post("/fetchusersbykyc",       adminAuth(), c.fetchUsersByKycStatus);
 router.post("/fetchusersbyaccount",   adminAuth(), c.fetchUsersByAccountStatus);
 
 
-
 //entity-sport
 
 router.use("/entity",  adminAuth(), entitySportRoutes);
 
-export default router;
+export default router;   
