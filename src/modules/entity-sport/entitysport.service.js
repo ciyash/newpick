@@ -227,6 +227,166 @@ export const getAvailableMatchesService = async (seriesid) => {
   }));
 };
 
+// export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
+//   const results = [];
+//   const uniqueIds = [...new Set(matchIds.map(String))];
+
+//   for (const matchId of uniqueIds) {
+//     const [[existing]] = await db.query(
+//       `SELECT id, hometeamname, awayteamname, start_time, status
+//        FROM matches WHERE provider_match_id = ? LIMIT 1`,
+//       [String(matchId)]
+//     );
+
+//     if (!existing) {
+//       if (!isActive) {
+//         results.push({ match_id: String(matchId), error: "Match not found in DB" });
+//         continue;
+//       }
+
+//       const data = await apiGet(`/matches/${matchId}/info`);
+//       const items = data?.response?.items;
+//       const matchInfo = items?.match_info?.[0];
+
+//       if (!matchInfo) {
+//         results.push({ match_id: String(matchId), error: "Match not found in API" });
+//         continue;
+//       }
+
+//       const lookupCid = seriesId ? String(seriesId) : String(matchInfo.competition?.cid);
+
+//       const [[seriesRow]] = await db.query(
+//         `SELECT id, seriesid FROM series WHERE seriesid = ? LIMIT 1`,
+//         [lookupCid]
+//       );
+
+//       if (!seriesRow) {
+//         results.push({ match_id: String(matchId), error: "Series not active — series toggle ON చేయి ముందు" });
+//         continue;
+//       }
+
+//       const homeTid = String(matchInfo.teams?.home?.tid);
+//       const awayTid = String(matchInfo.teams?.away?.tid);
+
+//       const [teamRows] = await db.query(
+//         `SELECT id, provider_team_id FROM teams WHERE provider_team_id IN (?)`,
+//         [[homeTid, awayTid]]
+//       );
+//       let teamMap = new Map(teamRows.map((r) => [r.provider_team_id, r.id]));
+
+//       const missingTids = [homeTid, awayTid].filter((tid) => !teamMap.has(tid));
+
+//       if (missingTids.length) {
+//         const teamsData = [
+//           { tid: homeTid, team: matchInfo.teams?.home },
+//           { tid: awayTid, team: matchInfo.teams?.away },
+//         ].filter(({ tid }) => missingTids.includes(tid));
+
+//         for (const { tid, team } of teamsData) {
+//           // matchInfo.teams.home.logo వాడు
+//           await db.query(
+//             `INSERT INTO teams (name, short_name, series_id, provider_team_id, logo)
+//    VALUES (?, ?, ?, ?, ?)
+//    ON DUPLICATE KEY UPDATE
+//      name = VALUES(name),
+//      short_name = VALUES(short_name),
+//      logo = VALUES(logo)`,
+//             [
+//               team?.fullname || team?.tname,
+//               team?.abbr || (team?.tname || "").substring(0, 3),
+//               seriesRow.seriesid,
+//               tid,
+//               team?.logo || `${process.env.ENTITY_TEAM_IMAGE_URL}/${tid}.png`, // ✅ API logo వాడు
+//             ]
+//           );
+//         }
+
+//         const [refreshedRows] = await db.query(
+//           `SELECT id, provider_team_id FROM teams WHERE provider_team_id IN (?)`,
+//           [[homeTid, awayTid]]
+//         );
+//         teamMap = new Map(refreshedRows.map((r) => [r.provider_team_id, r.id]));
+//       }
+
+//       await db.query(
+//         `INSERT INTO matches
+//            (provider_match_id, series_id, home_team_id, away_team_id,
+//             start_time, status, seriesname, hometeamname, awayteamname, matchdate, is_active)
+//          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+//          ON DUPLICATE KEY UPDATE is_active = 1`,
+//         [
+//           String(matchId),
+//           seriesRow.seriesid,
+//           teamMap.get(homeTid) || null,
+//           teamMap.get(awayTid) || null,
+//           matchInfo.datestart,
+//           matchInfo.status_str,
+//           matchInfo.competition?.cname || "",
+//           matchInfo.teams?.home?.fullname || matchInfo.teams?.home?.tname,
+//           matchInfo.teams?.away?.fullname || matchInfo.teams?.away?.tname,
+//           matchInfo.datestart,
+//         ]
+//       );
+
+//       try {
+//         const playerCount = await syncPlayersService(String(matchId));
+//         console.log(`Auto-synced ${playerCount} players for match: ${matchId}`);
+//       } catch (syncErr) {
+//         console.error(`Players sync failed for match ${matchId}:`, syncErr.message);
+//       }
+
+//       results.push({
+//         match_id: String(matchId),
+//         home: matchInfo.teams?.home?.fullname || matchInfo.teams?.home?.tname,
+//         away: matchInfo.teams?.away?.fullname || matchInfo.teams?.away?.tname,
+//         start_time: matchInfo.datestart,
+//         is_active: true,
+//       });
+//       continue;
+//     }
+
+//     /* ─── Already exists — just toggle ─── */
+//     await db.query(
+//       `UPDATE matches SET is_active = ? WHERE provider_match_id = ?`,
+//       [isActive ? 1 : 0, String(matchId)]
+//     );
+
+//     if (isActive) {
+//       const [[{ count }]] = await db.query(
+//         `SELECT COUNT(*) as count FROM players
+//          WHERE team_id IN (
+//            SELECT home_team_id FROM matches WHERE provider_match_id = ?
+//            UNION ALL
+//            SELECT away_team_id FROM matches WHERE provider_match_id = ?
+//          )`,
+//         [String(matchId), String(matchId)]
+//       );
+
+//       if (count < 40) {
+//         try {
+//           const synced = await syncPlayersService(String(matchId));
+//           console.log(`Auto-synced ${synced} players for existing match: ${matchId}`);
+//         } catch (syncErr) {
+//           console.error(`Players sync failed for match ${matchId}:`, syncErr.message);
+//         }
+//       } else {
+//         console.log(`Players already exist (${count}) for match: ${matchId} — skipping`);
+//       }
+//     }
+
+//     results.push({
+//       match_id: String(matchId),
+//       home: existing.hometeamname,
+//       away: existing.awayteamname,
+//       start_time: existing.start_time,
+//       is_active: isActive,
+//     });
+//   }
+
+//   return results;
+// };
+
+
 export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
   const results = [];
   const uniqueIds = [...new Set(matchIds.map(String))];
@@ -314,18 +474,18 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
             start_time, status, seriesname, hometeamname, awayteamname, matchdate, is_active)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
          ON DUPLICATE KEY UPDATE is_active = 1`,
-        [
-          String(matchId),
-          seriesRow.seriesid,
-          teamMap.get(homeTid) || null,
-          teamMap.get(awayTid) || null,
-          matchInfo.datestart,
-          matchInfo.status_str,
-          matchInfo.competition?.cname || "",
-          matchInfo.teams?.home?.fullname || matchInfo.teams?.home?.tname,
-          matchInfo.teams?.away?.fullname || matchInfo.teams?.away?.tname,
-          matchInfo.datestart,
-        ]
+       [
+  String(matchId),                                                    
+  seriesRow.seriesid,                                                 
+  teamMap.get(homeTid) || null,                                       
+  teamMap.get(awayTid) || null,                                       
+  matchInfo.datestart,                                               
+  (matchInfo.status_str || "upcoming").toUpperCase(),                 
+  matchInfo.competition?.cname || "",                                
+  matchInfo.teams?.home?.fullname || matchInfo.teams?.home?.tname,    
+  matchInfo.teams?.away?.fullname || matchInfo.teams?.away?.tname,    
+  matchInfo.datestart,                                                
+]
       );
 
       try {
@@ -386,7 +546,9 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
   return results;
 };
 
+
 export const getMatchesService = async (seriesid) => {
+
   const [matches] = await db.query(
     `SELECT id, series_id, seriesname, home_team_id, hometeamname,
             away_team_id, awayteamname, matchdate, start_time,

@@ -13,4 +13,4 @@ router.post("/generate",  validate(generateUCTSchema),  generateUCTTeams);
 router.get("/my-teams",  getUserUCTTeams);
 
 
-export default router;
+export default router;  
