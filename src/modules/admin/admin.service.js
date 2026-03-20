@@ -1334,7 +1334,7 @@ export const updatePlayer = async (id, data, admin, ip) => {
 
 //contest
 
-export const createContest = async (data, admin, ip) => {
+export const createContestold = async (data, admin, ip) => {
 
   // ── Validate admin context ────────────────────────────────
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
@@ -1355,13 +1355,13 @@ export const createContest = async (data, admin, ip) => {
     }
 
     const [[category]] = await conn.query(
-      `SELECT id FROM contest_category WHERE contest_type = ?`,
+      `SELECT id FROM contestcategory WHERE name = ?`,
       [data.contest_type]
     );
     if (!category) throw new Error(`Invalid contest_type — '${data.contest_type}' not found in contest categories`);
 
     const [[existing]] = await conn.query(
-      `SELECT id FROM contest WHERE match_id = ? AND contest_type = ?`,
+      `SELECT id FROM contest WHERE match_id = ? AND q = ?`,
       [data.match_id, data.contest_type]
     );
     if (existing) throw new Error(`Contest type '${data.contest_type}' already exists for this match`);
@@ -1430,7 +1430,7 @@ export const createContest = async (data, admin, ip) => {
   }
 };
 
-export const createContestold = async (data, admin, ip) => {
+export const createContest = async (data, admin, ip) => {
 
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
@@ -1449,7 +1449,7 @@ export const createContestold = async (data, admin, ip) => {
     }
 
     const [[category]] = await conn.query(
-      `SELECT id FROM contest_category WHERE contest_type = ?`,
+      `SELECT id FROM contestcategory WHERE name = ?`,
       [data.contest_type]
     );
     if (!category) throw new Error(`Invalid contest_type — '${data.contest_type}' not found`);
@@ -1785,7 +1785,7 @@ export const updateContest = async (id, data, admin, ip) => {
     }
     if (data.contest_type && data.contest_type !== contest.contest_type) {
       const [[category]] = await conn.query(
-        `SELECT id FROM contest_category WHERE contest_type = ?`,
+        `SELECT id FROM contestcategory WHERE contest_type = ?`,
         [data.contest_type]
       );
       if (!category) throw new Error(`Invalid contest_type — '${data.contest_type}' not found`);
