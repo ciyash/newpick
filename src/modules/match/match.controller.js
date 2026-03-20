@@ -49,6 +49,72 @@ export const getAllMatches = async (req, res) => {
 
 
 
+// export const getMatchFullDetails = async (req, res) => {
+//   try {
+//     const { id } = req.params;
+
+//     // 1️⃣ Get match
+//     const [[match]] = await db.execute(
+//       `SELECT 
+//          id, provider_match_id, series_id, seriesname,
+//          home_team_id, hometeamname,
+//          away_team_id, awayteamname,
+//          matchdate, start_time, status, is_active
+//        FROM matches WHERE id = ?`,
+//       [id]
+//     );
+
+//     if (!match) {
+//       return res.status(404).json({ success: false, message: "Match not found" });
+//     }
+
+//     // 2️⃣ Get teams
+//     const [teams] = await db.execute(
+//       `SELECT id, name, short_name, logo, provider_team_id
+//        FROM teams WHERE id IN (?, ?)`,
+//       [match.home_team_id, match.away_team_id]
+//     );
+
+//     const homeTeam = teams.find((t) => t.id === match.home_team_id);
+//     const awayTeam = teams.find((t) => t.id === match.away_team_id);
+
+//     // 3️⃣ Get players of both teams
+//     const [players] = await db.execute(
+//       `SELECT 
+//          id, name, position, player_type, country,
+//          playercredits, playerimage, flag_image,
+//          selectpercent, captainper, vcper,
+//          provider_player_id, team_id
+//        FROM players WHERE team_id IN (?, ?)
+//        ORDER BY team_id, position`,
+//       [match.home_team_id, match.away_team_id]
+//     );
+
+//     const homePlayers = players.filter((p) => p.team_id === match.home_team_id);
+//     const awayPlayers = players.filter((p) => p.team_id === match.away_team_id);
+
+//     return res.status(200).json({
+//       success: true,
+//       data: {
+//         match,
+//         home_team: {
+//           ...homeTeam,
+//           players: homePlayers,
+//         },
+//         away_team: {
+//           ...awayTeam,
+//           players: awayPlayers,
+//         },
+//         total_players: players.length,
+//       },
+//     });
+
+//   } catch (error) {
+//     console.error("getMatchFullDetails Error:", error);
+//     return res.status(500).json({ success: false, message: "Internal server error" });
+//   }
+// };
+
 export const getMatchFullDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -75,8 +141,8 @@ export const getMatchFullDetails = async (req, res) => {
       [match.home_team_id, match.away_team_id]
     );
 
-    const homeTeam = teams.find((t) => t.id === match.home_team_id);
-    const awayTeam = teams.find((t) => t.id === match.away_team_id);
+    const homeTeam = teams.find((t) => Number(t.id) === Number(match.home_team_id));
+    const awayTeam = teams.find((t) => Number(t.id) === Number(match.away_team_id));
 
     // 3️⃣ Get players of both teams
     const [players] = await db.execute(
@@ -90,8 +156,9 @@ export const getMatchFullDetails = async (req, res) => {
       [match.home_team_id, match.away_team_id]
     );
 
-    const homePlayers = players.filter((p) => p.team_id === match.home_team_id);
-    const awayPlayers = players.filter((p) => p.team_id === match.away_team_id);
+    // ✅ Number() conversion — string vs integer mismatch fix
+    const homePlayers = players.filter((p) => Number(p.team_id) === Number(match.home_team_id));
+    const awayPlayers = players.filter((p) => Number(p.team_id) === Number(match.away_team_id));
 
     return res.status(200).json({
       success: true,
@@ -114,7 +181,6 @@ export const getMatchFullDetails = async (req, res) => {
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
 
 
 export const getMatchesByType = async (req, res) => {

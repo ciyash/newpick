@@ -515,8 +515,11 @@ export const syncPlayersService = async (matchId) => {
 
       const { provider_team_id: providerTeamId, name: teamName, id: internalTeamId } = teamRows[0];
 
-      const data = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
-      const allPlayers = (data.response.items || []).slice(0, 25); // ✅ fix
+      // const data = await apiGet("/players", { tid: providerTeamId, per_page: 25, paged: 1 });
+      // const allPlayers = (data.response.items || []).slice(0, 25); // ✅ fix
+
+      const data = await apiGet(`/team/${providerTeamId}/info`);
+      const allPlayers = (data.response.items?.[0]?.player || []).slice(0, 25);
 
       console.log(`Team: ${teamName} (tid: ${providerTeamId})`);
       console.log(allPlayers.map(p => ({ pid: p.pid, name: p.fullname })));
