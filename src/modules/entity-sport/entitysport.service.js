@@ -317,12 +317,70 @@ export const toggleSeriesService = async (seriesIds, isActive) => {
   return results;
 };
 
+// export const getActiveSeriesService = async () => {
+//   const [series] = await db.query(
+//     `SELECT id, seriesid, name, season, start_date, end_date, status, is_selected, created_at
+//      FROM series WHERE is_selected = 1 ORDER BY created_at DESC`
+//   );
+//   return { success: true, data: series };
+// };
+
 export const getActiveSeriesService = async () => {
+  // 🔹 1. get active series
   const [series] = await db.query(
     `SELECT id, seriesid, name, season, start_date, end_date, status, is_selected, created_at
-     FROM series WHERE is_selected = 1 ORDER BY created_at DESC`
+     FROM series 
+     WHERE is_selected = 1 
+     ORDER BY created_at DESC`
   );
-  return { success: true, data: series };
+
+  if (!series.length) {
+    return { success: true, data: [] };
+  }
+
+  // 🔹 2. fetch matches for each series
+  const result = [];
+
+  for (const s of series) {
+    const data = await apiGet("/matches", {
+      competition_id: s.seriesid,
+      per_page: 50,
+      paged: 1
+    });
+
+    const matches = data?.response?.items || [];
+
+    // 🔥 only upcoming matches
+    const upcoming = matches.filter(
+      (m) => new Date(m.datestart) >= new Date()
+    );
+
+    // 🔥 nearest match
+    upcoming.sort(
+      (a, b) => new Date(a.datestart) - new Date(b.datestart)
+    );
+
+    const nearestMatch = upcoming[0];
+
+    result.push({
+      ...s,
+
+      // 🔥 MATCH INFO ADD
+      match_id: nearestMatch ? nearestMatch.mid : null,
+      match_name: nearestMatch
+        ? `${nearestMatch.teams.home.tname} vs ${nearestMatch.teams.away.tname}`
+        : null,
+      match_date: nearestMatch ? nearestMatch.datestart : null,
+      match_status: nearestMatch ? nearestMatch.status_str : null,
+
+      // 🔥 LINEUP FIELD (IMPORTANT)
+      lineupavailable: nearestMatch
+        ? nearestMatch.lineupavailable === "true"
+        : false
+    });
+  }
+
+  return { success: true, data: result };
 };
 
 /* ══════════════════════════════════════════
