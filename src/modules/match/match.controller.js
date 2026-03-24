@@ -48,7 +48,6 @@ export const getAllMatches = async (req, res) => {
 };
 
 
-
 // export const getMatchFullDetails = async (req, res) => {
 //   try {
 //     const { id } = req.params;
@@ -56,7 +55,7 @@ export const getAllMatches = async (req, res) => {
 //     // 1️⃣ Get match
 //     const [[match]] = await db.execute(
 //       `SELECT 
-//          id, provider_match_id, series_id, seriesname,
+//          id, series_id, seriesname,
 //          home_team_id, hometeamname,
 //          away_team_id, awayteamname,
 //          matchdate, start_time, status, is_active
@@ -65,7 +64,10 @@ export const getAllMatches = async (req, res) => {
 //     );
 
 //     if (!match) {
-//       return res.status(404).json({ success: false, message: "Match not found" });
+//       return res.status(404).json({
+//         success: false,
+//         message: "Match not found",
+//       });
 //     }
 
 //     // 2️⃣ Get teams
@@ -75,63 +77,106 @@ export const getAllMatches = async (req, res) => {
 //       [match.home_team_id, match.away_team_id]
 //     );
 
-//     const homeTeam = teams.find((t) => Number(t.id) === Number(match.home_team_id));
-//     const awayTeam = teams.find((t) => Number(t.id) === Number(match.away_team_id));
+//     const homeTeam = teams.find(
+//       (t) => Number(t.id) === Number(match.home_team_id)
+//     );
 
-//     // 3️⃣ Get players of both teams
+//     const awayTeam = teams.find(
+//       (t) => Number(t.id) === Number(match.away_team_id)
+//     );
+
+//     // 3️⃣ Get match players
 //     const [players] = await db.execute(
 //       `SELECT 
-//          id, name, position, player_type, country,
-//          playercredits, playerimage, flag_image,
-//          selectpercent, captainper, vcper,
-//          provider_player_id, team_id
-//        FROM players WHERE team_id IN (?, ?)
-//        ORDER BY team_id, position`,
-//       [match.home_team_id, match.away_team_id]
+//           p.id, p.name, p.position, p.player_type, p.country,
+//           p.playercredits, p.playerimage, p.flag_image,
+//           p.selectpercent, p.captainper, p.vcper,
+//           p.provider_player_id, p.team_id,
+
+//           mp.is_playing,
+//           mp.is_substitute,
+//           mp.is_pre_squad
+
+//        FROM match_players mp
+//        JOIN players p ON p.id = mp.player_id
+//        WHERE mp.match_id = ?`,
+//       [match.id]
 //     );
 
-//     // ✅ Deduplicate by provider_player_id + team_id
-//     const uniquePlayers = (arr) => {
-//       const seen = new Set();
-//       return arr.filter((p) => {
-//         const key = `${p.provider_player_id}_${p.team_id}`;
-//         if (seen.has(key)) return false;
-//         seen.add(key);
-//         return true;
+//     // 🧠 SAFETY: if no players
+//     if (!players || players.length === 0) {
+//       return res.status(200).json({
+//         success: true,
+//         data: {
+//           match,
+//           home_team: { ...homeTeam, playing_xi: [], substitutes: [], squad: [] },
+//           away_team: { ...awayTeam, playing_xi: [], substitutes: [], squad: [] },
+//           total_players: 0,
+//         },
 //       });
-//     };
+//     }
 
-//     const homePlayers = uniquePlayers(
-//       players.filter((p) => Number(p.team_id) === Number(match.home_team_id))
+//     // 4️⃣ Split players by team
+//     const homePlayers = players.filter(
+//       (p) => Number(p.team_id) === Number(match.home_team_id)
 //     );
-//     const awayPlayers = uniquePlayers(
-//       players.filter((p) => Number(p.team_id) === Number(match.away_team_id))
+
+//     const awayPlayers = players.filter(
+//       (p) => Number(p.team_id) === Number(match.away_team_id)
 //     );
+
+//     // ⚠️ Debug logs (remove in prod if needed)
+//     console.log("Home Players:", homePlayers.length);
+//     console.log("Away Players:", awayPlayers.length);
+
+//     // 5️⃣ Playing XI
+//     const homePlayingXI = homePlayers.filter((p) => p.is_playing === 1);
+//     const awayPlayingXI = awayPlayers.filter((p) => p.is_playing === 1);
+
+//     // 6️⃣ Substitutes
+//     const homeSubs = homePlayers.filter((p) => p.is_substitute === 1);
+//     const awaySubs = awayPlayers.filter((p) => p.is_substitute === 1);
+
+//     // 7️⃣ Pre-squad
+//     const homeSquad = homePlayers.filter((p) => p.is_pre_squad === 1);
+//     const awaySquad = awayPlayers.filter((p) => p.is_pre_squad === 1);
+
+//     // ⚠️ Warning if team missing players
+//     if (homePlayers.length === 0 || awayPlayers.length === 0) {
+//       console.warn("⚠️ One team has no players mapped!");
+//     }
 
 //     return res.status(200).json({
 //       success: true,
 //       data: {
 //         match,
+
 //         home_team: {
 //           ...homeTeam,
-//           players: homePlayers,
+//           playing_xi: homePlayingXI,
+//           substitutes: homeSubs,
+//           squad: homeSquad,
 //         },
+
 //         away_team: {
 //           ...awayTeam,
-//           players: awayPlayers,
+//           playing_xi: awayPlayingXI,
+//           substitutes: awaySubs,
+//           squad: awaySquad,
 //         },
-//         total_players: homePlayers.length + awayPlayers.length,
+
+//         total_players: players.length,
 //       },
 //     });
-
 //   } catch (error) {
 //     console.error("getMatchFullDetails Error:", error);
-//     return res.status(500).json({ success: false, message: "Internal server error" });
+
+//     return res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//     });
 //   }
 // };
-
-
-
 
 export const getMatchFullDetails = async (req, res) => {
   try {
@@ -170,38 +215,53 @@ export const getMatchFullDetails = async (req, res) => {
       (t) => Number(t.id) === Number(match.away_team_id)
     );
 
-    // 3️⃣ Get match players
-    const [players] = await db.execute(
-      `SELECT 
-          p.id, p.name, p.position, p.player_type, p.country,
-          p.playercredits, p.playerimage, p.flag_image,
-          p.selectpercent, p.captainper, p.vcper,
-          p.provider_player_id, p.team_id,
-
-          mp.is_playing,
-          mp.is_substitute,
-          mp.is_pre_squad
-
-       FROM match_players mp
-       JOIN players p ON p.id = mp.player_id
-       WHERE mp.match_id = ?`,
+    // 3️⃣ Check match_players exists
+    const [[mpCheck]] = await db.execute(
+      `SELECT COUNT(*) as count FROM match_players WHERE match_id = ?`,
       [match.id]
     );
 
-    // 🧠 SAFETY: if no players
-    if (!players || players.length === 0) {
-      return res.status(200).json({
-        success: true,
-        data: {
-          match,
-          home_team: { ...homeTeam, playing_xi: [], substitutes: [], squad: [] },
-          away_team: { ...awayTeam, playing_xi: [], substitutes: [], squad: [] },
-          total_players: 0,
-        },
-      });
+    let players = [];
+
+    // 🟢 BEFORE SQUAD (No match_players data)
+    if (mpCheck.count === 0) {
+      const [allPlayers] = await db.execute(
+        `SELECT * FROM players 
+         WHERE team_id IN (?, ?)`,
+        [match.home_team_id, match.away_team_id]
+      );
+
+      players = allPlayers.map((p) => ({
+        ...p,
+        is_playing: 0,
+        is_substitute: 0,
+        is_pre_squad: 1, // treat as squad
+      }));
     }
 
-    // 4️⃣ Split players by team
+    // 🔴 AFTER SQUAD / LINEUP
+    else {
+      const [mpPlayers] = await db.execute(
+        `SELECT 
+            p.id, p.name, p.position, p.player_type, p.country,
+            p.playercredits, p.playerimage, p.flag_image,
+            p.selectpercent, p.captainper, p.vcper,
+            p.provider_player_id, p.team_id,
+
+            mp.is_playing,
+            mp.is_substitute,
+            mp.is_pre_squad
+
+         FROM match_players mp
+         JOIN players p ON p.id = mp.player_id
+         WHERE mp.match_id = ?`,
+        [match.id]
+      );
+
+      players = mpPlayers;
+    }
+
+    // 4️⃣ Split teams
     const homePlayers = players.filter(
       (p) => Number(p.team_id) === Number(match.home_team_id)
     );
@@ -209,10 +269,6 @@ export const getMatchFullDetails = async (req, res) => {
     const awayPlayers = players.filter(
       (p) => Number(p.team_id) === Number(match.away_team_id)
     );
-
-    // ⚠️ Debug logs (remove in prod if needed)
-    console.log("Home Players:", homePlayers.length);
-    console.log("Away Players:", awayPlayers.length);
 
     // 5️⃣ Playing XI
     const homePlayingXI = homePlayers.filter((p) => p.is_playing === 1);
@@ -222,14 +278,14 @@ export const getMatchFullDetails = async (req, res) => {
     const homeSubs = homePlayers.filter((p) => p.is_substitute === 1);
     const awaySubs = awayPlayers.filter((p) => p.is_substitute === 1);
 
-    // 7️⃣ Pre-squad
+    // 7️⃣ Squad
     const homeSquad = homePlayers.filter((p) => p.is_pre_squad === 1);
     const awaySquad = awayPlayers.filter((p) => p.is_pre_squad === 1);
 
-    // ⚠️ Warning if team missing players
-    if (homePlayers.length === 0 || awayPlayers.length === 0) {
-      console.warn("⚠️ One team has no players mapped!");
-    }
+    // ⚠️ Debug logs
+    console.log("Match:", match.id);
+    console.log("Total Players:", players.length);
+    console.log("Home:", homePlayers.length, "Away:", awayPlayers.length);
 
     return res.status(200).json({
       success: true,
