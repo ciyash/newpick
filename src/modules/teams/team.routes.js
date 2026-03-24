@@ -1,5 +1,6 @@
 import express from "express";
-import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById,createTeam,getMyTeams,getTeamPlayers, getMyTeamsWithPlayers, updateTeam} from "./team.controller.js"
+import { getAllTeams, getTeamById ,getAllPlayers,getPlayerById,getPlayerTeamById,createTeam,getMyTeams,getTeamPlayers, getMyTeamsWithPlayers, updateTeam} from "./team.controller.js";
+import { generateTeams} from "./generateTeams.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 import { createTeamRateLimit,updateTeamRateLimit } from "../../middlewares/rateLimit.middleware.js";
 
@@ -17,6 +18,7 @@ router.get("/team-players/:id", authenticate, checkAccountActive, getPlayerById)
 
 // user created teams after joining contest
 router.post("/create", authenticate, checkAccountActive, createTeamRateLimit, createTeam);
+router.post("/generateTeams", authenticate, checkAccountActive, createTeamRateLimit, generateTeams);
 
 router.put("/update-team/:teamId", authenticate, checkAccountActive, updateTeamRateLimit, updateTeam);
 
