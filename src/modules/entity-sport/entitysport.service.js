@@ -772,7 +772,7 @@ export const getMatchesService = async (seriesid) => {
     [seriesid]
   );
   return { success: true, data: matches };
-};
+}; 
 
 /* ══════════════════════════════════════════
    PLAYERS
