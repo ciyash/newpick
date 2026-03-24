@@ -48,22 +48,51 @@ const mapPositionType = (type) => {
    SERIES
 ══════════════════════════════════════════ */
 
+
+
 // export const getAvailableSeriesService = async () => {
 //   const competitionsMap = new Map();
+
 //   const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
 //   const totalPages = firstData.response.total_pages;
 
 //   const collectCompetitions = (items) => {
 //     for (const match of items) {
 //       const c = match.competition;
-//       if (c?.cid && !competitionsMap.has(String(c.cid))) {
-//         competitionsMap.set(String(c.cid), {
-//           cid: String(c.cid),
+//       if (!c?.cid) continue;
+
+//       const cid = String(c.cid);
+//       const matchDate = new Date(match.datestart);
+
+//       if (!competitionsMap.has(cid)) {
+//         // 🔥 first match assign
+//         competitionsMap.set(cid, {
+//           cid,
 //           name: c.cname,
 //           start_date: c.startdate || null,
 //           end_date: c.enddate || null,
 //           year: c.year || null,
+
+//           // 🔥 match info
+//           match_id: match.mid,
+//           match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
+//           match_date: match.datestart,
+//           match_status: match.status_str
 //         });
+//       } else {
+//         const existing = competitionsMap.get(cid);
+//         const existingDate = new Date(existing.match_date);
+
+//         // 🔥 IMPORTANT: pick nearest upcoming match
+//         if (matchDate < existingDate) {
+//           competitionsMap.set(cid, {
+//             ...existing,
+//             match_id: match.mid,
+//             match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
+//             match_date: match.datestart,
+//             match_status: match.status_str
+//           });
+//         }
 //       }
 //     }
 //   };
@@ -76,24 +105,38 @@ const mapPositionType = (type) => {
 //   }
 
 //   const cids = [...competitionsMap.keys()];
+
 //   const [dbRows] = await db.query(
 //     `SELECT seriesid, status, is_selected FROM series WHERE seriesid IN (?)`,
 //     [cids]
 //   );
+
 //   const dbMap = new Map(dbRows.map((r) => [String(r.seriesid), r]));
 
-//   return [...competitionsMap.values()].map((c) => {
+//   let result = [...competitionsMap.values()].map((c) => {
 //     const dbRow = dbMap.get(c.cid);
+
 //     return {
 //       cid: c.cid,
 //       name: c.name,
 //       start_date: c.start_date,
 //       end_date: c.end_date,
 //       year: c.year,
+
+//       match_id: c.match_id,
+//       match_name: c.match_name,
+//       match_date: c.match_date,
+//       match_status: c.match_status,
+
 //       is_active: dbRow ? dbRow.is_selected === 1 : false,
-//       status: dbRow ? dbRow.status : "pending",
+//       status: dbRow ? dbRow.status : "pending"
 //     };
 //   });
+
+//   // 🔥 FINAL SORT → nearest match first
+//   result.sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
+
+//   return result;
 // };
 
 
@@ -106,41 +149,39 @@ export const getAvailableSeriesService = async () => {
   const collectCompetitions = (items) => {
     for (const match of items) {
       const c = match.competition;
+      if (!c?.cid) continue;
 
-      if (c?.cid) {
-        const cid = String(c.cid);
+      const cid = String(c.cid);
+      const matchDate = new Date(match.datestart);
 
-        // 🔥 store nearest match info also
-        if (!competitionsMap.has(cid)) {
+      // ❌ skip past matches here itself (optional optimization)
+      if (matchDate < new Date()) continue;
+
+      if (!competitionsMap.has(cid)) {
+        competitionsMap.set(cid, {
+          cid,
+          name: c.cname,
+          start_date: c.startdate || null,
+          end_date: c.enddate || null,
+          year: c.year || null,
+
+          match_id: match.mid,
+          match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
+          match_date: match.datestart,
+          match_status: match.status_str
+        });
+      } else {
+        const existing = competitionsMap.get(cid);
+        const existingDate = new Date(existing.match_date);
+
+        if (matchDate < existingDate) {
           competitionsMap.set(cid, {
-            cid,
-            name: c.cname,
-            start_date: c.startdate || null,
-            end_date: c.enddate || null,
-            year: c.year || null,
-
-            // 🔥 NEW FIELDS
+            ...existing,
             match_id: match.mid,
             match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
             match_date: match.datestart,
             match_status: match.status_str
           });
-        } else {
-          // 🔥 update if nearer date found
-          const existing = competitionsMap.get(cid);
-
-          if (
-            new Date(match.datestart) <
-            new Date(existing.match_date)
-          ) {
-            competitionsMap.set(cid, {
-              ...existing,
-              match_id: match.mid,
-              match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
-              match_date: match.datestart,
-              match_status: match.status_str
-            });
-          }
         }
       }
     }
@@ -172,7 +213,6 @@ export const getAvailableSeriesService = async () => {
       end_date: c.end_date,
       year: c.year,
 
-      // 🔥 NEW FIELDS
       match_id: c.match_id,
       match_name: c.match_name,
       match_date: c.match_date,
@@ -183,7 +223,11 @@ export const getAvailableSeriesService = async () => {
     };
   });
 
-  // 🔥 SORT BY NEAREST MATCH DATE
+  // 🔥 FINAL SAFETY FILTER (only upcoming)
+  const now = new Date();
+  result = result.filter(c => new Date(c.match_date) >= now);
+
+  // 🔥 SORT → nearest first
   result.sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
 
   return result;
@@ -956,7 +1000,3 @@ export const syncPlayerPointsService = async (matchId) => {
 
   return { count, reason: null };
 };
-
-
-
-
