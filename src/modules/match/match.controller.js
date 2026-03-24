@@ -132,6 +132,7 @@ export const getAllMatches = async (req, res) => {
 
 
 
+
 export const getMatchFullDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -139,7 +140,7 @@ export const getMatchFullDetails = async (req, res) => {
     // 1️⃣ Get match
     const [[match]] = await db.execute(
       `SELECT 
-         id, provider_match_id, series_id, seriesname,
+         id, series_id, seriesname,
          home_team_id, hometeamname,
          away_team_id, awayteamname,
          matchdate, start_time, status, is_active
@@ -164,11 +165,12 @@ export const getMatchFullDetails = async (req, res) => {
     const homeTeam = teams.find(
       (t) => Number(t.id) === Number(match.home_team_id)
     );
+
     const awayTeam = teams.find(
       (t) => Number(t.id) === Number(match.away_team_id)
     );
 
-    // 3️⃣ Get match players (🔥 MAIN CHANGE)
+    // 3️⃣ Get match players
     const [players] = await db.execute(
       `SELECT 
           p.id, p.name, p.position, p.player_type, p.country,
@@ -186,7 +188,20 @@ export const getMatchFullDetails = async (req, res) => {
       [match.id]
     );
 
-    // 4️⃣ Split teams
+    // 🧠 SAFETY: if no players
+    if (!players || players.length === 0) {
+      return res.status(200).json({
+        success: true,
+        data: {
+          match,
+          home_team: { ...homeTeam, playing_xi: [], substitutes: [], squad: [] },
+          away_team: { ...awayTeam, playing_xi: [], substitutes: [], squad: [] },
+          total_players: 0,
+        },
+      });
+    }
+
+    // 4️⃣ Split players by team
     const homePlayers = players.filter(
       (p) => Number(p.team_id) === Number(match.home_team_id)
     );
@@ -194,6 +209,10 @@ export const getMatchFullDetails = async (req, res) => {
     const awayPlayers = players.filter(
       (p) => Number(p.team_id) === Number(match.away_team_id)
     );
+
+    // ⚠️ Debug logs (remove in prod if needed)
+    console.log("Home Players:", homePlayers.length);
+    console.log("Away Players:", awayPlayers.length);
 
     // 5️⃣ Playing XI
     const homePlayingXI = homePlayers.filter((p) => p.is_playing === 1);
@@ -203,9 +222,14 @@ export const getMatchFullDetails = async (req, res) => {
     const homeSubs = homePlayers.filter((p) => p.is_substitute === 1);
     const awaySubs = awayPlayers.filter((p) => p.is_substitute === 1);
 
-    // 7️⃣ Pre-squad (optional)
+    // 7️⃣ Pre-squad
     const homeSquad = homePlayers.filter((p) => p.is_pre_squad === 1);
     const awaySquad = awayPlayers.filter((p) => p.is_pre_squad === 1);
+
+    // ⚠️ Warning if team missing players
+    if (homePlayers.length === 0 || awayPlayers.length === 0) {
+      console.warn("⚠️ One team has no players mapped!");
+    }
 
     return res.status(200).json({
       success: true,
@@ -238,6 +262,7 @@ export const getMatchFullDetails = async (req, res) => {
     });
   }
 };
+
 
 export const getMatchesByType = async (req, res) => {
   try {
