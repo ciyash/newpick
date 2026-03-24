@@ -148,3 +148,12 @@ export const syncPlayerPoints = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+
+
+
+
+
+
+
+
