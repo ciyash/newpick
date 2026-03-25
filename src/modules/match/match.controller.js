@@ -183,14 +183,15 @@ export const getMatchFullDetails = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1️⃣ Get match
+    // 1️⃣ Get match — lineup_status DB నుండి తీసుకో
     const [[match]] = await db.execute(
       `SELECT 
          id, series_id, seriesname,
          home_team_id, hometeamname,
          away_team_id, awayteamname,
          matchdate, start_time, status, is_active,
-         lineupavailable
+         lineupavailable,
+         lineup_status
        FROM matches WHERE id = ?`,
       [id]
     );
@@ -217,12 +218,11 @@ export const getMatchFullDetails = async (req, res) => {
       (t) => Number(t.id) === Number(match.away_team_id)
     );
 
-    // 3️⃣ lineupavailable బట్టి players తీసుకో
-    const lineupAvailable = match.lineupavailable === 1;
+    // 3️⃣ lineup_status బట్టి players తీసుకో
     let players = [];
 
-    if (!lineupAvailable) {
-      // 🟡 Lineup రాలేదు - squad players చూపించు
+    if (match.lineup_status === "not_available") {
+      // 🔴 Lineup రాలేదు — squad players చూపించు
       const [allPlayers] = await db.execute(
         `SELECT * FROM players WHERE team_id IN (?, ?)`,
         [match.home_team_id, match.away_team_id]
@@ -234,8 +234,10 @@ export const getMatchFullDetails = async (req, res) => {
         is_substitute: 0,
         is_pre_squad: 1,
       }));
+
     } else {
-      // 🟢 Lineup వచ్చింది - match_players నుండి తీసుకో
+      // 🟡 announced (pre-squad) లేదా 🟢 confirmed (playing XI)
+      // రెండు cases లో match_players నుండి తీసుకో
       const [mpPlayers] = await db.execute(
         `SELECT 
             p.id, p.name, p.position, p.player_type, p.country,
@@ -275,19 +277,8 @@ export const getMatchFullDetails = async (req, res) => {
     const homeSquad = homePlayers.filter((p) => p.is_pre_squad === 1);
     const awaySquad = awayPlayers.filter((p) => p.is_pre_squad === 1);
 
-    // 8️⃣ Lineup Status Label
-    let lineup_status;
-    if (!lineupAvailable) {
-      lineup_status = "not_available"; // ❌ Lineup రాలేదు
-    } else {
-      const hasPlayingXI =
-        homePlayingXI.length > 0 || awayPlayingXI.length > 0;
-      lineup_status = hasPlayingXI ? "confirmed" : "announced"; // ✅ or 📋
-    }
-
     console.log("Match:", match.id);
-    console.log("Lineup Available:", lineupAvailable);
-    console.log("Lineup Status:", lineup_status);
+    console.log("Lineup Status:", match.lineup_status); // DB నుండి వస్తోంది
     console.log("Total Players:", players.length);
 
     return res.status(200).json({
@@ -295,7 +286,7 @@ export const getMatchFullDetails = async (req, res) => {
       data: {
         match,
 
-        lineup_status, // "not_available" | "announced" | "confirmed"
+        lineup_status: match.lineup_status, // ✅ DB నుండి directly
 
         home_team: {
           ...homeTeam,

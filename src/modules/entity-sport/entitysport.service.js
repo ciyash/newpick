@@ -868,93 +868,93 @@ export const getMatchesService = async (seriesid) => {
 //   return totalInserted;
 // };
 
-export const syncPlayersService = async (matchId) => {
-  const [matchRows] = await db.query(
-    `SELECT home_team_id, away_team_id FROM matches WHERE provider_match_id = ? LIMIT 1`,
-    [matchId]
-  );
+// export const syncPlayersService = async (matchId) => {
+//   const [matchRows] = await db.query(
+//     `SELECT home_team_id, away_team_id FROM matches WHERE provider_match_id = ? LIMIT 1`,
+//     [matchId]
+//   );
 
-  if (!matchRows.length) throw new Error("Match not found: " + matchId);
+//   if (!matchRows.length) throw new Error("Match not found: " + matchId);
 
-  const teamIds = [matchRows[0].home_team_id, matchRows[0].away_team_id].filter(Boolean);
+//   const teamIds = [matchRows[0].home_team_id, matchRows[0].away_team_id].filter(Boolean);
 
-  const teamResults = await Promise.all(
-    teamIds.map(async (teamId) => {
-      const [teamRows] = await db.query(
-        `SELECT id, name, provider_team_id FROM teams WHERE id = ? LIMIT 1`,
-        [teamId]
-      );
+//   const teamResults = await Promise.all(
+//     teamIds.map(async (teamId) => {
+//       const [teamRows] = await db.query(
+//         `SELECT id, name, provider_team_id FROM teams WHERE id = ? LIMIT 1`,
+//         [teamId]
+//       );
 
-      if (!teamRows.length) return null;
+//       if (!teamRows.length) return null;
 
-      const { provider_team_id: providerTeamId, name: teamName, id: internalTeamId } = teamRows[0];
+//       const { provider_team_id: providerTeamId, name: teamName, id: internalTeamId } = teamRows[0];
 
 
-      const data = await apiGet(`/team/${providerTeamId}/info`);
-      const allPlayers = (data.response.items?.[0]?.player || []).slice(0, 25);
+//       const data = await apiGet(`/team/${providerTeamId}/info`);
+//       const allPlayers = (data.response.items?.[0]?.player || []).slice(0, 25);
 
-      console.log(`Team: ${teamName} (tid: ${providerTeamId})`);
-      console.log(allPlayers.map(p => ({ pid: p.pid, name: p.fullname })));
+//       console.log(`Team: ${teamName} (tid: ${providerTeamId})`);
+//       console.log(allPlayers.map(p => ({ pid: p.pid, name: p.fullname })));
 
-      return { allPlayers, internalTeamId, teamName };
-    })
-  );
+//       return { allPlayers, internalTeamId, teamName };
+//     })
+//   );
 
-  let totalInserted = 0;
+//   let totalInserted = 0;
 
-  await Promise.all(
-    teamResults
-      .filter(Boolean)
-      .map(async ({ allPlayers, internalTeamId, teamName }) => {
-        if (!allPlayers.length) return;
+//   await Promise.all(
+//     teamResults
+//       .filter(Boolean)
+//       .map(async ({ allPlayers, internalTeamId, teamName }) => {
+//         if (!allPlayers.length) return;
 
-        const values = allPlayers.map((p) => {
-          const pos = mapPositionType(p.positiontype);
-          const providerPlayerId = String(p.pid || p.player_id || p.id);
-          const playerImage = `${process.env.ENTITY_PLAYER_IMAGE_URL}/${providerPlayerId}.png`;
+//         const values = allPlayers.map((p) => {
+//           const pos = mapPositionType(p.positiontype);
+//           const providerPlayerId = String(p.pid || p.player_id || p.id);
+//           const playerImage = `${process.env.ENTITY_PLAYER_IMAGE_URL}/${providerPlayerId}.png`;
 
-          const countryName = p.nationality?.name || "";
-          const countryCode = countries.getAlpha2Code(countryName, "en");
-          const flagImage = countryCode
-            ? `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`
-            : null;
+//           const countryName = p.nationality?.name || "";
+//           const countryCode = countries.getAlpha2Code(countryName, "en");
+//           const flagImage = countryCode
+//             ? `https://flagcdn.com/w40/${countryCode.toLowerCase()}.png`
+//             : null;
 
-          return [
-            internalTeamId,
-            p.fullname || p.title,
-            pos,
-            pos,
-            countryName,
-            parseFloat(p.fantasy_player_rating) || 8.0,
-            providerPlayerId,
-            playerImage,
-            flagImage,
-            0,
-          ];
-        });
+//           return [
+//             internalTeamId,
+//             p.fullname || p.title,
+//             pos,
+//             pos,
+//             countryName,
+//             parseFloat(p.fantasy_player_rating) || 8.0,
+//             providerPlayerId,
+//             playerImage,
+//             flagImage,
+//             0,
+//           ];
+//         });
 
-        await db.query(
-          `INSERT INTO players
-     (team_id, name, position, player_type, country, playercredits,
-      provider_player_id, playerimage, flag_image, points)
-   VALUES ?
-   ON DUPLICATE KEY UPDATE
-     name               = VALUES(name),
-     position           = VALUES(position),
-     playercredits      = VALUES(playercredits),
-     country            = VALUES(country),
-     playerimage        = VALUES(playerimage),
-     flag_image         = VALUES(flag_image)`,
-          [values]
-        );
+//         await db.query(
+//           `INSERT INTO players
+//      (team_id, name, position, player_type, country, playercredits,
+//       provider_player_id, playerimage, flag_image, points)
+//    VALUES ?
+//    ON DUPLICATE KEY UPDATE
+//      name               = VALUES(name),
+//      position           = VALUES(position),
+//      playercredits      = VALUES(playercredits),
+//      country            = VALUES(country),
+//      playerimage        = VALUES(playerimage),
+//      flag_image         = VALUES(flag_image)`,
+//           [values]
+//         );
 
-        console.log(`Inserted/Updated ${allPlayers.length} players for team: ${teamName}`);
-        totalInserted += allPlayers.length;
-      })
-  );
+//         console.log(`Inserted/Updated ${allPlayers.length} players for team: ${teamName}`);
+//         totalInserted += allPlayers.length;
+//       })
+//   );
 
-  return totalInserted;
-};
+//   return totalInserted;
+// };
 
 /* ══════════════════════════════════════════
    PLAYING XI
@@ -1015,6 +1015,117 @@ export const syncPlayersService = async (matchId) => {
 // };  
 
 
+// export const syncPlayingXIService = async (matchId) => {
+//   const [matchRows] = await db.query(
+//     `SELECT id, provider_match_id FROM matches 
+//      WHERE provider_match_id = ? LIMIT 1`,
+//     [matchId]
+//   );
+
+//   if (!matchRows.length) throw new Error("Match not found: " + matchId);
+
+//   const internalMatchId = matchRows[0].id;
+//   const providerMatchId = matchRows[0].provider_match_id;
+
+//   const infoData = await apiGet(`/matches/${providerMatchId}/info`);
+//   const items = infoData?.response?.items;
+//   const matchInfo = items?.match_info?.[0];
+//   const lineupAvailable = matchInfo?.lineupavailable === "true";
+//   const preSquadAvailable = matchInfo?.pre_squad === "true";
+
+//   // ✅ Pre-squad sync — lineup రాకముందే
+//   if (!lineupAvailable && preSquadAvailable) {
+//     const homeSquad = matchInfo?.home_squad || [];
+//     const awaySquad = matchInfo?.away_squad || [];
+//     const allSquad = [...homeSquad, ...awaySquad];
+
+//     if (!allSquad.length) {
+//       return { count: 0, reason: "No pre-squad data available" };
+//     }
+
+//     const pids = [...new Set(allSquad.map((p) => String(p.pid)))];
+//     const [playerRows] = await db.query(
+//       `SELECT id, provider_player_id FROM players 
+//        WHERE provider_player_id IN (?)`,
+//       [pids]
+//     );
+//     const playerMap = new Map(
+//       playerRows.map((r) => [r.provider_player_id, r.id])
+//     );
+
+//     let count = 0;
+//     for (const p of allSquad) {
+//       const internalPlayerId = playerMap.get(String(p.pid));
+//       if (!internalPlayerId) continue;
+
+//       await db.query(
+//         `INSERT INTO match_players 
+//            (match_id, player_id, is_playing, is_substitute, is_pre_squad)
+//          VALUES (?, ?, 0, 0, 1)
+//          ON DUPLICATE KEY UPDATE is_pre_squad = 1`,
+//         [internalMatchId, internalPlayerId]
+//       );
+//       count++;
+//     }
+//     return { count, reason: null, type: "pre_squad" };
+//   }
+
+//   if (!lineupAvailable) {
+//     return { count: 0, reason: "Lineup not published yet by provider" };
+//   }
+
+//   // ✅ Starting 11 sync
+//   const lineup = matchInfo?.lineup || [];
+//   // ✅ Substitutes sync
+//   const substitutes = matchInfo?.substitutes || [];
+
+//   if (!lineup.length) {
+//     return { 
+//       count: 0, 
+//       reason: "Lineup array is empty despite lineupavailable=true" 
+//     };
+//   }
+
+//   const allPlayers = [
+//     ...lineup.map((p) => ({ ...p, is_substitute: 0 })),
+//     ...substitutes.map((p) => ({ ...p, is_substitute: 1 })),
+//   ];
+
+//   const pids = [...new Set(allPlayers.map((p) => String(p.pid)))];
+//   const [playerRows] = await db.query(
+//     `SELECT id, provider_player_id FROM players 
+//      WHERE provider_player_id IN (?)`,
+//     [pids]
+//   );
+//   const playerMap = new Map(
+//     playerRows.map((r) => [r.provider_player_id, r.id])
+//   );
+
+//   let count = 0;
+//   for (const p of allPlayers) {
+//     const internalPlayerId = playerMap.get(String(p.pid));
+//     if (!internalPlayerId) {
+//       console.warn(`Player not found in DB: pid=${p.pid}`);
+//       continue;
+//     }
+
+//     await db.query(
+//       `INSERT INTO match_players 
+//          (match_id, player_id, is_playing, is_substitute, is_pre_squad)
+//        VALUES (?, ?, ?, ?, 0)
+//        ON DUPLICATE KEY UPDATE 
+//          is_playing = VALUES(is_playing),
+//          is_substitute = VALUES(is_substitute)`,
+//       [internalMatchId, internalPlayerId, 
+//        p.is_substitute === 0 ? 1 : 0, 
+//        p.is_substitute]
+//     );
+//     count++;
+//   }
+
+//   return { count, reason: null, type: "lineup" };
+// };
+
 export const syncPlayingXIService = async (matchId) => {
   const [matchRows] = await db.query(
     `SELECT id, provider_match_id FROM matches 
@@ -1067,22 +1178,41 @@ export const syncPlayingXIService = async (matchId) => {
       );
       count++;
     }
+
+    // ✅ DB లో lineup_status = 'announced' update చేయి
+    await db.query(
+      `UPDATE matches 
+       SET lineupavailable = 0,
+           lineup_status = 'announced'
+       WHERE id = ?`,
+      [internalMatchId]
+    );
+
+    console.log(`✅ Pre-squad synced: ${count} players — status: announced`);
     return { count, reason: null, type: "pre_squad" };
   }
 
   if (!lineupAvailable) {
+    // ✅ DB లో lineup_status = 'not_available' గా ఉంచు
+    await db.query(
+      `UPDATE matches 
+       SET lineupavailable = 0,
+           lineup_status = 'not_available'
+       WHERE id = ?`,
+      [internalMatchId]
+    );
+
     return { count: 0, reason: "Lineup not published yet by provider" };
   }
 
   // ✅ Starting 11 sync
   const lineup = matchInfo?.lineup || [];
-  // ✅ Substitutes sync
   const substitutes = matchInfo?.substitutes || [];
 
   if (!lineup.length) {
-    return { 
-      count: 0, 
-      reason: "Lineup array is empty despite lineupavailable=true" 
+    return {
+      count: 0,
+      reason: "Lineup array is empty despite lineupavailable=true",
     };
   }
 
@@ -1116,13 +1246,26 @@ export const syncPlayingXIService = async (matchId) => {
        ON DUPLICATE KEY UPDATE 
          is_playing = VALUES(is_playing),
          is_substitute = VALUES(is_substitute)`,
-      [internalMatchId, internalPlayerId, 
-       p.is_substitute === 0 ? 1 : 0, 
-       p.is_substitute]
+      [
+        internalMatchId,
+        internalPlayerId,
+        p.is_substitute === 0 ? 1 : 0,
+        p.is_substitute,
+      ]
     );
     count++;
   }
 
+  // ✅ DB లో lineup_status = 'confirmed' update చేయి
+  await db.query(
+    `UPDATE matches 
+     SET lineupavailable = 1,
+         lineup_status = 'confirmed'
+     WHERE id = ?`,
+    [internalMatchId]
+  );
+
+  console.log(`✅ Playing XI synced: ${count} players — status: confirmed`);
   return { count, reason: null, type: "lineup" };
 };
 
