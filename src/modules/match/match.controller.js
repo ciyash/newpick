@@ -178,6 +178,7 @@ export const getAllMatches = async (req, res) => {
 //   }
 // };
 
+
 export const getMatchFullDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -188,7 +189,8 @@ export const getMatchFullDetails = async (req, res) => {
          id, series_id, seriesname,
          home_team_id, hometeamname,
          away_team_id, awayteamname,
-         matchdate, start_time, status, is_active
+         matchdate, start_time, status, is_active,
+         lineupavailable
        FROM matches WHERE id = ?`,
       [id]
     );
@@ -215,19 +217,14 @@ export const getMatchFullDetails = async (req, res) => {
       (t) => Number(t.id) === Number(match.away_team_id)
     );
 
-    // 3️⃣ Check match_players exists
-    const [[mpCheck]] = await db.execute(
-      `SELECT COUNT(*) as count FROM match_players WHERE match_id = ?`,
-      [match.id]
-    );
-
+    // 3️⃣ lineupavailable బట్టి players తీసుకో
+    const lineupAvailable = match.lineupavailable === 1;
     let players = [];
 
-    // 🟢 BEFORE SQUAD (No match_players data)
-    if (mpCheck.count === 0) {
+    if (!lineupAvailable) {
+      // 🟡 Lineup రాలేదు - squad players చూపించు
       const [allPlayers] = await db.execute(
-        `SELECT * FROM players 
-         WHERE team_id IN (?, ?)`,
+        `SELECT * FROM players WHERE team_id IN (?, ?)`,
         [match.home_team_id, match.away_team_id]
       );
 
@@ -235,23 +232,19 @@ export const getMatchFullDetails = async (req, res) => {
         ...p,
         is_playing: 0,
         is_substitute: 0,
-        is_pre_squad: 1, // treat as squad
+        is_pre_squad: 1,
       }));
-    }
-
-    // 🔴 AFTER SQUAD / LINEUP
-    else {
+    } else {
+      // 🟢 Lineup వచ్చింది - match_players నుండి తీసుకో
       const [mpPlayers] = await db.execute(
         `SELECT 
             p.id, p.name, p.position, p.player_type, p.country,
             p.playercredits, p.playerimage, p.flag_image,
             p.selectpercent, p.captainper, p.vcper,
             p.provider_player_id, p.team_id,
-
             mp.is_playing,
             mp.is_substitute,
             mp.is_pre_squad
-
          FROM match_players mp
          JOIN players p ON p.id = mp.player_id
          WHERE mp.match_id = ?`,
@@ -261,7 +254,7 @@ export const getMatchFullDetails = async (req, res) => {
       players = mpPlayers;
     }
 
-    // 4️⃣ Split teams
+    // 4️⃣ Split by team
     const homePlayers = players.filter(
       (p) => Number(p.team_id) === Number(match.home_team_id)
     );
@@ -282,15 +275,27 @@ export const getMatchFullDetails = async (req, res) => {
     const homeSquad = homePlayers.filter((p) => p.is_pre_squad === 1);
     const awaySquad = awayPlayers.filter((p) => p.is_pre_squad === 1);
 
-    // ⚠️ Debug logs
+    // 8️⃣ Lineup Status Label
+    let lineup_status;
+    if (!lineupAvailable) {
+      lineup_status = "not_available"; // ❌ Lineup రాలేదు
+    } else {
+      const hasPlayingXI =
+        homePlayingXI.length > 0 || awayPlayingXI.length > 0;
+      lineup_status = hasPlayingXI ? "confirmed" : "announced"; // ✅ or 📋
+    }
+
     console.log("Match:", match.id);
+    console.log("Lineup Available:", lineupAvailable);
+    console.log("Lineup Status:", lineup_status);
     console.log("Total Players:", players.length);
-    console.log("Home:", homePlayers.length, "Away:", awayPlayers.length);
 
     return res.status(200).json({
       success: true,
       data: {
         match,
+
+        lineup_status, // "not_available" | "announced" | "confirmed"
 
         home_team: {
           ...homeTeam,
