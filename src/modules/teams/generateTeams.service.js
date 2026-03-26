@@ -1,12 +1,20 @@
 import { spawn } from "child_process";
+import { chmodSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import db from "../../config/db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BINARY_PATH = path.join(__dirname, "../../dist/UCT.exe");
+const BINARY_NAME = process.platform === "win32" ? "UCT.exe" : "UCT.5";
+const BINARY_PATH = path.join(__dirname, "../../dist", BINARY_NAME);
 
-
+if (process.platform !== "win32") {
+  try {
+    chmodSync(BINARY_PATH, 0o755);
+  } catch (e) {
+    console.warn("Could not chmod binary:", e.message);
+  }
+}
 /* RUN BINARY */
 
 function runBinary(teamA, teamB) {
