@@ -209,18 +209,18 @@ export const getMatchFullDetails = async (req, res) => {
     const { id } = req.params;
 
     // 1️⃣ Match details
-    const [[match]] = await db.execute(
-      `SELECT 
-         id, series_id, seriesname,
-         home_team_id, hometeamname,
-         away_team_id, awayteamname,
-         matchdate, start_time, status, is_active,
-         lineupavailable,
-         lineup_status
-       FROM matches
-       WHERE id = ?`,
-      [id]
-    );
+   const [[match]] = await db.execute(
+  `SELECT 
+     id, series_id, seriesname,
+     home_team_id, hometeamname,
+     away_team_id, awayteamname,
+     matchdate, start_time, status, is_active,
+     lineupavailable,
+     lineup_status
+   FROM matches
+   WHERE provider_match_id = ?`,
+  [id]
+);
 
     if (!match) {
       return res.status(404).json({
