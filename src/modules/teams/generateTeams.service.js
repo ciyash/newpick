@@ -96,14 +96,14 @@ export const generateTeamsService = async (userId, matchId, teamA, teamB) => {
     /* ALREADY GENERATED CHECK */
 
     const [[existingLog]] = await conn.query(
-      `SELECT id FROM match_generation_log
-       WHERE match_id = ?`,
-      [matchId]
-    );
+  `SELECT id FROM match_generation_log
+   WHERE match_id = ? AND user_id = ?`,
+  [matchId, userId]
+);
 
-    if (existingLog) {
-      throw new Error("Teams already generated for this match");
-    }
+if (existingLog) {
+  throw new Error("Teams already generated for this match");
+}
 
 
     /* VALIDATE PLAYERS BELONG TO THIS MATCH'S TEAMS */
