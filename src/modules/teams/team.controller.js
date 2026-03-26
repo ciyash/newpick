@@ -242,7 +242,6 @@ export const createTeam = async (req, res) => {
 };
 
 
-
 export const getMyTeams = async (req, res) => {
   try {
 

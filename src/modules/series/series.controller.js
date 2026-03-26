@@ -1,51 +1,47 @@
 import  db  from "../../config/db.js";
 
-
 // export const getAllSeries = async (req, res) => {
 //   try {
 //     // 1️⃣ Get all series
-//     const [seriesRows] = await db.execute(`
-//       SELECT 
-//         id,
-//         seriesid,
-//         name,
-//         season,
-//         start_date,
-//         end_date,
-//         created_at,
-//         status,
-//         is_selected
-//       FROM series
-//       ORDER BY created_at DESC
-//     `);
+//   const [seriesRows] = await db.execute(`
+//   SELECT 
+//     id,
+//     seriesid,
+//     name,
+//     season,
+//     start_date,
+//     end_date,
+//     created_at,
+//     status,
+//     is_selected
+//   FROM series
+//   ORDER BY created_at DESC
+//   `);
 
-//     // 2️⃣ For each series → get matches WITH TEAM NAMES + LINEUP STATUS
+//     // 2️⃣ For each series → get matches WITH TEAM NAMES
 //     const result = await Promise.all(
-//       seriesRows.map(async (series) => {
-
-//         const [matches] = await db.execute(
-//           `SELECT 
-//              m.id,
-//              m.provider_match_id,
-//              m.series_id,
-//              m.start_time,
-//              m.status,
-//              m.matchdate,
-//              m.lineupavailable,
-//              m.lineup_status,
-//              ht.short_name AS home_team_name,
-//              at.short_name AS away_team_name
-//            FROM matches m
-//            JOIN teams ht ON m.home_team_id = ht.id
-//            JOIN teams at ON m.away_team_id = at.id
-//            WHERE m.series_id = ?
-//            ORDER BY m.start_time ASC`,
-//           [series.seriesid]
-//         );
+//       seriesRows.map(async (series) => { 
+//    const [matches] = await db.execute(
+//   `SELECT 
+//      m.id,
+//      m.provider_match_id,  -- ✅ ఇది add చేయి
+//      m.series_id,
+//      m.start_time,
+//      m.status,
+//      m.matchdate,
+//      ht.short_name AS home_team_name,
+//      at.short_name AS away_team_name
+//    FROM matches m
+//    JOIN teams ht ON m.home_team_id = ht.id
+//    JOIN teams at ON m.away_team_id = at.id
+//    WHERE m.series_id = ?
+//    ORDER BY m.start_time ASC`,
+//   [series.seriesid]
+// );
 
 //         return {
 //           ...series,
-//           matches,
+//           matches
 //         };
 //       })
 //     );
@@ -53,7 +49,7 @@ import  db  from "../../config/db.js";
 //     res.status(200).json({
 //       success: true,
 //       count: result.length,
-//       data: result,
+//       data: result
 //     });
 
 //   } catch (error) {
@@ -61,7 +57,7 @@ import  db  from "../../config/db.js";
 
 //     res.status(500).json({
 //       success: false,
-//       message: error.message,
+//       message: error.message
 //     });
 //   }
 // };
@@ -88,7 +84,8 @@ export const getAllSeries = async (req, res) => {
     // 2️⃣ For each series → get matches WITH TEAM NAMES + LINEUP STATUS
     const result = await Promise.all(
       seriesRows.map(async (series) => {
-        const [matchesRaw] = await db.execute(
+
+        const [matches] = await db.execute(
           `SELECT 
              m.id,
              m.provider_match_id,
@@ -107,17 +104,6 @@ export const getAllSeries = async (req, res) => {
            ORDER BY m.start_time ASC`,
           [series.seriesid]
         );
-
-        // ✅ Keep response same, but id = provider_match_id
-        const matches = matchesRaw.map((match) => ({
-          ...match,
-          id: match.provider_match_id,
-        }));
-
-        // ✅ Remove provider_match_id from response
-        matches.forEach((match) => {
-          delete match.provider_match_id;
-        });
 
         return {
           ...series,
@@ -141,9 +127,6 @@ export const getAllSeries = async (req, res) => {
     });
   }
 };
-
-//
-
 
 export const getSeriesById = async (req, res) => {
   try {

@@ -48,7 +48,6 @@ export const getAllMatches = async (req, res) => {
 };
 
 
-
 export const getMatchesByType = async (req, res) => {
   try {
     const { type } = req.params;
@@ -302,11 +301,13 @@ export const getMatchesByType = async (req, res) => {
 // };
 
 
+
+
 export const getMatchFullDetails = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // 1️⃣ Match details
+    // 1️⃣ Match details (support BOTH db id and provider_match_id)
     const [[match]] = await db.execute(
       `SELECT 
          id,
@@ -318,8 +319,8 @@ export const getMatchFullDetails = async (req, res) => {
          lineupavailable,
          lineup_status
        FROM matches
-       WHERE provider_match_id = ?`,
-      [id]
+       WHERE id = ? OR provider_match_id = ?`,
+      [id, id]
     );
 
     if (!match) {
@@ -328,10 +329,6 @@ export const getMatchFullDetails = async (req, res) => {
         message: "Match not found",
       });
     }
-
-    // ✅ Keep same response structure, but show provider_match_id in match.id
-    match.id = match.provider_match_id;
-    delete match.provider_match_id;
 
     // 2️⃣ Teams
     const [teams] = await db.execute(
@@ -353,7 +350,7 @@ export const getMatchFullDetails = async (req, res) => {
       `SELECT COUNT(*) AS count
        FROM match_players
        WHERE match_id = ?`,
-      [id] // ✅ because API public match id = provider_match_id
+      [match.id] // ✅ always DB id
     );
 
     let players = [];
@@ -364,7 +361,6 @@ export const getMatchFullDetails = async (req, res) => {
       .toLowerCase();
 
     // 4️⃣ Main fetch logic
-    // 🔥 If match_players exist → use them
     if (Number(mpCheck.count) > 0) {
       const [mpPlayers] = await db.execute(
         `SELECT 
@@ -391,13 +387,13 @@ export const getMatchFullDetails = async (req, res) => {
          FROM match_players mp
          JOIN players p ON p.id = mp.player_id
          WHERE mp.match_id = ?`,
-        [id] // ✅ because API public match id = provider_match_id
+        [match.id] // ✅ always DB id
       );
 
       players = mpPlayers;
     }
 
-    // 🔥 If no match_players → fallback to players table using team ids
+    // fallback players
     if (players.length === 0) {
       const [allPlayers] = await db.execute(
         `SELECT 
@@ -465,7 +461,6 @@ export const getMatchFullDetails = async (req, res) => {
       (p) => Number(p.is_pre_squad) === 1
     );
 
-    // fallback squad if flags missing
     if (homeSquad.length === 0) {
       homeSquad = homePlayers;
     }
@@ -482,8 +477,6 @@ export const getMatchFullDetails = async (req, res) => {
     } else if (players.length > 0) {
       finalLineupStatus = lineupStatus || "announced";
     }
-
-
 
     return res.status(200).json({
       success: true,
