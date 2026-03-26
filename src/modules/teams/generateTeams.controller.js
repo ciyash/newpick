@@ -48,14 +48,18 @@ export const generateTeams = async (req,res)=>{
   }catch(error){
 
     const knownErrors = [
-      "Match not found",
-      "Team generation is closed for this match",
-      "Maximum 20 teams allowed per match",
-      "Binary generated no teams",
-      "All generated teams were duplicates",
-      "Binary failed to start",
-      "Binary output is not valid JSON"
-    ];
+  "Match not found",
+  "Team generation is closed for this match",
+  "Teams already generated for this match",
+  "No players provided",
+  "Players do not belong to this match",
+  "Maximum 20 teams allowed per match",
+  "Binary generated no teams",
+  "All generated teams were duplicates",
+  "Binary failed to start",
+  "Binary output is not valid JSON",
+  "Binary output missing team group key"
+];
 
     if(knownErrors.some(e=>error.message?.startsWith(e))){
       return res.status(400).json({
