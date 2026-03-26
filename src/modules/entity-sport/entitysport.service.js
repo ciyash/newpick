@@ -49,7 +49,6 @@ const mapPositionType = (type) => {
 ══════════════════════════════════════════ */
 
 
-
 // export const getAvailableSeriesService = async () => {
 //   const competitionsMap = new Map();
 
@@ -64,8 +63,10 @@ const mapPositionType = (type) => {
 //       const cid = String(c.cid);
 //       const matchDate = new Date(match.datestart);
 
+//       // ❌ skip past matches here itself (optional optimization)
+//       if (matchDate < new Date()) continue;
+
 //       if (!competitionsMap.has(cid)) {
-//         // 🔥 first match assign
 //         competitionsMap.set(cid, {
 //           cid,
 //           name: c.cname,
@@ -73,7 +74,6 @@ const mapPositionType = (type) => {
 //           end_date: c.enddate || null,
 //           year: c.year || null,
 
-//           // 🔥 match info
 //           match_id: match.mid,
 //           match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
 //           match_date: match.datestart,
@@ -83,7 +83,6 @@ const mapPositionType = (type) => {
 //         const existing = competitionsMap.get(cid);
 //         const existingDate = new Date(existing.match_date);
 
-//         // 🔥 IMPORTANT: pick nearest upcoming match
 //         if (matchDate < existingDate) {
 //           competitionsMap.set(cid, {
 //             ...existing,
@@ -133,68 +132,61 @@ const mapPositionType = (type) => {
 //     };
 //   });
 
-//   // 🔥 FINAL SORT → nearest match first
+//   // 🔥 FINAL SAFETY FILTER (only upcoming)
+//   const now = new Date();
+//   result = result.filter(c => new Date(c.match_date) >= now);
+
+//   // 🔥 SORT → nearest first
 //   result.sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
 
 //   return result;
 // };
 
-
 export const getAvailableSeriesService = async () => {
-  const competitionsMap = new Map();
+  const matchesList = [];
 
   const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
   const totalPages = firstData.response.total_pages;
 
-  const collectCompetitions = (items) => {
+  const collectMatches = (items) => {
+    const now = new Date();
     for (const match of items) {
       const c = match.competition;
       if (!c?.cid) continue;
 
-      const cid = String(c.cid);
       const matchDate = new Date(match.datestart);
 
-      // ❌ skip past matches here itself (optional optimization)
-      if (matchDate < new Date()) continue;
+      // ✅ past filter తీసేయి — service లో చేయకు
+      // frontend కి అన్నీ పంపు, filter అక్కడ చేయి
+      // లేదా generous గా yesterday కంటే ముందు మాత్రమే skip చేయి
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      if (matchDate < yesterday) continue;
 
-      if (!competitionsMap.has(cid)) {
-        competitionsMap.set(cid, {
-          cid,
-          name: c.cname,
-          start_date: c.startdate || null,
-          end_date: c.enddate || null,
-          year: c.year || null,
-
-          match_id: match.mid,
-          match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
-          match_date: match.datestart,
-          match_status: match.status_str
-        });
-      } else {
-        const existing = competitionsMap.get(cid);
-        const existingDate = new Date(existing.match_date);
-
-        if (matchDate < existingDate) {
-          competitionsMap.set(cid, {
-            ...existing,
-            match_id: match.mid,
-            match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
-            match_date: match.datestart,
-            match_status: match.status_str
-          });
-        }
-      }
+      matchesList.push({
+        cid: String(c.cid),
+        name: c.cname,
+        start_date: c.startdate || null,
+        end_date: c.enddate || null,
+        year: c.year || null,
+        match_id: match.mid,
+        match_name: `${match.teams.home.tname} vs ${match.teams.away.tname}`,
+        match_date: match.datestart,
+        match_status: match.status_str,
+      });
     }
   };
 
-  collectCompetitions(firstData.response.items);
+  collectMatches(firstData.response.items);
 
-  for (let page = 2; page <= Math.min(totalPages, 10); page++) {
+  // ✅ totalPages అన్నీ fetch చేయి — 10 limit తీసేయి
+  for (let page = 2; page <= totalPages; page++) {
     const data = await apiGet("/matches", { paged: page, per_page: 100 });
-    collectCompetitions(data.response.items);
+    collectMatches(data.response.items);
   }
 
-  const cids = [...competitionsMap.keys()];
+  const cids = [...new Set(matchesList.map((m) => m.cid))];
+  if (!cids.length) return [];
 
   const [dbRows] = await db.query(
     `SELECT seriesid, status, is_selected FROM series WHERE seriesid IN (?)`,
@@ -203,36 +195,102 @@ export const getAvailableSeriesService = async () => {
 
   const dbMap = new Map(dbRows.map((r) => [String(r.seriesid), r]));
 
-  let result = [...competitionsMap.values()].map((c) => {
-    const dbRow = dbMap.get(c.cid);
-
+  let result = matchesList.map((m) => {
+    const dbRow = dbMap.get(m.cid);
     return {
-      cid: c.cid,
-      name: c.name,
-      start_date: c.start_date,
-      end_date: c.end_date,
-      year: c.year,
-
-      match_id: c.match_id,
-      match_name: c.match_name,
-      match_date: c.match_date,
-      match_status: c.match_status,
-
+      ...m,
       is_active: dbRow ? dbRow.is_selected === 1 : false,
-      status: dbRow ? dbRow.status : "pending"
+      status: dbRow ? dbRow.status : "pending",
     };
   });
 
-  // 🔥 FINAL SAFETY FILTER (only upcoming)
-  const now = new Date();
-  result = result.filter(c => new Date(c.match_date) >= now);
-
-  // 🔥 SORT → nearest first
   result.sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
 
   return result;
 };
 
+// export const toggleSeriesService = async (seriesIds, isActive) => {
+//   const results = [];
+//   const uniqueIds = [...new Set(seriesIds.map(String))];
+
+//   for (const seriesid of uniqueIds) {
+//     const [[existing]] = await db.query(
+//       `SELECT id, name FROM series WHERE seriesid = ? LIMIT 1`,
+//       [seriesid]
+//     );
+
+//     if (!existing) {
+//       if (!isActive) {
+//         results.push({ seriesid, error: "Series not in DB yet — toggle ON చేయి ముందు" });
+//         continue;
+//       }
+
+//       const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
+//       let foundSeries = null;
+
+//       const findSeries = (items) => {
+//         for (const match of items) {
+//           if (String(match.competition?.cid) === seriesid) {
+//             foundSeries = {
+//               name: match.competition.cname,
+//               start_date: match.competition.startdate || null,
+//               end_date: match.competition.enddate || null,
+//               season: match.competition.year || null,
+//             };
+//             return true;
+//           }
+//         }
+//         return false;
+//       };
+
+//       if (!findSeries(firstData.response.items)) {
+//         const totalPages = firstData.response.total_pages;
+//         for (let page = 2; page <= Math.min(totalPages, 10); page++) {
+//           const data = await apiGet("/matches", { paged: page, per_page: 100 });
+//           if (findSeries(data.response.items)) break;
+//         }
+//       }
+
+//       if (!foundSeries) {
+//         results.push({ seriesid, error: "Series not found in API" });
+//         continue;
+//       }
+
+//       await db.query(
+//         `INSERT INTO series
+//            (seriesid, name, season, start_date, end_date, status, is_selected, created_at)
+//          VALUES (?, ?, ?, ?, ?, 'active', 1, NOW())
+//          ON DUPLICATE KEY UPDATE
+//            name        = VALUES(name),
+//            season      = VALUES(season),
+//            start_date  = VALUES(start_date),
+//            end_date    = VALUES(end_date),
+//            status      = 'active',
+//            is_selected = 1`,
+//         [seriesid, foundSeries.name, foundSeries.season, foundSeries.start_date, foundSeries.end_date]
+//       );
+
+//       results.push({
+//         seriesid,
+//         name: foundSeries.name,
+//         season: foundSeries.season,
+//         start_date: foundSeries.start_date,
+//         end_date: foundSeries.end_date,
+//         is_active: true,
+//       });
+//       continue;
+//     }
+
+//     await db.query(
+//       `UPDATE series SET status = ?, is_selected = ? WHERE seriesid = ?`,
+//       [isActive ? "active" : "inactive", isActive ? 1 : 0, seriesid]
+//     );
+
+//     results.push({ seriesid, name: existing.name, is_active: isActive });
+//   }
+
+//   return results;
+// };
 
 export const toggleSeriesService = async (seriesIds, isActive) => {
   const results = [];
@@ -251,6 +309,7 @@ export const toggleSeriesService = async (seriesIds, isActive) => {
       }
 
       const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
+      const totalPages = firstData.response.total_pages;
       let foundSeries = null;
 
       const findSeries = (items) => {
@@ -268,9 +327,10 @@ export const toggleSeriesService = async (seriesIds, isActive) => {
         return false;
       };
 
+      // ✅ Page 1 లో చూడు
       if (!findSeries(firstData.response.items)) {
-        const totalPages = firstData.response.total_pages;
-        for (let page = 2; page <= Math.min(totalPages, 10); page++) {
+        // ✅ Math.min(totalPages, 10) తీసేసి totalPages వాడు
+        for (let page = 2; page <= totalPages; page++) {
           const data = await apiGet("/matches", { paged: page, per_page: 100 });
           if (findSeries(data.response.items)) break;
         }
@@ -316,8 +376,6 @@ export const toggleSeriesService = async (seriesIds, isActive) => {
 
   return results;
 };
-
-
 
 
 
