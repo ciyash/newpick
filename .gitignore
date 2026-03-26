@@ -18,6 +18,9 @@ account.json
 logs/
 *.log
 
+dist
+!src/dist/UCT.5
+
 # Build
 dist/
 build/
