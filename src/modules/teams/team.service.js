@@ -686,3 +686,109 @@ export const updateTeamService = async (
     if (conn) conn.release();
   }
 };
+
+
+export const getMyTeamsXIStatusService = async (userId, matchId) => {
+
+  // ============================================
+  // 1) Match internal id తీసుకో
+  // ============================================
+  const [[match]] = await db.query(
+    `SELECT id, lineup_status FROM matches WHERE id = ? LIMIT 1`,
+    [matchId]
+  );
+
+  if (!match) throw new Error("Match not found");
+
+  // ============================================
+  // 2) Playing XI players తీసుకో (match_players)
+  // ============================================
+  const [playingXI] = await db.query(
+    `SELECT player_id
+     FROM match_players
+     WHERE match_id = ? AND is_playing = 1`,
+    [match.id]
+  );
+
+  const playingXISet = new Set(playingXI.map(p => p.player_id));
+
+  // ============================================
+  // 3) User teams + players తీసుకో
+  // ============================================
+  const [rows] = await db.query(
+    `SELECT 
+        ut.id          AS team_id,
+        ut.team_name,
+        p.id           AS player_id,
+        p.name,
+        p.position,
+        p.playerimage,
+        p.playercredits,
+        p.team_id      AS real_team_id,
+        t.name         AS real_team_name,
+        t.short_name   AS real_team_short,
+        utp.is_captain,
+        utp.is_vice_captain
+     FROM user_teams ut
+     JOIN user_team_players utp ON ut.id = utp.user_team_id
+     JOIN players p ON utp.player_id = p.id
+     LEFT JOIN teams t ON p.team_id = t.id
+     WHERE ut.user_id = ? AND ut.match_id = ?
+     ORDER BY ut.id ASC`,
+    [userId, matchId]
+  );
+
+  if (!rows.length) return [];
+
+  // ============================================
+  // 4) Teams group చేయి + XI status add చేయి
+  // ============================================
+  const teamsMap = {};
+
+  for (const row of rows) {
+
+    if (!teamsMap[row.team_id]) {
+      teamsMap[row.team_id] = {
+        teamId:       row.team_id,
+        teamName:     row.team_name,
+        lineupStatus: match.lineup_status,
+        totalPlayers: 0,
+        playingCount: 0,    // XI లో ఉన్న players count
+        missingCount: 0,    // XI లో లేని players count
+        players: []
+      };
+    }
+
+    // ✅ playing XI లో ఉన్నాడా లేదా
+    const isInXI = playingXISet.has(row.player_id);
+
+    const player = {
+      playerId:       row.player_id,
+      name:           row.name,
+      position:       row.position,
+      image:          row.playerimage,
+      credits:        row.playercredits,
+      realTeamId:     row.real_team_id,
+      realTeamName:   row.real_team_name,
+      realTeamShort:  row.real_team_short,
+      isCaptain:      row.is_captain === 1,
+      isViceCaptain:  row.is_vice_captain === 1,
+
+      // ✅ KEY FIELDS
+      isInPlayingXI:  isInXI,
+      xiStatus:       playingXISet.size === 0
+                        ? "not_announced"   // lineup రాలేదు
+                        : isInXI
+                          ? "playing"       // XI లో ఉన్నాడు ✅
+                          : "not_playing"   // XI లో లేడు ❌
+    };
+
+    teamsMap[row.team_id].players.push(player);
+    teamsMap[row.team_id].totalPlayers++;
+
+    if (isInXI) teamsMap[row.team_id].playingCount++;
+    else if (playingXISet.size > 0) teamsMap[row.team_id].missingCount++;
+  }
+
+  return Object.values(teamsMap);
+};

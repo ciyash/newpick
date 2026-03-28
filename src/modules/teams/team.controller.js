@@ -1,5 +1,5 @@
 import db from "../../config/db.js";
-import { createTeamService,  getMyTeamsWithPlayersService, getTeamPlayersService, updateTeamService } from "./team.service.js";
+import { createTeamService,  getMyTeamsWithPlayersService, getMyTeamsXIStatusService, getTeamPlayersService, updateTeamService } from "./team.service.js";
 import { createTeamSchema, updateTeamSchema } from "./team.validation.js";
 
 export const getAllTeams = async (req, res) => {
@@ -174,8 +174,6 @@ export const getPlayerTeamById = async (req, res) => {
   }
 };   
 
-
-
 export const createTeam = async (req, res) => {
   try {
 
@@ -290,7 +288,6 @@ export const getTeamPlayers = async (req, res) => {
   }
 };
 
-
 export const getMyTeamsWithPlayers = async (req, res) => {
   try {
 
@@ -311,7 +308,6 @@ export const getMyTeamsWithPlayers = async (req, res) => {
     });
   }
 };
-
 
 export const updateTeam = async (req, res) => {
   try {
@@ -345,6 +341,25 @@ export const updateTeam = async (req, res) => {
     res.status(400).json({
       success: false,
       message: error.message,
+    });
+  }
+};
+
+export const getMyTeamsXIStatus = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { matchId } = req.params;
+
+    const data = await getMyTeamsXIStatusService(userId, matchId);
+
+    res.status(200).json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: error.message
     });
   }
 };
