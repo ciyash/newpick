@@ -242,9 +242,11 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 
 
 // export const joinContestService = async (userId, amount, meta = {}) => {
+
 //   const conn = await db.getConnection();
 
 //   try {
+
 //     await conn.beginTransaction();
 
 //     const { contestId, userTeamId } = meta;
@@ -260,8 +262,9 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //     /* ================= DUPLICATE CHECK ================= */
 
 //     for (const teamId of teamIds) {
+
 //       const [[already]] = await conn.query(
-//         `SELECT id 
+//         `SELECT id
 //          FROM contest_entries
 //          WHERE contest_id = ?
 //          AND user_id = ?
@@ -272,17 +275,19 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //       if (already) {
 //         throw new Error(`Team ${teamId} already joined`);
 //       }
+
 //     }
 
 //     /* ================= CONTEST + MATCH LOCK ================= */
 
 //     const [[contest]] = await conn.query(
-//       `SELECT 
+//       `SELECT
 //           c.max_entries,
 //           c.current_entries,
 //           c.status,
 //           m.status AS match_status,
-//           m.matchdate
+//           m.matchdate,
+//           m.start_time
 //        FROM contest c
 //        JOIN matches m ON c.match_id = m.id
 //        WHERE c.id = ?
@@ -300,10 +305,15 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //       throw new Error("Match already started or completed");
 //     }
 
-//     const now = new Date();
-//     const matchStartTime = new Date(contest.matchdate);
+//     /* ---------- Match Time Check ---------- */
 
-//     if (now >= matchStartTime) {
+//     const now = new Date();
+
+//     const matchStart = new Date(
+//       `${contest.matchdate.toISOString().split("T")[0]} ${contest.start_time}`
+//     );
+
+//     if (now >= matchStart) {
 //       throw new Error("Match already started");
 //     }
 
@@ -338,12 +348,14 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //     if (entryAmount === 0) {
 
 //       for (const teamId of teamIds) {
+
 //         await conn.query(
 //           `INSERT INTO contest_entries
 //            (contest_id, user_id, user_team_id, entry_fee, status)
 //            VALUES (?, ?, ?, 0, 'joined')`,
 //           [contestId, userId, teamId]
 //         );
+
 //       }
 
 //       await conn.query(
@@ -359,6 +371,7 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //         success: true,
 //         message: "Joined free contest successfully"
 //       };
+
 //     }
 
 //     /* ================= WALLET LOCK ================= */
@@ -372,6 +385,7 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //     );
 
 //     if (!wallet) throw new Error("Wallet not found");
+
 //     if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
 
 //     let remaining = totalEntry;
@@ -426,6 +440,7 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //     /* ================= WALLET TRANSACTIONS ================= */
 
 //     const insertTxn = async (walletType, amountUsed) => {
+
 //       if (amountUsed <= 0) return;
 
 //       await conn.query(
@@ -440,21 +455,24 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //           contestId
 //         ]
 //       );
+
 //     };
 
 //     await insertTxn("bonus", bonusUse);
-//     await insertTxn("earn", earnUse);
+//     await insertTxn("winning", earnUse);
 //     await insertTxn("deposit", depositUse);
 
 //     /* ================= INSERT ENTRIES ================= */
 
 //     for (const teamId of teamIds) {
+
 //       await conn.query(
 //         `INSERT INTO contest_entries
 //          (contest_id, user_id, user_team_id, entry_fee, status)
 //          VALUES (?, ?, ?, ?, 'joined')`,
 //         [contestId, userId, teamId, entryAmount]
 //       );
+
 //     }
 
 //     /* ================= UPDATE CONTEST COUNT ================= */
@@ -471,12 +489,14 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //     /* ================= AUTO MARK FULL ================= */
 
 //     if (newCount >= contest.max_entries) {
+
 //       await conn.query(
 //         `UPDATE contest
 //          SET status = 'FULL'
 //          WHERE id = ?`,
 //         [contestId]
 //       );
+
 //     }
 
 //     await conn.commit();
@@ -493,11 +513,16 @@ export const deductForContestService = async (userId, entryFee, meta = {}) => {
 //     };
 
 //   } catch (err) {
+
 //     await conn.rollback();
 //     throw err;
+
 //   } finally {
+
 //     conn.release();
+
 //   }
+
 // };
 
 
@@ -549,7 +574,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
           m.matchdate,
           m.start_time
        FROM contest c
-       JOIN matches m ON c.match_id = m.id
+       JOIN matches m ON m.provider_match_id = c.match_id
        WHERE c.id = ?
        FOR UPDATE`,
       [contestId]
@@ -784,7 +809,6 @@ export const joinContestService = async (userId, amount, meta = {}) => {
   }
 
 };
-
 
 export const getMyContestsService = async (userId, matchId) => {
   try {
