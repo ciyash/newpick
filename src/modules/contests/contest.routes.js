@@ -26,7 +26,7 @@ import {
 } from "./contest.controller.js";
 
 
-const router = express.Router();
+const router = express.Router();  
 // user contest
 router.post("/join",  joinContest);
 router.get("/my-contests/:match_id",  getMyContests);

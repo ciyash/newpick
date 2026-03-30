@@ -738,7 +738,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
           amountUsed,
           "Contest Join",
           contestId
-        ]
+        ]   
       );
 
     };

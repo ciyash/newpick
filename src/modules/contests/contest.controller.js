@@ -19,8 +19,6 @@ export const getAllContests = async (req, res) => {
   }
 };
 
-
-
 // export const getContestsByMatchId = async (req, res) => {
 //   try {
 //     const userId = req.user?.id;
