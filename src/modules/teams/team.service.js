@@ -689,51 +689,46 @@ export const updateTeamService = async (
 
 
 
-export const getMyTeamsXIStatusService = async (userId, matchId, teamId = null) => {
+export const getMyTeamsXIStatusService = async (userId, matchId, homeTeamId) => {
 
+  // 1️⃣ Match fetch
   const [[match]] = await db.query(
-    `SELECT id, lineup_status FROM matches WHERE id = ? LIMIT 1`,
+    `SELECT id, lineup_status, home_team_id, away_team_id
+     FROM matches WHERE id = ? LIMIT 1`,
     [matchId]
   );
   if (!match) throw new Error("Match not found");
 
-  // ✅ Filter playing XI by teamId if provided
-  const [playingXI] = teamId
-    ? await db.query(
-        `SELECT mp.player_id
-         FROM match_players mp
-         JOIN players p ON mp.player_id = p.id
-         WHERE mp.match_id = ? AND mp.is_playing = 1 AND p.team_id = ?`,
-        [match.id, teamId]
-      )
-    : await db.query(
-        `SELECT mp.player_id
-         FROM match_players mp
-         WHERE mp.match_id = ? AND mp.is_playing = 1`,
-        [match.id]
-      );
+  // 2️⃣ Playing XI fetch — both teams
+  const [playingXI] = await db.query(
+    `SELECT mp.player_id, p.team_id
+     FROM match_players mp
+     JOIN players p ON mp.player_id = p.id
+     WHERE mp.match_id = ? AND mp.is_playing = 1`,
+    [match.id]
+  );
 
-  const playingXISet = new Set(playingXI.map(p => p.player_id));
+  // 3️⃣ Home / Away XI split
+  const homeXISet = new Set(
+    playingXI.filter(p => p.team_id === homeTeamId).map(p => p.player_id)
+  );
+  const awayXISet = new Set(
+    playingXI.filter(p => p.team_id !== homeTeamId).map(p => p.player_id)
+  );
 
-  // ✅ Filter pre-squad by teamId if provided
-  const [preSquad] = teamId
-    ? await db.query(
-        `SELECT mp.player_id
-         FROM match_players mp
-         JOIN players p ON mp.player_id = p.id
-         WHERE mp.match_id = ? AND mp.is_pre_squad = 1 AND p.team_id = ?`,
-        [match.id, teamId]
-      )
-    : await db.query(
-        `SELECT mp.player_id
-         FROM match_players mp
-         WHERE mp.match_id = ? AND mp.is_pre_squad = 1`,
-        [match.id]
-      );
+  const homeXIAnnounced = homeXISet.size > 0;
+  const awayXIAnnounced = awayXISet.size > 0;
 
+  // 4️⃣ Pre-squad fetch — both teams
+  const [preSquad] = await db.query(
+    `SELECT mp.player_id
+     FROM match_players mp
+     WHERE mp.match_id = ? AND mp.is_pre_squad = 1`,
+    [match.id]
+  );
   const preSquadSet = new Set(preSquad.map(p => p.player_id));
 
-  // ✅ User teams query — unchanged
+  // 5️⃣ User teams + players fetch
   const [rows] = await db.query(
     `SELECT 
         ut.id           AS team_id,
@@ -759,66 +754,64 @@ export const getMyTeamsXIStatusService = async (userId, matchId, teamId = null) 
 
   if (!rows.length) return [];
 
+  // 6️⃣ Group by user team + xiStatus calculate
   const teamsMap = {};
 
   for (const row of rows) {
     if (!teamsMap[row.team_id]) {
       teamsMap[row.team_id] = {
-        teamId:       row.team_id,
-        teamName:     row.team_name,
-        lineupStatus: match.lineup_status,
-        totalPlayers: 0,
-        playingCount: 0,
-        missingCount: 0,
-        players:      []
+        teamId:          row.team_id,
+        teamName:        row.team_name,
+        lineupStatus:    match.lineup_status,
+        homeXIAnnounced,
+        awayXIAnnounced,
+        totalPlayers:    0,
+        playingCount:    0,
+        missingCount:    0,
+        players:         []
       };
     }
 
-    const isInXI       = playingXISet.has(row.player_id);
-    const isInPreSquad = preSquadSet.has(row.player_id);
+    // 7️⃣ Home player or Away player?
+    const isHomePlayer      = row.real_team_id === homeTeamId;
+    const isInXI            = isHomePlayer ? homeXISet.has(row.player_id) : awayXISet.has(row.player_id);
+    const isInPreSquad      = preSquadSet.has(row.player_id);
+    const isMyTeamAnnounced = isHomePlayer ? homeXIAnnounced : awayXIAnnounced;
 
-    // ✅ lineupOut: only consider announced if teamId filter is active
-    // If teamId passed → only that team's XI matters for "announced" check
-    // If no teamId → check full XI as before
-    const lineupOut = playingXISet.size > 0;
-
+    // 8️⃣ xiStatus decide
     let xiStatus;
-    if (!lineupOut) {
-      xiStatus = "not_announced";
+    if (!isMyTeamAnnounced) {
+      xiStatus = "not_announced";   // ⏳ XI రాలేదు
     } else if (isInXI) {
-      xiStatus = "playing";
+      xiStatus = "playing";         // ✅ Playing XI లో ఉన్నాడు
     } else {
-      // ✅ Only mark "not_playing" for players belonging to the filtered team
-      // Players from the OTHER team remain "not_announced" if that team's XI isn't out
-      if (teamId && row.real_team_id !== Number(teamId)) {
-        xiStatus = "not_announced"; // Other team's XI not filtered, so unknown
-      } else {
-        xiStatus = "not_playing";
-      }
+      xiStatus = "not_playing";     // ❌ Bench / Out
     }
 
+    // 9️⃣ Player object
     const player = {
-      playerId:      row.player_id,
-      name:          row.name,
-      position:      row.position,
-      image:         row.playerimage,
-      credits:       Number(row.playercredits) || 0,
-      realTeamId:    row.real_team_id,
-      realTeamName:  row.real_team_name,
-      realTeamShort: row.real_team_short,
-      isCaptain:     row.is_captain === 1,
-      isViceCaptain: row.is_vice_captain === 1,
-      isInPlayingXI: isInXI,
-      isInPreSquad:  isInPreSquad,
+      playerId:        row.player_id,
+      name:            row.name,
+      position:        row.position,
+      image:           row.playerimage,
+      credits:         Number(row.playercredits) || 0,
+      realTeamId:      row.real_team_id,
+      realTeamName:    row.real_team_name,
+      realTeamShort:   row.real_team_short,
+      isCaptain:       row.is_captain === 1,
+      isViceCaptain:   row.is_vice_captain === 1,
+      isInPlayingXI:   isInXI,
+      isInPreSquad:    isInPreSquad,
       xiStatus,
     };
 
     teamsMap[row.team_id].players.push(player);
     teamsMap[row.team_id].totalPlayers++;
 
-    if (isInXI)         teamsMap[row.team_id].playingCount++;
-    else if (lineupOut && xiStatus === "not_playing") teamsMap[row.team_id].missingCount++;
+    if (isInXI)                  teamsMap[row.team_id].playingCount++;
+    else if (isMyTeamAnnounced)  teamsMap[row.team_id].missingCount++;
   }
 
+  // 🔟 Return all user teams as array
   return Object.values(teamsMap);
 };

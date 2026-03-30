@@ -28,6 +28,6 @@ router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers)
 
 router.get("/my-teams-with-players", authenticate, checkAccountActive, getMyTeamsWithPlayers);
 
-router.get("/my-teams/xi-status/:matchId", authenticate, checkAccountActive, getMyTeamsXIStatus);
- 
+router.get("/my-teams/xi-status/:matchId/:homeTeamId", authenticate, checkAccountActive, getMyTeamsXIStatus);
+
 export default router;    
