@@ -118,35 +118,37 @@ export const getAllContests = async (req, res) => {
 export const getContestsByMatchId = async (req, res) => {
   try {
     const userId = req.user?.id;
-    const contest_id = req.params.match_id?.trim();
+    const match_id = req.params.match_id?.trim();
 
     if (!userId) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    if (!contest_id) {
+    if (!match_id) {
       return res.status(400).json({ success: false, message: "match_id param is required" });
     }
 
-    const contest = await getContestsService(contest_id, userId);
+    const contests = await getContestsService(match_id, userId);
 
-    if (!contest) {
-      return res.status(404).json({ success: false, message: "Contest not found" });
+    if (!contests || contests.length === 0) {
+      return res.status(404).json({ success: false, message: "No contests found for this match" });
     }
 
     return res.status(200).json({
       success: true,
-      data: contest,
+      total: contests.length,
+      data: contests,
     });
 
   } catch (err) {
-    console.error("[getContestById]", err);
+    console.error("[getContestsByMatchId]", err);
     return res.status(err.statusCode || 500).json({
       success: false,
       message: err.statusCode ? err.message : "Internal server error",
     });
   }
 };
+
 //===============================//===================================//
 export const joinContest = async (req, res) => {
   try {
