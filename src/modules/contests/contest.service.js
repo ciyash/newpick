@@ -88,10 +88,93 @@ export const getContestsServiceold = async (matchId) => {
 
   }));
 };
-export const getContestsService = async (matchId, userId) => {
-  try {
 
-    if (!matchId) throw new Error("matchId is required");
+
+// export const getContestsService = async (matchId, userId) => {
+//   try {
+
+//     if (!matchId) throw new Error("matchId is required");
+//     if (!userId) throw new Error("userId is required");
+
+//     const [rows] = await db.query(`
+//       SELECT 
+//         c.*,
+//         COUNT(ce.id) AS my_team_count
+//       FROM contest c
+//       LEFT JOIN contest_entries ce 
+//         ON ce.contest_id = c.id 
+//         AND ce.user_id = ?
+//       WHERE c.match_id = ?
+//       GROUP BY c.id
+//       ORDER BY c.entry_fee DESC
+//     `, [userId, matchId]);
+
+//     if (!rows || rows.length === 0) {
+//       return [];
+//     }
+
+//     return rows.map((c) => {
+
+//       const myTeamCount = Number(c.my_team_count) || 0;
+
+//       let prizeDistribution = null;
+//       try {
+//         prizeDistribution = c.prize_distribution
+//           ? JSON.parse(c.prize_distribution)
+//           : null;
+//       } catch {
+//         prizeDistribution = null;
+//       }
+
+//       const isCashback = c.is_cashback === 1;
+
+//       return {
+//         id: c.id,
+//         matchId: c.match_id,
+
+//         entryFee: Number(c.entry_fee) || 0,
+//         prizePool: Number(c.prize_pool) || 0,
+
+//         maxEntries: c.max_entries || 0,
+//         minEntries: c.min_entries || 0,
+//         currentEntries: c.current_entries || 0,
+//         remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+
+//         myTeamCount,
+//         isJoined: myTeamCount > 0,
+
+//         contestType: c.contest_type || null,
+//         isGuaranteed: c.is_guaranteed === 1,
+
+//         winnerPercentage: Number(c.winner_percentage) || 0,
+//         totalWinners: c.total_winners || 0,
+//         firstPrize: Number(c.first_prize) || 0,
+//         prizeDistribution,
+
+//         isCashback,
+//         ...(isCashback && {
+//           cashbackPercentage: Number(c.cashback_percentage) || 0,
+//           cashbackAmount: Number(c.cashback_amount) || 0
+//         }),
+
+//         platformFeePercentage: Number(c.platform_fee_percentage) || 0,
+//         platformFeeAmount: Number(c.platform_fee_amount) || 0,
+
+//         status: c.status || null,
+//         createdAt: c.created_at || null
+//       };
+
+//     });
+
+//   } catch (err) {
+//     console.error("[getContestsService]", err);
+//     throw err;
+//   }
+// };
+
+export const getContestsService = async (contestId, userId) => {
+  try {
+    if (!contestId) throw new Error("contestId is required");
     if (!userId) throw new Error("userId is required");
 
     const [rows] = await db.query(`
@@ -102,70 +185,66 @@ export const getContestsService = async (matchId, userId) => {
       LEFT JOIN contest_entries ce 
         ON ce.contest_id = c.id 
         AND ce.user_id = ?
-      WHERE c.match_id = ?
+      WHERE c.id = ?
       GROUP BY c.id
-      ORDER BY c.entry_fee DESC
-    `, [userId, matchId]);
+    `, [userId, contestId]);
 
     if (!rows || rows.length === 0) {
-      return [];
+      return null;
     }
 
-    return rows.map((c) => {
+    const c = rows[0];
+    const myTeamCount = Number(c.my_team_count) || 0;
 
-      const myTeamCount = Number(c.my_team_count) || 0;
+    let prizeDistribution = null;
+    try {
+      prizeDistribution = c.prize_distribution
+        ? JSON.parse(c.prize_distribution)
+        : null;
+    } catch {
+      prizeDistribution = null;
+    }
 
-      let prizeDistribution = null;
-      try {
-        prizeDistribution = c.prize_distribution
-          ? JSON.parse(c.prize_distribution)
-          : null;
-      } catch {
-        prizeDistribution = null;
-      }
+    const isCashback = c.is_cashback === 1;
 
-      const isCashback = c.is_cashback === 1;
+    return {
+      id: c.id,
+      matchId: c.match_id,
 
-      return {
-        id: c.id,
-        matchId: c.match_id,
+      entryFee: Number(c.entry_fee) || 0,
+      prizePool: Number(c.prize_pool) || 0,
 
-        entryFee: Number(c.entry_fee) || 0,
-        prizePool: Number(c.prize_pool) || 0,
+      maxEntries: c.max_entries || 0,
+      minEntries: c.min_entries || 0,
+      currentEntries: c.current_entries || 0,
+      remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
 
-        maxEntries: c.max_entries || 0,
-        minEntries: c.min_entries || 0,
-        currentEntries: c.current_entries || 0,
-        remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+      myTeamCount,
+      isJoined: myTeamCount > 0,
 
-        myTeamCount,
-        isJoined: myTeamCount > 0,
+      contestType: c.contest_type || null,
+      isGuaranteed: c.is_guaranteed === 1,
 
-        contestType: c.contest_type || null,
-        isGuaranteed: c.is_guaranteed === 1,
+      winnerPercentage: Number(c.winner_percentage) || 0,
+      totalWinners: c.total_winners || 0,
+      firstPrize: Number(c.first_prize) || 0,
+      prizeDistribution,
 
-        winnerPercentage: Number(c.winner_percentage) || 0,
-        totalWinners: c.total_winners || 0,
-        firstPrize: Number(c.first_prize) || 0,
-        prizeDistribution,
+      isCashback,
+      ...(isCashback && {
+        cashbackPercentage: Number(c.cashback_percentage) || 0,
+        cashbackAmount: Number(c.cashback_amount) || 0,
+      }),
 
-        isCashback,
-        ...(isCashback && {
-          cashbackPercentage: Number(c.cashback_percentage) || 0,
-          cashbackAmount: Number(c.cashback_amount) || 0
-        }),
+      platformFeePercentage: Number(c.platform_fee_percentage) || 0,
+      platformFeeAmount: Number(c.platform_fee_amount) || 0,
 
-        platformFeePercentage: Number(c.platform_fee_percentage) || 0,
-        platformFeeAmount: Number(c.platform_fee_amount) || 0,
-
-        status: c.status || null,
-        createdAt: c.created_at || null
-      };
-
-    });
+      status: c.status || null,
+      createdAt: c.created_at || null,
+    };
 
   } catch (err) {
-    console.error("[getContestsService]", err);
+    console.error("[getContestByIdService]", err);
     throw err;
   }
 };
