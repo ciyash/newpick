@@ -30,4 +30,4 @@ router.get("/my-teams-with-players", authenticate, checkAccountActive, getMyTeam
 
 router.get("/my-teams/xi-status/:matchId", authenticate, checkAccountActive, getMyTeamsXIStatus);
  
-export default router;  
+export default router;    

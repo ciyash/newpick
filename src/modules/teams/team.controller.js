@@ -345,21 +345,17 @@ export const updateTeam = async (req, res) => {
   }
 };
 
+
 export const getMyTeamsXIStatus = async (req, res) => {
   try {
     const userId = req.user.id;
     const { matchId } = req.params;
+    const { teamId } = req.query; // ✅ optional filter
 
-    const data = await getMyTeamsXIStatusService(userId, matchId);
+    const data = await getMyTeamsXIStatusService(userId, matchId, teamId);
 
-    res.status(200).json({
-      success: true,
-      data
-    });
+    res.status(200).json({ success: true, data });
   } catch (error) {
-    res.status(400).json({
-      success: false,
-      message: error.message
-    });
+    res.status(400).json({ success: false, message: error.message });
   }
 };

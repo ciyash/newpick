@@ -689,37 +689,51 @@ export const updateTeamService = async (
 
 
 
-export const getMyTeamsXIStatusService = async (userId, matchId) => {
+export const getMyTeamsXIStatusService = async (userId, matchId, teamId = null) => {
 
-  // 1️⃣ Match fetch
   const [[match]] = await db.query(
     `SELECT id, lineup_status FROM matches WHERE id = ? LIMIT 1`,
     [matchId]
   );
-
   if (!match) throw new Error("Match not found");
 
-  // 2️⃣ Playing XI — match_players table nundi
-  const [playingXI] = await db.query(
-    `SELECT mp.player_id
-     FROM match_players mp
-     WHERE mp.match_id = ? AND mp.is_playing = 1`,
-    [match.id]
-  );
+  // ✅ Filter playing XI by teamId if provided
+  const [playingXI] = teamId
+    ? await db.query(
+        `SELECT mp.player_id
+         FROM match_players mp
+         JOIN players p ON mp.player_id = p.id
+         WHERE mp.match_id = ? AND mp.is_playing = 1 AND p.team_id = ?`,
+        [match.id, teamId]
+      )
+    : await db.query(
+        `SELECT mp.player_id
+         FROM match_players mp
+         WHERE mp.match_id = ? AND mp.is_playing = 1`,
+        [match.id]
+      );
 
   const playingXISet = new Set(playingXI.map(p => p.player_id));
 
-  // 3️⃣ Pre-squad players (announced but not confirmed playing)
-  const [preSquad] = await db.query(
-    `SELECT mp.player_id
-     FROM match_players mp
-     WHERE mp.match_id = ? AND mp.is_pre_squad = 1`,
-    [match.id]
-  );
+  // ✅ Filter pre-squad by teamId if provided
+  const [preSquad] = teamId
+    ? await db.query(
+        `SELECT mp.player_id
+         FROM match_players mp
+         JOIN players p ON mp.player_id = p.id
+         WHERE mp.match_id = ? AND mp.is_pre_squad = 1 AND p.team_id = ?`,
+        [match.id, teamId]
+      )
+    : await db.query(
+        `SELECT mp.player_id
+         FROM match_players mp
+         WHERE mp.match_id = ? AND mp.is_pre_squad = 1`,
+        [match.id]
+      );
 
   const preSquadSet = new Set(preSquad.map(p => p.player_id));
 
-  // 4️⃣ User teams + players
+  // ✅ User teams query — unchanged
   const [rows] = await db.query(
     `SELECT 
         ut.id           AS team_id,
@@ -745,35 +759,42 @@ export const getMyTeamsXIStatusService = async (userId, matchId) => {
 
   if (!rows.length) return [];
 
-  // 5️⃣ Group + XI status calculate
   const teamsMap = {};
 
   for (const row of rows) {
-
     if (!teamsMap[row.team_id]) {
       teamsMap[row.team_id] = {
-        teamId:        row.team_id,
-        teamName:      row.team_name,
-        lineupStatus:  match.lineup_status,   // "announced" | "not_announced"
-        totalPlayers:  0,
-        playingCount:  0,
-        missingCount:  0,
-        players:       []
+        teamId:       row.team_id,
+        teamName:     row.team_name,
+        lineupStatus: match.lineup_status,
+        totalPlayers: 0,
+        playingCount: 0,
+        missingCount: 0,
+        players:      []
       };
     }
 
     const isInXI       = playingXISet.has(row.player_id);
     const isInPreSquad = preSquadSet.has(row.player_id);
-    const lineupOut    = playingXISet.size > 0;  // Lineup announce aindha?
 
-    // ✅ 3 states
+    // ✅ lineupOut: only consider announced if teamId filter is active
+    // If teamId passed → only that team's XI matters for "announced" check
+    // If no teamId → check full XI as before
+    const lineupOut = playingXISet.size > 0;
+
     let xiStatus;
     if (!lineupOut) {
-      xiStatus = "not_announced";   // ⏳ Lineup రాలేదు
+      xiStatus = "not_announced";
     } else if (isInXI) {
-      xiStatus = "playing";         // ✅ Playing XI లో ఉన్నాడు
+      xiStatus = "playing";
     } else {
-      xiStatus = "not_playing";     // ❌ XI లో లేడు (bench / out)
+      // ✅ Only mark "not_playing" for players belonging to the filtered team
+      // Players from the OTHER team remain "not_announced" if that team's XI isn't out
+      if (teamId && row.real_team_id !== Number(teamId)) {
+        xiStatus = "not_announced"; // Other team's XI not filtered, so unknown
+      } else {
+        xiStatus = "not_playing";
+      }
     }
 
     const player = {
@@ -795,8 +816,8 @@ export const getMyTeamsXIStatusService = async (userId, matchId) => {
     teamsMap[row.team_id].players.push(player);
     teamsMap[row.team_id].totalPlayers++;
 
-    if (isInXI)          teamsMap[row.team_id].playingCount++;
-    else if (lineupOut)  teamsMap[row.team_id].missingCount++;
+    if (isInXI)         teamsMap[row.team_id].playingCount++;
+    else if (lineupOut && xiStatus === "not_playing") teamsMap[row.team_id].missingCount++;
   }
 
   return Object.values(teamsMap);
