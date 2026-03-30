@@ -38,7 +38,7 @@ router.get("/joined-contests/:match_id/:contest_id", getMyJoinedContests);
 
 router.get("/", getAllContests);
 // router.get("/:match_id", getContestsByMatchId);
-router.get("/:contest_id",  getContestsByMatchId);
+router.get("/:match_id",  getContestsByMatchId);
       
 export default router;
    

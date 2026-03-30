@@ -118,14 +118,14 @@ export const getAllContests = async (req, res) => {
 export const getContestsByMatchId = async (req, res) => {
   try {
     const userId = req.user?.id;
-    const contest_id = req.params.contest_id?.trim();
+    const contest_id = req.params.match_id?.trim();
 
     if (!userId) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
     if (!contest_id) {
-      return res.status(400).json({ success: false, message: "contest_id param is required" });
+      return res.status(400).json({ success: false, message: "match_id param is required" });
     }
 
     const contest = await getContestsService(contest_id, userId);
