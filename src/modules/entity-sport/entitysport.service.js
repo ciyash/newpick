@@ -56,25 +56,35 @@ export const getCountryName = (player) => {
    SERIES
 ══════════════════════════════════════════ */
 
+
 export const getAvailableSeriesService = async () => {
-  const matchesList = [];
+  const seriesMap = new Map(); // cid → best/nearest match
 
   const firstData = await apiGet("/matches", { paged: 1, per_page: 100 });
   const totalPages = firstData.response.total_pages;
 
   const collectMatches = (items) => {
     const now = new Date();
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+
     for (const match of items) {
       const c = match.competition;
       if (!c?.cid) continue;
 
       const matchDate = new Date(match.datestart);
-      const yesterday = new Date(now);
-      yesterday.setDate(yesterday.getDate() - 1);
       if (matchDate < yesterday) continue;
 
-      matchesList.push({
-        cid: String(c.cid),
+      const cid = String(c.cid);
+
+      // Already have this series? Only update if this match is sooner
+      if (seriesMap.has(cid)) {
+        const existing = seriesMap.get(cid);
+        if (matchDate >= new Date(existing.match_date)) continue;
+      }
+
+      seriesMap.set(cid, {
+        cid,
         name: c.cname,
         start_date: c.startdate || null,
         end_date: c.enddate || null,
@@ -88,13 +98,14 @@ export const getAvailableSeriesService = async () => {
   };
 
   collectMatches(firstData.response.items);
-
   for (let page = 2; page <= totalPages; page++) {
     const data = await apiGet("/matches", { paged: page, per_page: 100 });
     collectMatches(data.response.items);
   }
 
-  const cids = [...new Set(matchesList.map((m) => m.cid))];
+  const matchesList = [...seriesMap.values()];
+  const cids = matchesList.map((m) => m.cid);
+
   if (!cids.length) return [];
 
   const [dbRows] = await db.query(
@@ -104,18 +115,16 @@ export const getAvailableSeriesService = async () => {
 
   const dbMap = new Map(dbRows.map((r) => [String(r.seriesid), r]));
 
-  let result = matchesList.map((m) => {
-    const dbRow = dbMap.get(m.cid);
-    return {
-      ...m,
-      is_active: dbRow ? dbRow.is_selected === 1 : false,
-      status: dbRow ? dbRow.status : "pending",
-    };
-  });
-
-  result.sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
-
-  return result;
+  return matchesList
+    .map((m) => {
+      const dbRow = dbMap.get(m.cid);
+      return {
+        ...m,
+        is_active: dbRow ? dbRow.is_selected === 1 : false,
+        status: dbRow ? dbRow.status : "pending",
+      };
+    })
+    .sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
 };
 
 export const toggleSeriesService = async (seriesIds, isActive) => {
