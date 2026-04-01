@@ -815,3 +815,70 @@ export const getMyTeamsXIStatusService = async (userId, matchId, homeTeamId) => 
   // 🔟 Return all user teams as array
   return Object.values(teamsMap);
 };
+
+
+
+/* ══════════════════════════════════════════
+   GET PLAYING XI
+══════════════════════════════════════════ */
+
+export const getPlayingXIService = async (matchId) => {
+  const [[match]] = await db.query(
+    `SELECT id, hometeamname, awayteamname, lineup_status, lineupavailable
+     FROM matches
+     WHERE provider_match_id = ? OR id = ?
+     LIMIT 1`,
+    [matchId, matchId]
+  );
+
+  if (!match) throw new Error("Match not found: " + matchId);
+
+  const [players] = await db.query(
+    `SELECT 
+       mp.id AS match_player_id,
+       mp.is_playing,
+       mp.is_substitute,
+       mp.is_pre_squad,
+       p.id AS player_id,
+       p.name,
+       p.position,
+       p.playercredits,
+       p.playerimage,
+       p.flag_image,
+       p.country,
+       t.id AS team_id,
+       t.name AS team_name
+     FROM match_players mp
+     JOIN players p ON p.id = mp.player_id
+     JOIN teams t ON t.id = mp.team_id
+     WHERE mp.match_id = ?
+     ORDER BY mp.team_id, mp.is_playing DESC, p.position`,
+    [match.id]
+  );
+
+  // Split home and away
+  const homeTeamName = match.hometeamname;
+  const awayTeamName = match.awayteamname;
+
+  const homePlayers = players.filter(p => p.team_name === homeTeamName);
+  const awayPlayers = players.filter(p => p.team_name === awayTeamName);
+
+  return {
+    success: true,
+    data: {
+      match_id: matchId,
+      lineup_status: match.lineup_status,
+      lineupavailable: match.lineupavailable === 1,
+      home: {
+        team_name: homeTeamName,
+        playing_xi: homePlayers.filter(p => p.is_playing === 1),
+        substitutes: homePlayers.filter(p => p.is_substitute === 1),
+      },
+      away: {
+        team_name: awayTeamName,
+        playing_xi: awayPlayers.filter(p => p.is_playing === 1),
+        substitutes: awayPlayers.filter(p => p.is_substitute === 1),
+      },
+    },
+  };
+};

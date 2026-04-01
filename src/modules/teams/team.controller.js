@@ -1,5 +1,5 @@
 import db from "../../config/db.js";
-import { createTeamService,  getMyTeamsWithPlayersService, getMyTeamsXIStatusService, getTeamPlayersService, updateTeamService } from "./team.service.js";
+import { createTeamService,  getMyTeamsWithPlayersService, getMyTeamsXIStatusService, getPlayingXIService, getTeamPlayersService, updateTeamService } from "./team.service.js";
 import { createTeamSchema, updateTeamSchema } from "./team.validation.js";
 
 export const getAllTeams = async (req, res) => {
@@ -357,5 +357,21 @@ export const getMyTeamsXIStatus = async (req, res) => {
     res.status(200).json({ success: true, data });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
+  }
+};
+
+
+export const getPlayingXI = async (req, res) => {
+  try {
+    const { match_id } = req.params;
+    if (!match_id) {
+      return res.status(400).json({ success: false, message: "match_id is required" });
+    }
+
+    const result = await getPlayingXIService(match_id);
+    res.status(200).json(result);
+  } catch (err) {
+    console.error("getPlayingXI error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 };

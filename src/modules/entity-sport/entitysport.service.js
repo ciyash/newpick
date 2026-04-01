@@ -617,6 +617,12 @@ export const syncTeamRosterService = async (conn, providerTeamId, internalTeamId
   return { success: true, inserted };
 };
 
+
+/* ══════════════════════════════════════════
+   SYNC PLAYERS (players table only — no match_players)
+   Called from toggleMatchesService when match is activated
+══════════════════════════════════════════ */
+
 export const syncPlayersService = async (matchId) => {
   const conn = await db.getConnection();
 
@@ -636,80 +642,48 @@ export const syncPlayersService = async (matchId) => {
 
     if (!matchRows.length) throw new Error("Match not found: " + matchId);
 
-    const { id: internalMatchId, home_team_id, away_team_id } = matchRows[0];
+    const { home_team_id, away_team_id } = matchRows[0];
 
     // ============================================
-    // 2) FETCH MATCH INFO API
+    // 2) FETCH MATCH INFO FROM API
     // ============================================
     const infoData = await apiGet(`/matches/${matchId}/info`);
- console.log("=== RAW API RESPONSE KEYS ===");
-  console.log("items keys:", Object.keys(infoData?.response?.items || {}));
-  console.log("match_info:", infoData?.response?.items?.match_info?.[0] ? "EXISTS" : "NULL");
-  console.log("lineup:", infoData?.response?.items?.match_info?.[0]?.lineup?.length);
-  console.log("home_squad:", infoData?.response?.items?.match_info?.[0]?.home_squad?.length);
-  console.log("full items sample:", JSON.stringify(infoData?.response?.items).substring(0, 500));
-
-    const matchInfo =
-      infoData?.response?.items?.match_info?.[0] ||
-      infoData?.response?.items?.match_info ||
-      infoData?.response?.match_info?.[0] ||
-      infoData?.response?.match_info ||
-      infoData?.response?.items?.[0] ||
-      null;
+    const matchInfo = infoData?.response?.items?.match_info?.[0];
 
     const homeSquad = matchInfo?.home_squad || [];
     const awaySquad = matchInfo?.away_squad || [];
 
-    console.log("pre_squad:", matchInfo?.pre_squad);
-    console.log(`Home squad count: ${homeSquad.length}`);
-    console.log(`Away squad count: ${awaySquad.length}`);
+    console.log(`Home squad: ${homeSquad.length}, Away squad: ${awaySquad.length}`);
 
     // ============================================
-    // 3) CLEAR OLD MATCH PLAYERS
+    // 3) CASE A — PRE SQUAD FROM API
     // ============================================
-    await conn.query(
-      `DELETE FROM match_players WHERE match_id = ?`,
-      [internalMatchId]
-    );
+    const hasPreSquad = homeSquad.length > 0 && awaySquad.length > 0;
 
-    let totalInserted = 0;
-    let source = "db_roster";
-
-    // ============================================
-    // 4) CASE A — REAL SQUAD FROM API
-    // ============================================
-    const hasRealSquad =
-      Array.isArray(homeSquad) &&
-      Array.isArray(awaySquad) &&
-      homeSquad.length > 0 &&
-      awaySquad.length > 0;
-
-    if (hasRealSquad) {
-      source = "pre_squad";
-
+    if (hasPreSquad) {
       const teamSquads = [
         { players: homeSquad, teamId: home_team_id, label: "HOME" },
         { players: awaySquad, teamId: away_team_id, label: "AWAY" },
       ];
 
       const seenProviderIds = new Set();
+      let inserted = 0;
 
       for (const { players, teamId, label } of teamSquads) {
-        console.log(`========== ${label} SQUAD START ==========`);
+        console.log(`===== ${label} SQUAD =====`);
 
         for (const p of players) {
-          const pos = mapPositionType(
-            p.positiontype || p.playing_role || p.role || p.position || p.positionname
-          );
-
           const providerPlayerId = String(
-            p.pid || p.player_id || p.id || p.provider_player_id || ""
-          );
+            p.pid || p.player_id || p.id || ""
+          ).trim();
 
           if (!providerPlayerId) continue;
           if (seenProviderIds.has(providerPlayerId)) continue;
           seenProviderIds.add(providerPlayerId);
 
+          const pos = mapPositionType(
+            p.positiontype || p.playing_role || p.role || p.position || p.positionname
+          );
           const playerName = p.fullname || p.name || p.title || "Unknown Player";
           const playerImage = `${process.env.ENTITY_PLAYER_IMAGE_URL}/${providerPlayerId}.png`;
           const countryName = getCountryName(p);
@@ -721,7 +695,7 @@ export const syncPlayersService = async (matchId) => {
             : null;
           const credits = parseFloat(p.fantasy_player_rating) || 8.0;
 
-          // UPSERT PLAYERS TABLE
+          // ✅ ONLY players table — match_players touch చేయదు
           await conn.query(
             `INSERT INTO players
                (team_id, name, position, player_type, country, playercredits,
@@ -751,146 +725,76 @@ export const syncPlayersService = async (matchId) => {
             ]
           );
 
-          // GET INTERNAL PLAYER ID
-          const [[playerRow]] = await conn.query(
-            `SELECT id FROM players WHERE provider_player_id = ? LIMIT 1`,
-            [providerPlayerId]
-          );
-
-          if (!playerRow) continue;
-
-          // INSERT MATCH_PLAYERS
-          await conn.query(
-            `INSERT INTO match_players
-               (match_id, player_id, team_id, is_playing, is_substitute, is_pre_squad)
-             VALUES (?, ?, ?, 0, 0, 1)
-             ON DUPLICATE KEY UPDATE
-               team_id       = VALUES(team_id),
-               is_playing    = VALUES(is_playing),
-               is_substitute = VALUES(is_substitute),
-               is_pre_squad  = VALUES(is_pre_squad)`,
-            [internalMatchId, playerRow.id, teamId]
-          );
-
-          totalInserted++;
+          inserted++;
         }
       }
 
-      console.log(`✅ Real squad synced: ${totalInserted} players for match ${matchId}`);
+      await conn.commit();
+      console.log(`✅ Pre squad synced to players table: ${inserted} players for match ${matchId}`);
+      return { success: true, inserted, source: "pre_squad" };
     }
 
     // ============================================
-    // 5) CASE B — NO REAL SQUAD → USE TEAM ROSTER
+    // 4) CASE B — NO PRE SQUAD → USE TEAM ROSTER
     // ============================================
-    else {
-      console.warn(`⚠️ No real squad found for match ${matchId}, using team roster`);
+    console.warn(`⚠️ No pre squad for match ${matchId}, using team roster`);
 
-      let [dbPlayers] = await conn.query(
-        `SELECT id, team_id, position FROM players WHERE team_id IN (?, ?)`,
+    let [dbPlayers] = await conn.query(
+      `SELECT id, team_id FROM players WHERE team_id IN (?, ?)`,
+      [home_team_id, away_team_id]
+    );
+
+    const homeCount = dbPlayers.filter(p => Number(p.team_id) === Number(home_team_id)).length;
+    const awayCount = dbPlayers.filter(p => Number(p.team_id) === Number(away_team_id)).length;
+
+    // If not enough → sync from /team/{tid}/info
+    if (homeCount < 8 || awayCount < 8) {
+      const [teamRows] = await conn.query(
+        `SELECT id, provider_team_id, name FROM teams WHERE id IN (?, ?)`,
         [home_team_id, away_team_id]
       );
 
-      let homeCount = dbPlayers.filter(
-        (p) => Number(p.team_id) === Number(home_team_id)
-      ).length;
+      const homeTeam = teamRows.find(t => Number(t.id) === Number(home_team_id));
+      const awayTeam = teamRows.find(t => Number(t.id) === Number(away_team_id));
 
-      let awayCount = dbPlayers.filter(
-        (p) => Number(p.team_id) === Number(away_team_id)
-      ).length;
-
-      // If not enough players → sync from /team/{tid}/info
-      if (homeCount < 8 || awayCount < 8) {
-        const [teamRows] = await conn.query(
-          `SELECT id, provider_team_id, name FROM teams WHERE id IN (?, ?)`,
-          [home_team_id, away_team_id]
-        );
-
-        const homeTeam = teamRows.find(
-          (t) => Number(t.id) === Number(home_team_id)
-        );
-        const awayTeam = teamRows.find(
-          (t) => Number(t.id) === Number(away_team_id)
-        );
-
-        if (homeTeam?.provider_team_id) {
-          console.log(`🔄 Syncing roster for home team: ${homeTeam.name}`);
-          // ✅ conn first parameter గా pass చేయి
-          await syncTeamRosterService(conn, homeTeam.provider_team_id, home_team_id);
-        }
-
-        if (awayTeam?.provider_team_id) {
-          console.log(`🔄 Syncing roster for away team: ${awayTeam.name}`);
-          // ✅ conn first parameter గా pass చేయి
-          await syncTeamRosterService(conn, awayTeam.provider_team_id, away_team_id);
-        }
-
-        // Re-fetch after sync
-        [dbPlayers] = await conn.query(
-          `SELECT id, team_id, position FROM players WHERE team_id IN (?, ?)`,
-          [home_team_id, away_team_id]
-        );
-
-        homeCount = dbPlayers.filter(
-          (p) => Number(p.team_id) === Number(home_team_id)
-        ).length;
-
-        awayCount = dbPlayers.filter(
-          (p) => Number(p.team_id) === Number(away_team_id)
-        ).length;
+      if (homeTeam?.provider_team_id) {
+        console.log(`🔄 Syncing roster for home: ${homeTeam.name}`);
+        await syncTeamRosterService(conn, homeTeam.provider_team_id, home_team_id);
       }
 
-      console.log(`DB Home players: ${homeCount}`);
-      console.log(`DB Away players: ${awayCount}`);
-
-      if (homeCount < 8 || awayCount < 8) {
-        await conn.rollback();
-        return {
-          success: false,
-          inserted: 0,
-          source: "db_roster",
-          reason: "Not enough roster players even after team roster sync",
-        };
+      if (awayTeam?.provider_team_id) {
+        console.log(`🔄 Syncing roster for away: ${awayTeam.name}`);
+        await syncTeamRosterService(conn, awayTeam.provider_team_id, away_team_id);
       }
 
-      for (const p of dbPlayers) {
-        await conn.query(
-          `INSERT INTO match_players
-             (match_id, player_id, team_id, is_playing, is_substitute, is_pre_squad)
-           VALUES (?, ?, ?, 0, 0, 0)
-           ON DUPLICATE KEY UPDATE
-             team_id       = VALUES(team_id),
-             is_playing    = VALUES(is_playing),
-             is_substitute = VALUES(is_substitute),
-             is_pre_squad  = VALUES(is_pre_squad)`,
-          [internalMatchId, p.id, p.team_id]
-        );
-        totalInserted++;
-      }
-
-      console.log(`✅ DB roster synced: ${totalInserted} players for match ${matchId}`);
+      // Re-fetch after roster sync
+      [dbPlayers] = await conn.query(
+        `SELECT id, team_id FROM players WHERE team_id IN (?, ?)`,
+        [home_team_id, away_team_id]
+      );
     }
 
-    // ============================================
-    // 6) FINAL COUNT
-    // ============================================
-    const [[countRow]] = await conn.query(
-      `SELECT COUNT(*) AS total FROM match_players WHERE match_id = ?`,
-      [internalMatchId]
-    );
+    const finalHomeCount = dbPlayers.filter(p => Number(p.team_id) === Number(home_team_id)).length;
+    const finalAwayCount = dbPlayers.filter(p => Number(p.team_id) === Number(away_team_id)).length;
+
+    if (finalHomeCount < 8 || finalAwayCount < 8) {
+      await conn.rollback();
+      return {
+        success: false,
+        inserted: 0,
+        source: "team_roster",
+        reason: "Not enough players even after team roster sync",
+      };
+    }
 
     await conn.commit();
-
+    console.log(`✅ Team roster already in players table: ${dbPlayers.length} players`);
     return {
       success: true,
-      inserted: totalInserted,
-      matchId: internalMatchId,
-      totalPlayers: countRow.total,
-      source,
-      reason:
-        source === "pre_squad"
-          ? "Real squad synced"
-          : "Initial player pool created from DB rosters",
+      inserted: dbPlayers.length,
+      source: "team_roster",
     };
+
   } catch (err) {
     await conn.rollback();
     console.error("❌ syncPlayersService error:", err);
@@ -900,8 +804,10 @@ export const syncPlayersService = async (matchId) => {
   }
 };
 
+
 /* ══════════════════════════════════════════
-   PLAYING XI
+   PLAYING XI — match_players table only
+   Called from cron / manual after lineup confirmed
 ══════════════════════════════════════════ */
 
 export const syncPlayingXIService = async (matchId) => {
@@ -920,59 +826,10 @@ export const syncPlayingXIService = async (matchId) => {
   const matchInfo = items?.match_info?.[0];
 
   const lineupAvailable = matchInfo?.lineupavailable === "true";
-  const preSquadAvailable = matchInfo?.pre_squad === "true";
 
   // ============================================
-  // ✅ CORRECT LINEUP STRUCTURE
+  // ✅ LINEUP NOT AVAILABLE → return, do nothing
   // ============================================
-  const homeLineupPlayers = items?.lineup?.home?.lineup?.player || [];
-  const homeSubs          = items?.lineup?.home?.substitutes || [];
-  const awayLineupPlayers = items?.lineup?.away?.lineup?.player || [];
-  const awaySubs          = items?.lineup?.away?.substitutes || [];
-
-  // ============================================
-  // PRE-SQUAD SYNC (lineup రాకముందే)
-  // ============================================
-  if (!lineupAvailable && preSquadAvailable) {
-    const homeSquad = matchInfo?.home_squad || [];
-    const awaySquad = matchInfo?.away_squad || [];
-    const allSquad  = [...homeSquad, ...awaySquad];
-
-    if (!allSquad.length) {
-      return { count: 0, reason: "No pre-squad data available" };
-    }
-
-    const pids = [...new Set(allSquad.map((p) => String(p.pid)))];
-    const [playerRows] = await db.query(
-      `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
-      [pids]
-    );
-    const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
-
-    let count = 0;
-    for (const p of allSquad) {
-      const internalPlayerId = playerMap.get(String(p.pid));
-      if (!internalPlayerId) continue;
-
-      await db.query(
-        `INSERT INTO match_players
-           (match_id, player_id, is_playing, is_substitute, is_pre_squad)
-         VALUES (?, ?, 0, 0, 1)
-         ON DUPLICATE KEY UPDATE is_pre_squad = 1`,
-        [internalMatchId, internalPlayerId]
-      );
-      count++;
-    }
-
-    await db.query(
-      `UPDATE matches SET lineupavailable = 0, lineup_status = 'announced' WHERE id = ?`,
-      [internalMatchId]
-    );
-
-    console.log(`✅ Pre-squad synced: ${count} players — status: announced`);
-    return { count, reason: null, type: "pre_squad" };
-  }
-
   if (!lineupAvailable) {
     await db.query(
       `UPDATE matches SET lineupavailable = 0, lineup_status = 'not_available' WHERE id = ?`,
@@ -982,35 +839,40 @@ export const syncPlayingXIService = async (matchId) => {
   }
 
   // ============================================
-  // ✅ PLAYING XI SYNC — correct structure
+  // ✅ LINEUP AVAILABLE → only 11 XI + subs
   // ============================================
-  const hasLineup =
-    homeLineupPlayers.length > 0 || awayLineupPlayers.length > 0;
+  const homeLineupPlayers = items?.lineup?.home?.lineup?.player || [];
+  const homeSubs          = items?.lineup?.home?.substitutes || [];
+  const awayLineupPlayers = items?.lineup?.away?.lineup?.player || [];
+  const awaySubs          = items?.lineup?.away?.substitutes || [];
+
+  const hasLineup = homeLineupPlayers.length > 0 || awayLineupPlayers.length > 0;
 
   if (!hasLineup) {
-    return { count: 0, reason: "Lineup array is empty despite lineupavailable=true" };
+    return { count: 0, reason: "Lineup array empty despite lineupavailable=true" };
   }
 
-  // Home Playing XI + Subs
   const homePlayers = [
-    ...homeLineupPlayers.map((p) => ({ ...p, is_substitute: 0 })),
-    ...homeSubs.map((p) => ({ ...p, is_substitute: 1 })),
+    ...homeLineupPlayers.map(p => ({ ...p, is_substitute: 0 })),
+    ...homeSubs.map(p => ({ ...p, is_substitute: 1 })),
   ];
 
-  // Away Playing XI + Subs
   const awayPlayers = [
-    ...awayLineupPlayers.map((p) => ({ ...p, is_substitute: 0 })),
-    ...awaySubs.map((p) => ({ ...p, is_substitute: 1 })),
+    ...awayLineupPlayers.map(p => ({ ...p, is_substitute: 0 })),
+    ...awaySubs.map(p => ({ ...p, is_substitute: 1 })),
   ];
 
   const allPlayers = [...homePlayers, ...awayPlayers];
 
-  const pids = [...new Set(allPlayers.map((p) => String(p.pid)))];
+  const pids = [...new Set(allPlayers.map(p => String(p.pid)))];
   const [playerRows] = await db.query(
     `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
     [pids]
   );
-  const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
+  const playerMap = new Map(playerRows.map(r => [r.provider_player_id, r.id]));
+
+  // ✅ Clear old match_players first
+  await db.query(`DELETE FROM match_players WHERE match_id = ?`, [internalMatchId]);
 
   let count = 0;
   for (const p of allPlayers) {
@@ -1043,8 +905,8 @@ export const syncPlayingXIService = async (matchId) => {
   );
 
   console.log(`✅ Playing XI synced: ${count} players — status: confirmed`);
-  console.log(`   Home XI: ${homeLineupPlayers.length}, Home Subs: ${homeSubs.length}`);
-  console.log(`   Away XI: ${awayLineupPlayers.length}, Away Subs: ${awaySubs.length}`);
+  console.log(`   Home XI: ${homeLineupPlayers.length}, Subs: ${homeSubs.length}`);
+  console.log(`   Away XI: ${awayLineupPlayers.length}, Subs: ${awaySubs.length}`);
 
   return { count, reason: null, type: "lineup" };
 };
@@ -1116,4 +978,6 @@ export const syncPlayerPointsService = async (matchId) => {
   return { count, reason: null };
 };
  
+
+
  
