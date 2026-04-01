@@ -17,9 +17,9 @@ const apiGet = async (endpoint, params = {}) => {
 };
 
 /* ══════════════════════════════════════════
-   EVERY 5 MIN — Match status + lineup sync
+   EVERY 25 MIN  — Match status + lineup sync
 ══════════════════════════════════════════ */
-cron.schedule("*/5 * * * *", async () => {
+cron.schedule("*/25 * * * *", async () => {
   try {
     const [matches] = await db.query(
       `SELECT id, provider_match_id, status, lineup_status
@@ -71,9 +71,9 @@ cron.schedule("*/5 * * * *", async () => {
 });
 
 /* ══════════════════════════════════════════
-   EVERY 15 MIN — Playing XI sync
+   EVERY 25 MIN — Playing XI sync
 ══════════════════════════════════════════ */
-cron.schedule("*/15 * * * *", async () => {
+cron.schedule("*/25 * * * *", async () => {
   try {
     const [matches] = await db.query(
       `SELECT provider_match_id FROM matches
@@ -139,4 +139,4 @@ cron.schedule("*/10 * * * *", async () => {
   } catch (err) {
     console.error("[CRON] ✗ Points sync error:", err.message);
   }
-});
+});  
