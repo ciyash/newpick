@@ -37,6 +37,7 @@ import { createApplicantService, generateAddressKycTokenService } from "./kyc.se
 
 // };
 
+
 export const startKyc = async (req, res) => {
   const { mobile, email } = req.body;
 
@@ -45,22 +46,22 @@ export const startKyc = async (req, res) => {
   }
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+  const normalizedEmail = String(email).trim().toLowerCase();
 
-  // ✅ users table లో check చేయి
   const [[existing]] = await db.query(
     `SELECT id, mobile, email FROM users 
      WHERE mobile = ? OR email = ? LIMIT 1`,
-    [normalizedMobile, email]
+    [normalizedMobile, normalizedEmail]
   );
 
   if (existing) {
-    if (existing.mobile === normalizedMobile && existing.email === email) {
+    if (existing.mobile === normalizedMobile && existing.email === normalizedEmail) {
       return res.status(409).json({ success: false, message: "Mobile and email already registered" });
     }
     if (existing.mobile === normalizedMobile) {
       return res.status(409).json({ success: false, message: "Mobile number already registered" });
     }
-    if (existing.email === email) {
+    if (existing.email === normalizedEmail) {
       return res.status(409).json({ success: false, message: "Email already registered" });
     }
   }
@@ -71,7 +72,7 @@ export const startKyc = async (req, res) => {
     `INSERT INTO kyc_sessions (mobile, email, applicant_id, age_verified)
      VALUES (?, ?, ?, 0)
      ON DUPLICATE KEY UPDATE applicant_id = VALUES(applicant_id)`,
-    [normalizedMobile, email, applicantId]
+    [normalizedMobile, normalizedEmail, applicantId]
   );
 
   const path = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;

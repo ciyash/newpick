@@ -99,18 +99,37 @@ export const resendSignupOtp = async (req, res) => {
 
 /* ================= VERIFY SIGNUP OTP ================= */
 
+
 export const verifySignupOtp = async (req, res) => {
   try {
     await verifyOtpSchema.validateAsync(req.body);
     const result = await signupService(req.body);
-    return res.status(200).json(result);
+    return res.status(201).json(result);
   } catch (err) {
-    return res.status(400).json({
-      success: false,
-      message: err.details?.[0]?.message || err.message
-    });
+    const message = err.details?.[0]?.message || err.message;
+
+    // Duplicate entry — mobile or email already exists
+    if (err.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({ success: false, message: "Mobile or email already registered" });
+    }
+
+    // Known business logic errors
+    const knownErrors = {
+      "OTP expired": 400,
+      "Invalid OTP": 400,
+      "Signup session expired": 400,
+      "Invalid signup session data": 400,
+      "Invalid signup session: missing name": 400,
+      "Invalid signup session: missing email": 400,
+      "Failed to generate unique usercode, please try again": 500,
+      "Server busy, please try again": 503,
+    };
+
+    const status = knownErrors[message] ?? 400;
+    return res.status(status).json({ success: false, message });
   }
 };
+
 
 /* ================= SEND LOGIN OTP ================= */ 
 
