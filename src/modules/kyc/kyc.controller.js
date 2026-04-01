@@ -5,38 +5,89 @@ import { createSumsubHeaders,  sumsubPost } from "../../utils/sumsub.js";
 import { createApplicantService, generateAddressKycTokenService } from "./kyc.service.js";
  
 
-export const startKyc = async (req, res) => {
+// export const startKyc = async (req, res) => {
 
+//   const { mobile, email } = req.body;
+
+//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+//   const applicantId = await createApplicantService(normalizedMobile);
+
+//   await db.query(
+//     `INSERT INTO kyc_sessions (mobile, email, applicant_id, age_verified)
+//      VALUES (?, ?, ?, 0)
+//      ON DUPLICATE KEY UPDATE
+//      applicant_id = VALUES(applicant_id)`,
+//     [normalizedMobile, email, applicantId]
+//   );
+
+//   const path = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
+
+//   const headers = createSumsubHeaders("POST", path, "");
+
+//   const data = await sumsubPost(
+//     process.env.SUMSUB_BASE_URL + path,
+//     headers
+//   );
+
+//   res.json({
+//     success: true,
+//     token: data.token
+//   });
+
+// };
+
+export const startKyc = async (req, res) => {
   const { mobile, email } = req.body;
 
+  if (!mobile || !email) {
+    return res.status(400).json({ success: false, message: "Mobile and email are required" });
+  }
+
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+  // ✅ Check if mobile or email already exists
+  const [[existing]] = await db.query(
+    `SELECT id, mobile, email, age_verified FROM kyc_sessions 
+     WHERE mobile = ? OR email = ? LIMIT 1`,
+    [normalizedMobile, email]
+  );
+
+  if (existing) {
+    if (existing.mobile === normalizedMobile) {
+      return res.status(409).json({ success: false, message: "Mobile number already registered" });
+    }
+    if (existing.email === email) {
+      return res.status(409).json({ success: false, message: "Email already registered" });
+    }
+  }
+
+  if (existing) {
+  if (existing.mobile === normalizedMobile && existing.email === email) {
+    return res.status(409).json({ success: false, message: "Mobile and email already registered" });
+  }
+  if (existing.mobile === normalizedMobile) {
+    return res.status(409).json({ success: false, message: "Mobile number already registered" });
+  }
+  if (existing.email === email) {
+    return res.status(409).json({ success: false, message: "Email already registered" });
+  }
+}
 
   const applicantId = await createApplicantService(normalizedMobile);
 
   await db.query(
     `INSERT INTO kyc_sessions (mobile, email, applicant_id, age_verified)
-     VALUES (?, ?, ?, 0)
-     ON DUPLICATE KEY UPDATE
-     applicant_id = VALUES(applicant_id)`,
+     VALUES (?, ?, ?, 0)`,
     [normalizedMobile, email, applicantId]
   );
 
   const path = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
-
   const headers = createSumsubHeaders("POST", path, "");
+  const data = await sumsubPost(process.env.SUMSUB_BASE_URL + path, headers);
 
-  const data = await sumsubPost(
-    process.env.SUMSUB_BASE_URL + path,
-    headers
-  );
-
-  res.json({
-    success: true,
-    token: data.token
-  });
-
+  res.json({ success: true, token: data.token });
 };
-
 export const getKycStatus = async (req, res) => {
   try {
 
