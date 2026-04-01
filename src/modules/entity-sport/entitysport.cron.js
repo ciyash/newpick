@@ -71,9 +71,9 @@ cron.schedule("*/25 * * * *", async () => {
 });
 
 /* ══════════════════════════════════════════
-   EVERY 25 MIN — Playing XI sync
+   EVERY 58 MIN — Playing XI sync
 ══════════════════════════════════════════ */
-cron.schedule("*/25 * * * *", async () => {
+cron.schedule("*/58 * * * *", async () => {
   try {
     const [matches] = await db.query(
       `SELECT provider_match_id FROM matches
@@ -107,9 +107,9 @@ cron.schedule("*/25 * * * *", async () => {
 });
 
 /* ══════════════════════════════════════════
-   EVERY 10 MIN — Player points sync
+   EVERY 58 MIN — Player points sync
 ══════════════════════════════════════════ */
-cron.schedule("*/10 * * * *", async () => {
+cron.schedule("*/58 * * * *", async () => {
   try {
     const [matches] = await db.query(
       `SELECT provider_match_id FROM matches

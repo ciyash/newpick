@@ -28,9 +28,10 @@ router.get("/players/:teamId", authenticate, checkAccountActive, getTeamPlayers)
 
 router.get("/my-teams-with-players", authenticate, checkAccountActive, getMyTeamsWithPlayers);
 
+
 router.get("/my-teams/xi-status/:matchId/:homeTeamId", authenticate, checkAccountActive, getMyTeamsXIStatus);
 
-
+// uct purpose only
 router.get("/playing-xi/:match_id", getPlayingXI);
 
 export default router;      

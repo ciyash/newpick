@@ -552,7 +552,7 @@ export const getMyTeamsWithPlayersService = async (
       realTeamShortName: row.real_team_short_name
     };
 
-    if (player.isCaptain) {
+    if (player.isCaptain) { 
       teams[row.team_id].captain = player;
     }
 

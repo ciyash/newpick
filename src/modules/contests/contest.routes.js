@@ -21,7 +21,7 @@ import {
   getAllContests,
   getContestsByMatchId,
   getMyContests,
-  getMyJoinedContests,
+  // getMyJoinedContests,
   joinContest   // 🔥 correct name
 } from "./contest.controller.js";
 
@@ -32,7 +32,7 @@ router.post("/join",  joinContest);
 
 router.get("/my-contests/:match_id",  getMyContests);
 
-router.get("/joined-contests/:match_id/:contest_id", getMyJoinedContests);  
+// router.get("/joined-contests/:match_id/:contest_id", getMyJoinedContests);  
 
 
 // admin get contestss
