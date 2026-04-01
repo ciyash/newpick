@@ -33,4 +33,4 @@ router.get("/my-teams/xi-status/:matchId/:homeTeamId", authenticate, checkAccoun
 
 router.get("/playing-xi/:match_id", getPlayingXI);
 
-export default router;    
+export default router;      

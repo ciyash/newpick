@@ -653,7 +653,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
           m.matchdate,
           m.start_time
        FROM contest c
-       JOIN matches m ON m.provider_match_id = c.match_id
+       JOIN matches m ON m.id = c.match_id
        WHERE c.id = ?
        FOR UPDATE`,
       [contestId]
