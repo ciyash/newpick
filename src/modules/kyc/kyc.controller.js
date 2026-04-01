@@ -46,14 +46,17 @@ export const startKyc = async (req, res) => {
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-  // ✅ Check if mobile or email already exists
+  // ✅ users table లో check చేయి
   const [[existing]] = await db.query(
-    `SELECT id, mobile, email, age_verified FROM kyc_sessions 
+    `SELECT id, mobile, email FROM users 
      WHERE mobile = ? OR email = ? LIMIT 1`,
     [normalizedMobile, email]
   );
 
   if (existing) {
+    if (existing.mobile === normalizedMobile && existing.email === email) {
+      return res.status(409).json({ success: false, message: "Mobile and email already registered" });
+    }
     if (existing.mobile === normalizedMobile) {
       return res.status(409).json({ success: false, message: "Mobile number already registered" });
     }
@@ -62,23 +65,12 @@ export const startKyc = async (req, res) => {
     }
   }
 
-  if (existing) {
-  if (existing.mobile === normalizedMobile && existing.email === email) {
-    return res.status(409).json({ success: false, message: "Mobile and email already registered" });
-  }
-  if (existing.mobile === normalizedMobile) {
-    return res.status(409).json({ success: false, message: "Mobile number already registered" });
-  }
-  if (existing.email === email) {
-    return res.status(409).json({ success: false, message: "Email already registered" });
-  }
-}
-
   const applicantId = await createApplicantService(normalizedMobile);
 
   await db.query(
     `INSERT INTO kyc_sessions (mobile, email, applicant_id, age_verified)
-     VALUES (?, ?, ?, 0)`,
+     VALUES (?, ?, ?, 0)
+     ON DUPLICATE KEY UPDATE applicant_id = VALUES(applicant_id)`,
     [normalizedMobile, email, applicantId]
   );
 
@@ -88,6 +80,7 @@ export const startKyc = async (req, res) => {
 
   res.json({ success: true, token: data.token });
 };
+  
 export const getKycStatus = async (req, res) => {
   try {
 
