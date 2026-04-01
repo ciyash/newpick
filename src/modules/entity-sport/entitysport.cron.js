@@ -17,9 +17,9 @@ const apiGet = async (endpoint, params = {}) => {
 };
 
 /* ══════════════════════════════════════════
-   EVERY 25 MIN  — Match status + lineup sync
+   EVERY 55 MIN  — Match status + lineup sync
 ══════════════════════════════════════════ */
-cron.schedule("*/25 * * * *", async () => {
+cron.schedule("*/55 * * * *", async () => {
   try {
     const [matches] = await db.query(
       `SELECT id, provider_match_id, status, lineup_status
