@@ -29,7 +29,6 @@ export const signup = async (req, res) => {
   }
 };
 
-
 export const resendSignupOtp = async (req, res) => {
 
   try {
@@ -96,9 +95,7 @@ export const resendSignupOtp = async (req, res) => {
 
 };
 
-
 /* ================= VERIFY SIGNUP OTP ================= */
-
 
 export const verifySignupOtp = async (req, res) => {
   try {
@@ -127,9 +124,8 @@ export const verifySignupOtp = async (req, res) => {
 
     const status = knownErrors[message] ?? 400;
     return res.status(status).json({ success: false, message });
-  }
+  }  
 };
-
 
 /* ================= SEND LOGIN OTP ================= */ 
 
@@ -262,7 +258,6 @@ export const updateProfile = async (req, res) => {
 
 
 
-
 export const verifyEmailLink = async (req, res) => {
   try {
     const { token } = req.query;
@@ -293,9 +288,6 @@ export const verifyEmailLink = async (req, res) => {
     `);
   }
 };
-
-
-
 
 export const requestContactChange = async (req, res) => {
   try {
@@ -363,7 +355,6 @@ export const verifyOldContact = async (req, res) => {
   }
 };
 
-
 /* ================= VERIFY NEW CONTACT ================= */
 
 export const verifyNewContact = async (req, res) => {
@@ -392,9 +383,6 @@ export const verifyNewContact = async (req, res) => {
 
   }
 };
-
-
-
 
 export const logout = async (req, res) => {
   try {

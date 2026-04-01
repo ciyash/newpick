@@ -954,9 +954,157 @@ export const syncPlayersService = async (matchId) => {
    PLAYING XI
 ══════════════════════════════════════════ */
 
+// export const syncPlayingXIService = async (matchId) => {
+//   const [matchRows] = await db.query(
+//     `SELECT id, provider_match_id FROM matches WHERE provider_match_id = ? LIMIT 1`,
+//     [matchId]
+//   );
+
+//   if (!matchRows.length) throw new Error("Match not found: " + matchId);
+
+//   const internalMatchId = matchRows[0].id;
+//   const providerMatchId = matchRows[0].provider_match_id;
+
+//   const infoData = await apiGet(`/matches/${providerMatchId}/info`);
+//   const items = infoData?.response?.items;
+//   const matchInfo = items?.match_info?.[0];
+
+//   const lineupAvailable = matchInfo?.lineupavailable === "true";
+//   const preSquadAvailable = matchInfo?.pre_squad === "true";
+
+//   // ============================================
+//   // ✅ CORRECT LINEUP STRUCTURE
+//   // ============================================
+//   const homeLineupPlayers = items?.lineup?.home?.lineup?.player || [];
+//   const homeSubs          = items?.lineup?.home?.substitutes || [];
+//   const awayLineupPlayers = items?.lineup?.away?.lineup?.player || [];
+//   const awaySubs          = items?.lineup?.away?.substitutes || [];
+
+//   // ============================================
+//   // PRE-SQUAD SYNC (lineup రాకముందే)
+//   // ============================================
+//   if (!lineupAvailable && preSquadAvailable) {
+//     const homeSquad = matchInfo?.home_squad || [];
+//     const awaySquad = matchInfo?.away_squad || [];
+//     const allSquad  = [...homeSquad, ...awaySquad];
+
+//     if (!allSquad.length) {
+//       return { count: 0, reason: "No pre-squad data available" };
+//     }
+
+//     const pids = [...new Set(allSquad.map((p) => String(p.pid)))];
+//     const [playerRows] = await db.query(
+//       `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
+//       [pids]
+//     );
+//     const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
+
+//     let count = 0;
+//     for (const p of allSquad) {
+//       const internalPlayerId = playerMap.get(String(p.pid));
+//       if (!internalPlayerId) continue;
+
+//       await db.query(
+//         `INSERT INTO match_players
+//            (match_id, player_id, is_playing, is_substitute, is_pre_squad)
+//          VALUES (?, ?, 0, 0, 1)
+//          ON DUPLICATE KEY UPDATE is_pre_squad = 1`,
+//         [internalMatchId, internalPlayerId]
+//       );
+//       count++;
+//     }
+
+//     await db.query(
+//       `UPDATE matches SET lineupavailable = 0, lineup_status = 'announced' WHERE id = ?`,
+//       [internalMatchId]
+//     );
+
+//     console.log(`✅ Pre-squad synced: ${count} players — status: announced`);
+//     return { count, reason: null, type: "pre_squad" };
+//   }
+
+//   if (!lineupAvailable) {
+//     await db.query(
+//       `UPDATE matches SET lineupavailable = 0, lineup_status = 'not_available' WHERE id = ?`,
+//       [internalMatchId]
+//     );
+//     return { count: 0, reason: "Lineup not published yet by provider" };
+//   }
+
+//   // ============================================
+//   // ✅ PLAYING XI SYNC — correct structure
+//   // ============================================
+//   const hasLineup =
+//     homeLineupPlayers.length > 0 || awayLineupPlayers.length > 0;
+
+//   if (!hasLineup) {
+//     return { count: 0, reason: "Lineup array is empty despite lineupavailable=true" };
+//   }
+
+//   // Home Playing XI + Subs
+//   const homePlayers = [
+//     ...homeLineupPlayers.map((p) => ({ ...p, is_substitute: 0 })),
+//     ...homeSubs.map((p) => ({ ...p, is_substitute: 1 })),
+//   ];
+
+//   // Away Playing XI + Subs
+//   const awayPlayers = [
+//     ...awayLineupPlayers.map((p) => ({ ...p, is_substitute: 0 })),
+//     ...awaySubs.map((p) => ({ ...p, is_substitute: 1 })),
+//   ];
+
+//   const allPlayers = [...homePlayers, ...awayPlayers];
+
+//   const pids = [...new Set(allPlayers.map((p) => String(p.pid)))];
+//   const [playerRows] = await db.query(
+//     `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
+//     [pids]
+//   );
+//   const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
+
+//   let count = 0;
+//   for (const p of allPlayers) {
+//     const internalPlayerId = playerMap.get(String(p.pid));
+//     if (!internalPlayerId) {
+//       console.warn(`Player not found in DB: pid=${p.pid} name=${p.pname}`);
+//       continue;
+//     }
+
+//     await db.query(
+//       `INSERT INTO match_players
+//          (match_id, player_id, is_playing, is_substitute, is_pre_squad)
+//        VALUES (?, ?, ?, ?, 0)
+//        ON DUPLICATE KEY UPDATE
+//          is_playing    = VALUES(is_playing),
+//          is_substitute = VALUES(is_substitute)`,
+//       [
+//         internalMatchId,
+//         internalPlayerId,
+//         p.is_substitute === 0 ? 1 : 0,
+//         p.is_substitute,
+//       ]
+//     );
+//     count++;
+//   }
+
+//   await db.query(
+//     `UPDATE matches SET lineupavailable = 1, lineup_status = 'confirmed' WHERE id = ?`,
+//     [internalMatchId]
+//   );
+
+//   console.log(`✅ Playing XI synced: ${count} players — status: confirmed`);
+//   console.log(`   Home XI: ${homeLineupPlayers.length}, Home Subs: ${homeSubs.length}`);
+//   console.log(`   Away XI: ${awayLineupPlayers.length}, Away Subs: ${awaySubs.length}`);
+
+//   return { count, reason: null, type: "lineup" };
+// };
+
+
+
 export const syncPlayingXIService = async (matchId) => {
   const [matchRows] = await db.query(
-    `SELECT id, provider_match_id FROM matches WHERE provider_match_id = ? LIMIT 1`,
+    `SELECT id, provider_match_id, home_team_id, away_team_id 
+     FROM matches WHERE provider_match_id = ? LIMIT 1`,
     [matchId]
   );
 
@@ -964,6 +1112,8 @@ export const syncPlayingXIService = async (matchId) => {
 
   const internalMatchId = matchRows[0].id;
   const providerMatchId = matchRows[0].provider_match_id;
+  const homeTeamId = matchRows[0].home_team_id;
+  const awayTeamId = matchRows[0].away_team_id;
 
   const infoData = await apiGet(`/matches/${providerMatchId}/info`);
   const items = infoData?.response?.items;
@@ -972,32 +1122,36 @@ export const syncPlayingXIService = async (matchId) => {
   const lineupAvailable = matchInfo?.lineupavailable === "true";
   const preSquadAvailable = matchInfo?.pre_squad === "true";
 
-  // ============================================
-  // ✅ CORRECT LINEUP STRUCTURE
-  // ============================================
   const homeLineupPlayers = items?.lineup?.home?.lineup?.player || [];
   const homeSubs          = items?.lineup?.home?.substitutes || [];
   const awayLineupPlayers = items?.lineup?.away?.lineup?.player || [];
   const awaySubs          = items?.lineup?.away?.substitutes || [];
 
   // ============================================
-  // PRE-SQUAD SYNC (lineup రాకముందే)
+  // PRE-SQUAD SYNC
   // ============================================
   if (!lineupAvailable && preSquadAvailable) {
     const homeSquad = matchInfo?.home_squad || [];
     const awaySquad = matchInfo?.away_squad || [];
-    const allSquad  = [...homeSquad, ...awaySquad];
 
-    if (!allSquad.length) {
+    if (!homeSquad.length && !awaySquad.length) {
       return { count: 0, reason: "No pre-squad data available" };
     }
+
+    // home squad pids → team id map
+    const homeSquadPids = new Set(homeSquad.map((p) => String(p.pid)));
+
+    const allSquad = [
+      ...homeSquad.map((p) => ({ ...p, _teamId: homeTeamId })),
+      ...awaySquad.map((p) => ({ ...p, _teamId: awayTeamId })),
+    ];
 
     const pids = [...new Set(allSquad.map((p) => String(p.pid)))];
     const [playerRows] = await db.query(
       `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
       [pids]
     );
-    const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
+    const playerMap = new Map(playerRows.map((r) => [String(r.provider_player_id), r.id]));
 
     let count = 0;
     for (const p of allSquad) {
@@ -1006,10 +1160,12 @@ export const syncPlayingXIService = async (matchId) => {
 
       await db.query(
         `INSERT INTO match_players
-           (match_id, player_id, is_playing, is_substitute, is_pre_squad)
-         VALUES (?, ?, 0, 0, 1)
-         ON DUPLICATE KEY UPDATE is_pre_squad = 1`,
-        [internalMatchId, internalPlayerId]
+           (match_id, player_id, team_id, is_playing, is_substitute, is_pre_squad)
+         VALUES (?, ?, ?, 0, 0, 1)
+         ON DUPLICATE KEY UPDATE
+           team_id      = VALUES(team_id),
+           is_pre_squad = 1`,
+        [internalMatchId, internalPlayerId, p._teamId]
       );
       count++;
     }
@@ -1032,25 +1188,22 @@ export const syncPlayingXIService = async (matchId) => {
   }
 
   // ============================================
-  // ✅ PLAYING XI SYNC — correct structure
+  // PLAYING XI SYNC
   // ============================================
-  const hasLineup =
-    homeLineupPlayers.length > 0 || awayLineupPlayers.length > 0;
+  const hasLineup = homeLineupPlayers.length > 0 || awayLineupPlayers.length > 0;
 
   if (!hasLineup) {
     return { count: 0, reason: "Lineup array is empty despite lineupavailable=true" };
   }
 
-  // Home Playing XI + Subs
   const homePlayers = [
-    ...homeLineupPlayers.map((p) => ({ ...p, is_substitute: 0 })),
-    ...homeSubs.map((p) => ({ ...p, is_substitute: 1 })),
+    ...homeLineupPlayers.map((p) => ({ ...p, _teamId: homeTeamId, is_substitute: 0 })),
+    ...homeSubs.map((p)          => ({ ...p, _teamId: homeTeamId, is_substitute: 1 })),
   ];
 
-  // Away Playing XI + Subs
   const awayPlayers = [
-    ...awayLineupPlayers.map((p) => ({ ...p, is_substitute: 0 })),
-    ...awaySubs.map((p) => ({ ...p, is_substitute: 1 })),
+    ...awayLineupPlayers.map((p) => ({ ...p, _teamId: awayTeamId, is_substitute: 0 })),
+    ...awaySubs.map((p)          => ({ ...p, _teamId: awayTeamId, is_substitute: 1 })),
   ];
 
   const allPlayers = [...homePlayers, ...awayPlayers];
@@ -1060,7 +1213,7 @@ export const syncPlayingXIService = async (matchId) => {
     `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
     [pids]
   );
-  const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
+  const playerMap = new Map(playerRows.map((r) => [String(r.provider_player_id), r.id]));
 
   let count = 0;
   for (const p of allPlayers) {
@@ -1072,14 +1225,16 @@ export const syncPlayingXIService = async (matchId) => {
 
     await db.query(
       `INSERT INTO match_players
-         (match_id, player_id, is_playing, is_substitute, is_pre_squad)
-       VALUES (?, ?, ?, ?, 0)
+         (match_id, player_id, team_id, is_playing, is_substitute, is_pre_squad)
+       VALUES (?, ?, ?, ?, ?, 0)
        ON DUPLICATE KEY UPDATE
+         team_id       = VALUES(team_id),
          is_playing    = VALUES(is_playing),
          is_substitute = VALUES(is_substitute)`,
       [
         internalMatchId,
         internalPlayerId,
+        p._teamId,
         p.is_substitute === 0 ? 1 : 0,
         p.is_substitute,
       ]
@@ -1098,6 +1253,8 @@ export const syncPlayingXIService = async (matchId) => {
 
   return { count, reason: null, type: "lineup" };
 };
+
+
 /* ══════════════════════════════════════════
    PLAYER POINTS
 ══════════════════════════════════════════ */
