@@ -1,8 +1,4 @@
-import {
- sendMobileOtpService,
- verifyMobileOtpService
-} from './test.service.js';
-
+import { sendMobileOtpService , verifyMobileOtpService} from './test.service.js';
 
 export const sendOtpController = async (req, res) => {
 
@@ -28,7 +24,6 @@ export const sendOtpController = async (req, res) => {
 
 };
 
-
 export const verifyOtpController = async (req, res) => {
 
  try {
@@ -51,4 +46,7 @@ export const verifyOtpController = async (req, res) => {
 
  }
 
-};
+}; 
+
+
+

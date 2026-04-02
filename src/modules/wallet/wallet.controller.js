@@ -167,6 +167,7 @@ export const deleteTransactionsByUser = async (req, res) => {
 // };
 
 
+
 export const getMyAnalytics = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -176,26 +177,37 @@ export const getMyAnalytics = async (req, res) => {
     }
 
     const { type } = req.params;
+    const now = new Date();
+    const currentYear  = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
 
     let month = null;
     let year  = null;
 
     if (!type || type === "all") {
-      // all time — month, year both null
+      // all time
       month = null;
       year  = null;
+    } else if (type === "year") {
+      // current year
+      month = null;
+      year  = currentYear;
+    } else if (type === "month") {
+      // current month + current year
+      month = currentMonth;
+      year  = currentYear;
     } else if (/^\d{4}$/.test(type)) {
-      // 4 digits → year (e.g. 2026)
+      // specific year e.g. 2025
       year  = parseInt(type);
       month = null;
-    } else if (/^\d{1,2}$/.test(type)) {
-      // 1-2 digits → month (e.g. 1 = January, 12 = December)
+    } else if (/^\d{1,2}$/.test(type) && parseInt(type) >= 1 && parseInt(type) <= 12) {
+      // specific month number 1-12 → current year
       month = parseInt(type);
-      year  = null;
+      year  = currentYear;
     } else {
       return res.status(400).json({
         success: false,
-        message: "Invalid type. Use 'all', a year (2026), or a month number (1-12)"
+        message: "Invalid type. Use 'all', 'year', 'month', a year (2026), or month number (1-12)"
       });
     }
 
