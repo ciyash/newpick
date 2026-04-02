@@ -457,8 +457,24 @@ export const getTeamPlayersService = async (teamId) => {
   return rows;
 };
 
-
 export const getMyTeamsWithPlayersService = async (userId, matchId) => {
+
+  // ✅ Fetch match data
+  const [matchRows] = await db.query(
+    `SELECT id, lineup_status, lineupavailable, is_active 
+     FROM matches 
+     WHERE id = ?`,
+    [matchId]
+  );
+
+  const matchData = matchRows.length
+    ? {
+        matchId: matchRows[0].id,
+        lineupStatus: matchRows[0].lineup_status,
+        lineupAvailable: matchRows[0].lineupavailable,
+        isActive: matchRows[0].is_active
+      }
+    : null;
 
   const [rows] = await db.query(
     `SELECT 
@@ -480,7 +496,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
         utp.is_captain,
         utp.is_vice_captain,
 
-        -- Check if this player exists in match_players for the match
         CASE 
           WHEN mp.player_id IS NOT NULL THEN 1 
           ELSE 0 
@@ -492,7 +507,7 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
      LEFT JOIN teams t ON p.team_id = t.id
      LEFT JOIN match_players mp 
         ON mp.player_id = p.id 
-        AND mp.match_id = ut.match_id   -- join on the team's match_id
+        AND mp.match_id = ut.match_id
 
      WHERE ut.user_id = ?
      ${matchId ? "AND ut.match_id = ?" : ""}
@@ -514,12 +529,13 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
         teamId: row.team_id,
         teamName: row.team_name,
         matchId: row.match_id,
+        match: matchData,          // ✅ match data attached here
         captain: null,
         viceCaptain: null,
         players: [],
         totalPlayers: 0,
         realTeamsBreakdown: {},
-        playersNotInMatch: 0   // ✅ new field
+        playersNotInMatch: 0
       };
     }
 
@@ -535,7 +551,7 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
       realTeamId: row.real_team_id,
       realTeamName: row.real_team_name,
       realTeamShortName: row.real_team_short_name,
-      isInMatch: row.is_in_match === 1   // ✅ optional: per-player flag
+      isInMatch: row.is_in_match === 1
     };
 
     if (player.isCaptain) teams[row.team_id].captain = player;
@@ -544,7 +560,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
     teams[row.team_id].players.push(player);
     teams[row.team_id].totalPlayers++;
 
-    // ✅ Increment count if player is NOT in match_players
     if (!player.isInMatch) {
       teams[row.team_id].playersNotInMatch++;
     }
@@ -582,7 +597,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
 
   return Object.values(teams);
 };
-
 export const getMyTeamsWithPlayersServiceold = async (
   userId,
   matchId,
