@@ -301,7 +301,7 @@ export const getMatchesByType = async (req, res) => {
 // };
 
 
-
+  
 
 export const getMatchFullDetails = async (req, res) => {
   try {

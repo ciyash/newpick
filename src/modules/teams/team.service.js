@@ -882,3 +882,151 @@ export const getPlayingXIService = async (matchId) => {
     },
   };
 };
+
+export const getTeamComparisonService = async (userTeamId, userId) => {
+  // ═══════════════════════════════════════
+  // 1) GET USER TEAM
+  // ═══════════════════════════════════════
+  const [[userTeam]] = await db.query(
+    `SELECT id, user_id, match_id, team_name, locked, created_at
+     FROM user_teams
+     WHERE id = ? AND user_id = ?
+     LIMIT 1`,
+    [userTeamId, userId]
+  );
+
+  if (!userTeam) throw new Error("Team not found");
+
+  // ═══════════════════════════════════════
+  // 2) GET USER TEAM PLAYERS
+  // ═══════════════════════════════════════
+  const [userTeamPlayers] = await db.query(
+    `SELECT
+       utp.player_id,
+       utp.is_captain,
+       utp.is_vice_captain,
+       utp.is_substitude,
+       utp.role,
+       utp.points,
+       p.name          AS player_name,
+       p.position,
+       p.playerimage   AS player_image,
+       p.flag_image,
+       p.playercredits,
+       p.country,
+       t.name          AS team_name,
+       t.id            AS team_id
+     FROM user_team_players utp
+     JOIN players p ON p.id = utp.player_id
+     JOIN teams t ON t.id = p.team_id
+     WHERE utp.user_team_id = ?`,
+    [userTeamId]
+  );
+
+  // ═══════════════════════════════════════
+  // 3) GET MATCH PLAYING XI FROM match_players
+  // ═══════════════════════════════════════
+  const [lineupPlayers] = await db.query(
+    `SELECT
+       mp.player_id,
+       mp.is_playing,
+       mp.is_substitute,
+       mp.team_id,
+       p.name          AS player_name,
+       p.position,
+       p.playerimage   AS player_image,
+       p.flag_image,
+       p.playercredits,
+       p.country,
+       t.name          AS team_name
+     FROM match_players mp
+     JOIN players p ON p.id = mp.player_id
+     JOIN teams t ON t.id = mp.team_id
+     WHERE mp.match_id = ?
+       AND (mp.is_playing = 1 OR mp.is_substitute = 1)`,
+    [userTeam.match_id]
+  );
+
+  // ═══════════════════════════════════════
+  // 4) COMPARE
+  // ═══════════════════════════════════════
+  const userPlayerIds  = new Set(userTeamPlayers.map(p => p.player_id));
+  const lineupPlayerIds = new Set(lineupPlayers.map(p => p.player_id));
+
+  // My team players NOT in lineup
+  const myTeamNotInLineup = userTeamPlayers.filter(
+    p => !lineupPlayerIds.has(p.player_id)
+  );
+
+  // Lineup players NOT in my team
+  const lineupNotInMyTeam = lineupPlayers.filter(
+    p => !userPlayerIds.has(p.player_id)
+  );
+
+  return {
+    success: true,
+    data: {
+      // 1) My team info
+      my_team: {
+        team_id:   userTeam.id,
+        team_name: userTeam.team_name,
+        match_id:  userTeam.match_id,
+        locked:    userTeam.locked === 1,
+        players:   userTeamPlayers.map(p => ({
+          player_id:     p.player_id,
+          player_name:   p.player_name,
+          position:      p.position,
+          player_image:  p.player_image,
+          flag_image:    p.flag_image,
+          playercredits: p.playercredits,
+          country:       p.country,
+          team_name:     p.team_name,
+          team_id:       p.team_id,
+          is_captain:      p.is_captain === 1,
+          is_vice_captain: p.is_vice_captain === 1,
+          is_substitute:   p.is_substitude === 1,
+          role:            p.role,
+          points:          Number(p.points) || 0,
+        })),
+      },
+
+      // 2) Match playing XI + subs
+      lineup: {
+        match_id: userTeam.match_id,
+        players:  lineupPlayers.map(p => ({
+          player_id:     p.player_id,
+          player_name:   p.player_name,
+          position:      p.position,
+          player_image:  p.player_image,
+          flag_image:    p.flag_image,
+          playercredits: p.playercredits,
+          country:       p.country,
+          team_name:     p.team_name,
+          team_id:       p.team_id,
+          is_playing:    p.is_playing === 1,
+          is_substitute: p.is_substitute === 1,
+        })),
+      },
+
+      // 3) My team players NOT in lineup
+      my_team_not_in_lineup: myTeamNotInLineup.map(p => ({
+        player_id:    p.player_id,
+        player_name:  p.player_name,
+        position:     p.position,
+        player_image: p.player_image,
+        team_name:    p.team_name,
+      })),
+
+      // 4) Lineup players NOT in my team
+      lineup_not_in_my_team: lineupNotInMyTeam.map(p => ({
+        player_id:     p.player_id,
+        player_name:   p.player_name,
+        position:      p.position,
+        player_image:  p.player_image,
+        team_name:     p.team_name,
+        is_playing:    p.is_playing === 1,
+        is_substitute: p.is_substitute === 1,
+      })),
+    },
+  };
+};
