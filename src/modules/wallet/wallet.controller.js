@@ -150,47 +150,66 @@ export const deleteTransactionsByUser = async (req, res) => {
 // export const getMyAnalytics = async (req, res) => {
 //   try {
 
-//     if (!req.user || !req.user.id) {
-//       throw new Error("User not authenticated");
-//     }
-
 //     const userId = req.user.id;
+//     const { type } = req.params;
 
-//     const data = await getMyAnalyticsService(userId);
+//     const data = await getMyAnalyticsService(userId, type);
 
-//     res.status(200).json({
-//       success: true,
-//       ...data
+//     res.json(data);
+
+//   } catch (err) {
+
+//     res.status(500).json({
+//       message: err.message
 //     });
 
-//   } catch (error) {
-//     res.status(400).json({
-//       success: false,
-//       message: error.message
-//     });
 //   }
 // };
 
 
-
 export const getMyAnalytics = async (req, res) => {
   try {
+    const userId = req.user?.id;
 
-    const userId = req.user.id;
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
     const { type } = req.params;
 
-    const data = await getMyAnalyticsService(userId, type);
+    let month = null;
+    let year  = null;
 
-    res.json(data);
+    if (!type || type === "all") {
+      // all time — month, year both null
+      month = null;
+      year  = null;
+    } else if (/^\d{4}$/.test(type)) {
+      // 4 digits → year (e.g. 2026)
+      year  = parseInt(type);
+      month = null;
+    } else if (/^\d{1,2}$/.test(type)) {
+      // 1-2 digits → month (e.g. 1 = January, 12 = December)
+      month = parseInt(type);
+      year  = null;
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid type. Use 'all', a year (2026), or a month number (1-12)"
+      });
+    }
+
+    const data = await getMyAnalyticsService(userId, month, year);
+
+    return res.status(200).json({ success: true, data });
 
   } catch (err) {
-
-    res.status(500).json({
-      message: err.message
-    });
-
+    console.error("[getMyAnalytics]", err);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
+
 export const downloadAnalyticsStatement = async (req, res) => {
   try {
 
@@ -231,4 +250,4 @@ export const downloadAnalyticsStatement = async (req, res) => {
       message: error.message
     });
   }
-}; 
+};  

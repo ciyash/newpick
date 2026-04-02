@@ -640,9 +640,33 @@ export const deleteTransactionsByUserCodeService = async (userid) => {
 //my analytics..................................................................
 
 
-// export const getMyAnalyticsService = async (userId) => {
 
-//   /* ================= FINANCIAL SUMMARY ================= */
+// export const getMyAnalyticsService = async (userId, month = null, year = null) => {
+
+//   const now = new Date();
+//   const currentYear = now.getFullYear();
+
+//   let conditions = ["user_id = ?"];
+//   let params = [userId];
+
+//   if (month !== null && year === null) {
+//     conditions.push("MONTH(created_at) = ?");
+//     conditions.push("YEAR(created_at) = ?");
+//     params.push(month, currentYear);
+//   }
+
+//   if (month === null && year !== null) {
+//     conditions.push("YEAR(created_at) = ?");
+//     params.push(year);
+//   }
+
+//   if (month !== null && year !== null) {
+//     conditions.push("MONTH(created_at) = ?");
+//     conditions.push("YEAR(created_at) = ?");
+//     params.push(month, year);
+//   }
+
+//   const whereClause = conditions.join(" AND ");
 
 //   const [[financial]] = await db.query(
 //     `SELECT
@@ -650,89 +674,77 @@ export const deleteTransactionsByUserCodeService = async (userid) => {
 //       SUM(CASE WHEN wallettype='withdrawal' AND transtype='debit' THEN amount ELSE 0 END) AS withdrawals,
 //       SUM(CASE WHEN wallettype IN ('winning','refund') AND transtype='credit' THEN amount ELSE 0 END) AS credits
 //      FROM wallet_transactions
-//      WHERE user_id = ?`,
-//     [userId]
+//      WHERE ${whereClause}`,
+//     params
 //   );
 
-//   /* ================= CONTEST ENTRIES ================= */
+//   /* Contest Entries */
+
+//   let entryConditions = ["ce.user_id = ?"];
+//   let entryParams = [userId];
+
+//   if (month !== null && year === null) {
+//     entryConditions.push("MONTH(ce.joined_at) = ?");
+//     entryConditions.push("YEAR(ce.joined_at) = ?");
+//     entryParams.push(month, currentYear);
+//   }
+
+//   if (month === null && year !== null) {
+//     entryConditions.push("YEAR(ce.joined_at) = ?");
+//     entryParams.push(year);
+//   }
+
+//   if (month !== null && year !== null) {
+//     entryConditions.push("MONTH(ce.joined_at) = ?");
+//     entryConditions.push("YEAR(ce.joined_at) = ?");
+//     entryParams.push(month, year);
+//   }
+
+//   const entryWhere = entryConditions.join(" AND ");
 
 //   const [entries] = await db.query(
-//     `SELECT 
-//         ce.entry_fee,
-//         c.match_id,
-//         ce.joined_at
+//     `SELECT ce.entry_fee, c.match_id, ce.joined_at
 //      FROM contest_entries ce
 //      JOIN contest c ON ce.contest_id = c.id
-//      WHERE ce.user_id = ?`,
-//     [userId]
+//      WHERE ${entryWhere}`,
+//     entryParams
 //   );
 
-//   /* ================= WALLET INFO ================= */
-
 //   const [[wallet]] = await db.query(
-//     `SELECT 
-//         depositwallet,
-//         earnwallet,
-//         bonusamount,
-//         deposit_limit,
-//         total_deposits
+//     `SELECT depositwallet, earnwallet, bonusamount,
+//             deposit_limit, total_deposits
 //      FROM wallets
 //      WHERE user_id = ?`,
 //     [userId]
 //   );
 
-//   /* ================= ENTRY FEES ================= */
-
-//   const entryFees = entries.reduce(
-//     (sum, e) => sum + Number(e.entry_fee || 0),
-//     0
-//   );
-
-//   /* ================= WALLET BALANCE ================= */
+//   const entryFees = entries.reduce((sum, e) => sum + Number(e.entry_fee || 0), 0);
 
 //   const walletBalance =
 //     Number(wallet?.depositwallet || 0) +
 //     Number(wallet?.earnwallet || 0) +
 //     Number(wallet?.bonusamount || 0);
 
-//   /* ================= FINANCIAL CALCULATIONS ================= */
-
 //   const deposits = Number(financial?.deposits || 0);
 //   const withdrawals = Number(financial?.withdrawals || 0);
 //   const credits = Number(financial?.credits || 0);
 
-//   const netDifference = credits - deposits;
-
-//   /* ================= ACTIVITY METRICS ================= */
-
 //   const contestsJoined = entries.length;
 
-//   const matchesPlayed = new Set(
-//     entries.map(e => e.match_id)
-//   ).size;
+//   const matchesPlayed = new Set(entries.map(e => e.match_id)).size;
 
 //   const activeDays = new Set(
-//     entries.map(e =>
-//       new Date(e.joined_at).toDateString()
-//     )
+//     entries.map(e => new Date(e.joined_at).toDateString())
 //   ).size;
 
 //   const avgContests =
-//     matchesPlayed === 0
-//       ? 0
-//       : Number((contestsJoined / matchesPlayed).toFixed(2));
-
-//   /* ================= LIMITS ================= */
+//     matchesPlayed === 0 ? 0 :
+//     Number((contestsJoined / matchesPlayed).toFixed(2));
 
 //   const monthlyLimit = Number(wallet?.deposit_limit || 0);
 //   const usedThisMonth = Number(wallet?.total_deposits || 0);
 
-//   const remainingLimit = Math.max(
-//     monthlyLimit - usedThisMonth,
-//     0
-//   );
-
-//   /* ================= RESPONSE ================= */
+//   const remainingLimit = Math.max(monthlyLimit - usedThisMonth, 0);
 
 //   return {
 //     financial: {
@@ -740,8 +752,7 @@ export const deleteTransactionsByUserCodeService = async (userid) => {
 //       money_withdrawn: withdrawals,
 //       wallet_balance: walletBalance,
 //       contest_entry_fees: entryFees,
-//       credits_received: credits,
-//       net_difference: netDifference
+//       credits_received: credits
 //     },
 
 //     activity: {
@@ -760,27 +771,24 @@ export const deleteTransactionsByUserCodeService = async (userid) => {
 // };
 
 export const getMyAnalyticsService = async (userId, month = null, year = null) => {
-
   const now = new Date();
   const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
 
+  // ═══════════════════════════════════════
+  // WALLET FINANCIAL DATA
+  // ═══════════════════════════════════════
   let conditions = ["user_id = ?"];
   let params = [userId];
 
   if (month !== null && year === null) {
-    conditions.push("MONTH(created_at) = ?");
-    conditions.push("YEAR(created_at) = ?");
+    conditions.push("MONTH(created_at) = ?", "YEAR(created_at) = ?");
     params.push(month, currentYear);
-  }
-
-  if (month === null && year !== null) {
+  } else if (month === null && year !== null) {
     conditions.push("YEAR(created_at) = ?");
     params.push(year);
-  }
-
-  if (month !== null && year !== null) {
-    conditions.push("MONTH(created_at) = ?");
-    conditions.push("YEAR(created_at) = ?");
+  } else if (month !== null && year !== null) {
+    conditions.push("MONTH(created_at) = ?", "YEAR(created_at) = ?");
     params.push(month, year);
   }
 
@@ -788,103 +796,129 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
 
   const [[financial]] = await db.query(
     `SELECT
-      SUM(CASE WHEN wallettype='deposit' AND transtype='credit' THEN amount ELSE 0 END) AS deposits,
-      SUM(CASE WHEN wallettype='withdrawal' AND transtype='debit' THEN amount ELSE 0 END) AS withdrawals,
-      SUM(CASE WHEN wallettype IN ('winning','refund') AND transtype='credit' THEN amount ELSE 0 END) AS credits
+      SUM(CASE WHEN wallettype = 'deposit'    AND transtype = 'credit' THEN amount ELSE 0 END) AS deposits,
+      SUM(CASE WHEN wallettype = 'withdrawal' AND transtype = 'debit'  THEN amount ELSE 0 END) AS withdrawals,
+      SUM(CASE WHEN wallettype = 'winning'    AND transtype = 'credit' THEN amount ELSE 0 END) AS winnings,
+      SUM(CASE WHEN wallettype = 'refund'     AND transtype = 'credit' THEN amount ELSE 0 END) AS refunds
      FROM wallet_transactions
      WHERE ${whereClause}`,
     params
   );
 
-  /* Contest Entries */
-
+  // ═══════════════════════════════════════
+  // CONTEST ENTRIES
+  // ═══════════════════════════════════════
   let entryConditions = ["ce.user_id = ?"];
   let entryParams = [userId];
 
   if (month !== null && year === null) {
-    entryConditions.push("MONTH(ce.joined_at) = ?");
-    entryConditions.push("YEAR(ce.joined_at) = ?");
+    entryConditions.push("MONTH(ce.joined_at) = ?", "YEAR(ce.joined_at) = ?");
     entryParams.push(month, currentYear);
-  }
-
-  if (month === null && year !== null) {
+  } else if (month === null && year !== null) {
     entryConditions.push("YEAR(ce.joined_at) = ?");
     entryParams.push(year);
-  }
-
-  if (month !== null && year !== null) {
-    entryConditions.push("MONTH(ce.joined_at) = ?");
-    entryConditions.push("YEAR(ce.joined_at) = ?");
+  } else if (month !== null && year !== null) {
+    entryConditions.push("MONTH(ce.joined_at) = ?", "YEAR(ce.joined_at) = ?");
     entryParams.push(month, year);
   }
 
   const entryWhere = entryConditions.join(" AND ");
 
   const [entries] = await db.query(
-    `SELECT ce.entry_fee, c.match_id, ce.joined_at
+    `SELECT 
+       ce.entry_fee, 
+       ce.joined_at,
+       ce.status,
+       c.match_id
      FROM contest_entries ce
      JOIN contest c ON ce.contest_id = c.id
-     WHERE ${entryWhere}`,
+     WHERE ${entryWhere}
+     ORDER BY ce.joined_at DESC`,
     entryParams
   );
 
+  // ═══════════════════════════════════════
+  // WALLET BALANCE + LIMITS
+  // ═══════════════════════════════════════
   const [[wallet]] = await db.query(
-    `SELECT depositwallet, earnwallet, bonusamount,
-            deposit_limit, total_deposits
+    `SELECT 
+       depositwallet, 
+       earnwallet, 
+       bonusamount,
+       deposit_limit, 
+       total_deposits,
+       created_at AS member_since
      FROM wallets
      WHERE user_id = ?`,
     [userId]
   );
 
-  const entryFees = entries.reduce((sum, e) => sum + Number(e.entry_fee || 0), 0);
+  // ═══════════════════════════════════════
+  // MEMBER SINCE — from users table
+  // ═══════════════════════════════════════
+  const [[userRow]] = await db.query(
+    `SELECT created_at AS member_since FROM users WHERE id = ? LIMIT 1`,
+    [userId]
+  );
+
+  // ═══════════════════════════════════════
+  // CALCULATIONS
+  // ═══════════════════════════════════════
+  const deposits    = Number(financial?.deposits    || 0);
+  const withdrawals = Number(financial?.withdrawals || 0);
+  const winnings    = Number(financial?.winnings    || 0);
+  const refunds     = Number(financial?.refunds     || 0);
 
   const walletBalance =
     Number(wallet?.depositwallet || 0) +
-    Number(wallet?.earnwallet || 0) +
-    Number(wallet?.bonusamount || 0);
+    Number(wallet?.earnwallet    || 0) +
+    Number(wallet?.bonusamount   || 0);
 
-  const deposits = Number(financial?.deposits || 0);
-  const withdrawals = Number(financial?.withdrawals || 0);
-  const credits = Number(financial?.credits || 0);
+  const entryFees = entries.reduce((sum, e) => sum + Number(e.entry_fee || 0), 0);
 
-  const contestsJoined = entries.length;
+  const contestsJoined    = entries.length;
+  const contestsCompleted = entries.filter(e => e.status === 'settled' || e.status === 'completed').length;
+  const matchesPlayed     = new Set(entries.map(e => e.match_id)).size;
+  const activeDays        = new Set(entries.map(e => new Date(e.joined_at).toDateString())).size;
+  const avgContests       = matchesPlayed === 0 ? 0 : Number((contestsJoined / matchesPlayed).toFixed(2));
+  const lastContestPlayed = entries.length > 0 ? entries[0].joined_at : null;
 
-  const matchesPlayed = new Set(entries.map(e => e.match_id)).size;
-
-  const activeDays = new Set(
-    entries.map(e => new Date(e.joined_at).toDateString())
-  ).size;
-
-  const avgContests =
-    matchesPlayed === 0 ? 0 :
-    Number((contestsJoined / matchesPlayed).toFixed(2));
-
-  const monthlyLimit = Number(wallet?.deposit_limit || 0);
-  const usedThisMonth = Number(wallet?.total_deposits || 0);
-
-  const remainingLimit = Math.max(monthlyLimit - usedThisMonth, 0);
+  const monthlyLimit    = Number(wallet?.deposit_limit  || 0);
+  const usedThisMonth   = Number(wallet?.total_deposits || 0);
+  const remainingLimit  = Math.max(monthlyLimit - usedThisMonth, 0);
+  const limitUsedPercent = monthlyLimit > 0
+    ? Number(((usedThisMonth / monthlyLimit) * 100).toFixed(1))
+    : 0;
 
   return {
     financial: {
-      money_deposited: deposits,
-      money_withdrawn: withdrawals,
-      wallet_balance: walletBalance,
+      money_deposited:    deposits,
+      money_withdrawn:    withdrawals,
+      winnings:           winnings,       // ✅ PRIZE only — refund separate
+      refunds:            refunds,        // ✅ separate
+      wallet_balance:     walletBalance,
       contest_entry_fees: entryFees,
-      credits_received: credits
     },
 
     activity: {
-      contests_joined: contestsJoined,
-      matches_played: matchesPlayed,
+      contests_joined:        contestsJoined,
+      contests_completed:     contestsCompleted,   // ✅ added
+      matches_played:         matchesPlayed,
       avg_contests_per_match: avgContests,
-      active_days: activeDays
+      active_days:            activeDays,
+      last_contest_played:    lastContestPlayed,   // ✅ added
+    },
+
+    account: {
+      member_since: userRow?.member_since || null,  // ✅ added
+      active_days:  activeDays,
     },
 
     limits: {
       monthly_deposit_limit: monthlyLimit,
-      used_this_month: usedThisMonth,
-      remaining: remainingLimit
-    }
+      used_this_month:       usedThisMonth,
+      remaining:             remainingLimit,
+      used_percent:          limitUsedPercent,      // ✅ frontend progress bar kosam
+    },
   };
 };
-
