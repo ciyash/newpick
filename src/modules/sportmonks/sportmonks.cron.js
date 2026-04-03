@@ -1,4 +1,3 @@
-
 import cron from "node-cron";
 import db from "../../config/db.js";
 import {
@@ -20,18 +19,17 @@ const formatDateTime = (date) => {
 
 /* ══════════════════════════════════════════
    JOB 1 — LINEUP SYNC
-   TESTING MODE:
    - every 20 mins
-   - only checks matches starting within next 20 mins
-   - only UPCOMING matches
+   - checks matches starting within next 60 mins
+   - retries until lineup confirmed
    - skips already confirmed lineups
 ══════════════════════════════════════════ */
 const syncLineups = async () => {
   console.log("⏰ [CRON] Lineup sync started:", new Date().toISOString());
 
   try {
-    const now = new Date();
-    const twentyMinsLater = new Date(now.getTime() + 20 * 60 * 1000);
+    const now            = new Date();
+    const sixtyMinsLater = new Date(now.getTime() + 60 * 60 * 1000);
 
     const [matches] = await db.query(
       `SELECT id, provider_match_id, start_time, lineup_status
@@ -42,7 +40,7 @@ const syncLineups = async () => {
          AND start_time >= NOW()
          AND start_time <= ?
        ORDER BY start_time ASC`,
-      [formatDateTime(twentyMinsLater)]
+      [formatDateTime(sixtyMinsLater)]
     );
 
     if (!matches.length) {
@@ -58,7 +56,7 @@ const syncLineups = async () => {
 
         if (result.reason) {
           console.log(
-            `⏳ [CRON] Match ${match.provider_match_id} — ${result.reason}`
+            `⏳ [CRON] Match ${match.provider_match_id} — ${result.reason} (will retry)`
           );
         } else {
           console.log(
@@ -66,7 +64,6 @@ const syncLineups = async () => {
           );
         }
 
-        // rate limit safe
         await sleep(1000);
       } catch (err) {
         console.error(
@@ -82,9 +79,7 @@ const syncLineups = async () => {
 
 /* ══════════════════════════════════════════
    JOB 2 — MATCH STATUS SYNC
-   TESTING MODE:
    - every 10 mins
-   Logic:
    - UPCOMING → LIVE when start_time passed
    - LIVE → RESULT after 150 mins
 ══════════════════════════════════════════ */
@@ -92,7 +87,7 @@ const syncMatchStatuses = async () => {
   console.log("⏰ [CRON] Match status sync started:", new Date().toISOString());
 
   try {
-    // 1) UPCOMING → LIVE
+    // UPCOMING → LIVE
     const [upcomingToLive] = await db.query(
       `UPDATE matches
        SET status = 'LIVE'
@@ -102,7 +97,7 @@ const syncMatchStatuses = async () => {
          AND start_time >= DATE_SUB(NOW(), INTERVAL 3 HOUR)`
     );
 
-    // 2) LIVE → RESULT
+    // LIVE → RESULT
     const [liveToResult] = await db.query(
       `UPDATE matches
        SET status = 'RESULT'
@@ -121,10 +116,9 @@ const syncMatchStatuses = async () => {
 
 /* ══════════════════════════════════════════
    JOB 3 — PLAYER POINTS SYNC
-   TESTING MODE:
    - every 20 mins
    - only RESULT matches
-   - only last 6 hours matches
+   - only last 6 hours
    - skips already synced matches
 ══════════════════════════════════════════ */
 const syncPoints = async () => {
@@ -138,8 +132,7 @@ const syncPoints = async () => {
          AND m.status = 'RESULT'
          AND m.start_time >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
          AND NOT EXISTS (
-           SELECT 1
-           FROM player_match_stats pms
+           SELECT 1 FROM player_match_stats pms
            WHERE pms.match_id = m.id
            LIMIT 1
          )
@@ -167,7 +160,6 @@ const syncPoints = async () => {
           );
         }
 
-        // rate limit safe
         await sleep(1000);
       } catch (err) {
         console.error(
@@ -183,7 +175,8 @@ const syncPoints = async () => {
 
 /* ══════════════════════════════════════════
    JOB 4 — CLEANUP OLD INACTIVE MATCHES
-   daily at 3 AM UTC
+   - daily at 3 AM UTC
+   - deletes inactive matches older than 30 days
 ══════════════════════════════════════════ */
 const cleanupOldInactiveMatches = async () => {
   console.log("🧹 [CRON] Cleanup job started:", new Date().toISOString());
@@ -207,7 +200,7 @@ const cleanupOldInactiveMatches = async () => {
    REGISTER ALL CRON JOBS
 ══════════════════════════════════════════ */
 export const startCronJobs = () => {
-  // 1) Lineup sync → every 20 mins
+  // 1) Lineup sync → every 20 mins (1 hour window)
   cron.schedule("*/20 * * * *", syncLineups, {
     scheduled: true,
     timezone: "UTC",
@@ -232,8 +225,8 @@ export const startCronJobs = () => {
   });
 
   console.log("🚀 CRON STARTED [TESTING MODE]");
-  console.log("📋 Lineup  → every 20 mins (only next 20 mins matches)");
+  console.log("📋 Lineup  → every 20 mins (1 hour before match window)");
   console.log("🔄 Status  → every 10 mins");
   console.log("📊 Points  → every 20 mins");
   console.log("🧹 Cleanup → daily at 3 AM UTC");
-};   
+};
