@@ -429,8 +429,8 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
     }
 
     // ── Match upsert ──────────────────────────────
-    // ✅ timestamp → UTC datetime
-    const startingAt    = toUTCDateTime(fixture.starting_at_timestamp, fixture.starting_at);
+    // ✅ starting_at already UTC — directly use చేయి
+    const startingAt    = fixture.starting_at;
     const matchDateOnly = startingAt?.split(" ")[0] || null;
 
     await db.query(
@@ -456,16 +456,16 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
         seriesRow.seriesid,
         teamIds["home"] || null,
         teamIds["away"] || null,
-        startingAt,       // ✅ UTC datetime
+        startingAt,       // ✅ UTC datetime directly
         mapStatus(fixture.state_id),
         fixture.league?.name || "",
         home?.name || "",
         away?.name || "",
-        matchDateOnly,    // ✅ UTC date only
+        matchDateOnly,    // ✅ date only
       ]
     );
 
-    // ✅ players table కి squad sync — match_players కి కాదు
+    // ✅ players table కి squad sync
     try {
       await syncPlayersService(matchId);
     } catch (e) {
