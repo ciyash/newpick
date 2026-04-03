@@ -236,4 +236,4 @@ export const startCronJobs = () => {
   console.log("🔄 Status  → every 10 mins");
   console.log("📊 Points  → every 20 mins");
   console.log("🧹 Cleanup → daily at 3 AM UTC");
-};
+};   
