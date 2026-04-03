@@ -634,6 +634,7 @@ export const syncPlayingXIService = async (matchId) => {
    PLAYER POINTS
 ══════════════════════════════════════════ */
 
+
 export const syncPlayerPointsService = async (matchId) => {
   const [[matchRow]] = await db.query(
     `SELECT id, provider_match_id, status FROM matches
@@ -646,37 +647,79 @@ export const syncPlayerPointsService = async (matchId) => {
     return { count: 0, reason: `Match not completed yet (status: ${matchRow.status})` };
   }
 
-  const data    = await apiGet(`/fixtures/${matchId}`, { include: "players" });
-  const players = data?.data?.players || [];
+  const data    = await apiGet(`/fixtures/${matchId}`, { include: "events" });
+  const fixture = data?.data;
+  if (!fixture) return { count: 0, reason: "Fixture not found in API" };
 
-  if (!players.length) {
-    return { count: 0, reason: "No player stats in API response" };
+  const events = fixture?.events || [];
+  if (!events.length) return { count: 0, reason: "No events found" };
+
+  const statsMap = {};
+  const init = (pid) => {
+    if (!statsMap[pid]) statsMap[pid] = { goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
+  };
+
+  for (const e of events) {
+    const pid        = e.player_id         ? String(e.player_id)         : null;
+    const relatedPid = e.related_player_id ? String(e.related_player_id) : null;
+
+    if (e.type_id === 14 && pid) {
+      init(pid);
+      statsMap[pid].goals++;
+      if (relatedPid) { init(relatedPid); statsMap[relatedPid].assists++; }
+    } else if (e.type_id === 15 && pid) {
+      init(pid);
+      statsMap[pid].goals--;
+    } else if (e.type_id === 19 && pid) {
+      init(pid);
+      statsMap[pid].yellow_cards++;
+    } else if (e.type_id === 20 && pid) {
+      init(pid);
+      statsMap[pid].red_cards++;
+    }
   }
 
-  const pids = [...new Set(players.map((p) => String(p.player_id)))];
+  const pids = Object.keys(statsMap);
+  if (!pids.length) return { count: 0, reason: "No scoreable events found" };
+
   const [playerRows] = await db.query(
     `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
     [pids]
   );
   const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
 
+  const POINTS = { goal: 6, assist: 3, yellow_card: -1, red_card: -3 };
   let count = 0;
-  for (const p of players) {
-    const internalId = playerMap.get(String(p.player_id));
+
+  for (const [pid, stats] of Object.entries(statsMap)) {
+    const internalId = playerMap.get(pid);
     if (!internalId) continue;
 
+    const fantasy_points =
+      (stats.goals        * POINTS.goal)       +
+      (stats.assists      * POINTS.assist)      +
+      (stats.yellow_cards * POINTS.yellow_card) +
+      (stats.red_cards    * POINTS.red_card);
+
     await db.query(
-      `INSERT INTO player_match_stats (match_id, player_id, points)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE points = VALUES(points)`,
-      [matchRow.id, internalId, p.fantasy_points || 0]
+      `INSERT INTO player_match_stats
+         (match_id, player_id, goals, assists, yellow_cards, red_cards, fantasy_points)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         goals          = VALUES(goals),
+         assists        = VALUES(assists),
+         yellow_cards   = VALUES(yellow_cards),
+         red_cards      = VALUES(red_cards),
+         fantasy_points = VALUES(fantasy_points)`,
+      [matchRow.id, internalId, stats.goals, stats.assists, stats.yellow_cards, stats.red_cards, fantasy_points]
     );
+
     count++;
   }
 
+  console.log(`✅ Auto Points synced: ${count} players for match ${matchId}`);
   return { count, reason: null };
 };
-
 
 export const manualSyncPlayingXIService = async (matchId) => {
   // Step 1: Match DB లో ఉందా check
@@ -790,3 +833,7 @@ export const manualSyncPlayingXIService = async (matchId) => {
     substitutes: subs,
   };
 };
+
+
+
+

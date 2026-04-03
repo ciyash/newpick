@@ -9,6 +9,7 @@ import {
   syncPlayingXI,
   syncPlayerPoints,
   manualSyncPlayingXI,
+
 } from "./sportmonks.controller.js";
 
 const router = express.Router();
@@ -38,4 +39,6 @@ router.get("/sync-points/:match_id",       syncPlayerPoints);
 
 router.get("/manual-sync-playingxi/:match_id", manualSyncPlayingXI);
 
-export default router;
+
+
+export default router;    
