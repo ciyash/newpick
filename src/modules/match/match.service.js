@@ -41,7 +41,7 @@ export const getMatchesByTypeService = async (type, userId) => {
 
   if (!validTypes.includes(type.toUpperCase())) {
     throw new Error("Invalid match type");
-  }
+  }  
 
   const [rows] = await db.query(
     `SELECT DISTINCT
