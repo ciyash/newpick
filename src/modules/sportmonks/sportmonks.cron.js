@@ -20,7 +20,7 @@ const syncLineups = async () => {
 
   try {
     const now            = new Date();
-    const sixtyMinsLater = new Date(now.getTime() + 60 * 60 * 1000);
+    const sixtyMinsLater = new Date(now.getTime() + 60 * 60 * 1000);  // 60 mins from now     
 
     const [matches] = await db.query(
       `SELECT id, provider_match_id, start_time, lineup_status
@@ -142,7 +142,7 @@ const syncPoints = async () => {
 };
 
 /* ══════════════════════════════════════════
-   JOB 4 — CLEANUP — daily at 3 AM UTC
+   JOB 4 — CLEANUP — daily at 2 AM UTC
 ══════════════════════════════════════════ */
 const cleanupOldInactiveMatches = async () => {
   console.log("🧹 [CRON] Cleanup job started:", new Date().toISOString());
@@ -165,32 +165,32 @@ const cleanupOldInactiveMatches = async () => {
 ══════════════════════════════════════════ */
 export const startCronJobs = () => {
   // 1) Lineup sync → every 5 mins
-  cron.schedule("*/2 * * * *", syncLineups, {
+  cron.schedule("*/5 * * * *", syncLineups, {
     scheduled: true,
     timezone: "UTC",
   });
 
   // 2) Match status sync → every 5 mins
-  cron.schedule("*/2 * * * *", syncMatchStatuses, {
+  cron.schedule("*/5 * * * *", syncMatchStatuses, {
     scheduled: true,
     timezone: "UTC",
   });
 
   // 3) Points sync → every 5 mins
-  cron.schedule("*/2 * * * *", syncPoints, {
+  cron.schedule("*/5 * * * *", syncPoints, {
     scheduled: true,
     timezone: "UTC",
   });
 
-  // 4) Cleanup → daily at 3 AM UTC
+  // 4) Cleanup → daily at 2 AM UTC
   cron.schedule("0 2 * * *", cleanupOldInactiveMatches, {
     scheduled: true,
     timezone: "UTC",
   });
 
-  console.log("🚀 CRON STARTED [TESTING MODE]");
-  console.log("📋 Lineup  → every 2 mins (1 hour before match window)");
-  console.log("🔄 Status  → every 2 mins");
-  console.log("📊 Points  → every 2 mins");
-  console.log("🧹 Cleanup → daily at 3 AM UTC");
-};    
+  console.log("🚀 CRON STARTED");
+  console.log("📋 Lineup  → every 5 mins (1 hour before match window)");
+  console.log("🔄 Status  → every 5 mins");
+  console.log("📊 Points  → every 5 mins");
+  console.log("🧹 Cleanup → daily at 2 AM UTC");
+};
