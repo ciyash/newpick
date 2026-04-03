@@ -5,7 +5,7 @@ const TOKEN = process.env.SPORTMONKS_TOKEN;
 const BASE_URL = "https://api.sportmonks.com/v3/football";
 
 const apiGet = async (endpoint, params = {}, retries = 3) => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
+  for (let attempt = 1; attempt <= retries; attempt++) {  
     try {
       const { data } = await axios.get(`${BASE_URL}${endpoint}`, {
         params: { api_token: TOKEN, ...params },
@@ -20,17 +20,14 @@ const apiGet = async (endpoint, params = {}, retries = 3) => {
   }
 };
 
-// ✅ FIX 1: Sportmonks state_id complete mapping
+// ✅ FIXED: state_id 5 = RESULT, state_id 1 = UPCOMING, rest all = LIVE
 const mapStatus = (stateId) => {
-  switch (stateId) {
-    case 1:                            return "UPCOMING"; // Not started
-    case 2:  case 3:  case 4:
-    case 6:  case 7:  case 8:
-    case 9:  case 10: case 11:
-    case 13: case 14: case 15:        return "LIVE";     // All live/inplay states
-    case 5:                            return "RESULT";   // Finished
-    default:                           return "UPCOMING";
-  }
+  if (stateId === 5)  return "RESULT";   // FT - Full Time
+  if (stateId === 1)  return "UPCOMING"; // NS - Not Started
+  if (stateId === 17) return "UPCOMING"; // Postponed
+  if (stateId === 18) return "UPCOMING"; // Cancelled
+  if (stateId === 19) return "UPCOMING"; // Abandoned
+  return "LIVE"; // All other states = LIVE (2,3,4,6-16,22,etc.)
 };
 
 const mapPosition = (pos) => {
@@ -199,7 +196,6 @@ export const getActiveSeriesService = async () => {
 
   const { today, future } = getDateRange(60);
 
-  // ✅ FIX 2: Only fetch fixtures for active series league IDs — not all fixtures
   const seriesIds   = series.map((s) => String(s.seriesid));
   let allFixtures   = [];
   let page          = 1;
@@ -212,7 +208,6 @@ export const getActiveSeriesService = async () => {
       page,
     });
 
-    // Filter only fixtures belonging to active series
     const filtered = (data.data || []).filter((f) =>
       seriesIds.includes(String(f.league_id))
     );
@@ -299,7 +294,6 @@ export const getAvailableMatchesService = async (seriesid) => {
     const home = f.participants?.find((p) => p.meta?.location === "home");
     const away = f.participants?.find((p) => p.meta?.location === "away");
 
-    // ✅ timestamp → UTC datetime
     const startTimeUTC = toUTCDateTime(f.starting_at_timestamp, f.starting_at);
 
     return {
@@ -308,7 +302,7 @@ export const getAvailableMatchesService = async (seriesid) => {
       home_image: home?.image_path  || null,
       away:       away?.name        || "",
       away_image: away?.image_path  || null,
-      start_time: startTimeUTC,     // ✅ UTC
+      start_time: startTimeUTC,
       status:     mapStatus(f.state_id),
       is_active:  activeSet.has(String(f.id)),
     };
@@ -326,7 +320,6 @@ export const getMatchesService = async (seriesid) => {
   );
   return { success: true, data: matches };
 };
-   //
 
 /* ══════════════════════════════════════════
    HELPER — timestamp to UTC datetime
@@ -340,7 +333,6 @@ const toUTCDateTime = (timestamp, fallback) => {
   }
   return fallback || null;
 };
-
 
 export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
   const results   = [];
@@ -429,7 +421,6 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
     }
 
     // ── Match upsert ──────────────────────────────
-    // ✅ starting_at already UTC — directly use చేయి
     const startingAt    = fixture.starting_at;
     const matchDateOnly = startingAt?.split(" ")[0] || null;
 
@@ -456,16 +447,16 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
         seriesRow.seriesid,
         teamIds["home"] || null,
         teamIds["away"] || null,
-        startingAt,       // ✅ UTC datetime directly
+        startingAt,
         mapStatus(fixture.state_id),
         fixture.league?.name || "",
         home?.name || "",
         away?.name || "",
-        matchDateOnly,    // ✅ date only
+        matchDateOnly,
       ]
     );
 
-    // ✅ players table కి squad sync
+    // ── Squad sync ────────────────────────────────
     try {
       await syncPlayersService(matchId);
     } catch (e) {
@@ -505,7 +496,6 @@ export const syncPlayersService = async (matchId) => {
   let totalInserted = 0;
 
   for (const team of teamRows) {
-    // ✅ FIX 4: Sportmonks v3 include syntax — semicolon separator
     const data = await apiGet(`/squads/teams/${team.provider_team_id}`, {
       include: "player;position",
     });
@@ -517,7 +507,7 @@ export const syncPlayersService = async (matchId) => {
     if (!players.length) {
       console.warn(`No squad found for team ${team.name} (provider_id: ${team.provider_team_id})`);
       continue;
-    }  
+    }
 
     console.log("PLAYER RAW SAMPLE:", JSON.stringify(players[0], null, 2));
 
@@ -525,7 +515,6 @@ export const syncPlayersService = async (matchId) => {
       const providerPlayerId = String(p.player_id || p.id || "").trim();
       if (!providerPlayerId) continue;
 
-      // ✅ FIX 5: All possible position paths covered
       const rawPosition =
         p.player?.position?.name         ||
         p.player?.position?.code         ||
@@ -540,7 +529,6 @@ export const syncPlayersService = async (matchId) => {
         p.player?.image_path ||
         `https://cdn.sportmonks.com/images/soccer/players/${providerPlayerId}.png`;
 
-      // ✅ players table ONLY — match_players touch చేయడం లేదు
       await db.query(
         `INSERT INTO players
            (team_id, name, position, player_type, playercredits,
@@ -589,9 +577,8 @@ export const syncPlayingXIService = async (matchId) => {
   }
 
   const allLineupPlayers = lineups.map((l) => ({
-    pid:           String(l.player_id),
-    is_substitute: l.type_id === 12 ? 1 : 0,
-    // ✅ FIX 6: Store provider team_id to match with players table
+    pid:             String(l.player_id),
+    is_substitute:   l.type_id === 12 ? 1 : 0,
     provider_team_id: String(l.team_id),
   }));
 
@@ -626,7 +613,7 @@ export const syncPlayingXIService = async (matchId) => {
       [
         matchRow.id,
         player.id,
-        player.team_id,           // DB internal team_id from players table
+        player.team_id,
         l.is_substitute === 0 ? 1 : 0,
         l.is_substitute,
       ]
@@ -688,4 +675,118 @@ export const syncPlayerPointsService = async (matchId) => {
   }
 
   return { count, reason: null };
+};
+
+
+export const manualSyncPlayingXIService = async (matchId) => {
+  // Step 1: Match DB లో ఉందా check
+  const [[matchRow]] = await db.query(
+    `SELECT id, provider_match_id, home_team_id, away_team_id
+     FROM matches WHERE provider_match_id = ? LIMIT 1`,
+    [matchId]
+  );
+  if (!matchRow) throw new Error("Match not found: " + matchId);
+
+  // Step 2: Sportmonks API — lineups fetch
+  const data    = await apiGet(`/fixtures/${matchId}`, { include: "lineups.player" });
+  const fixture = data?.data;
+  const lineups = fixture?.lineups || [];
+
+  if (!lineups.length) {
+    await db.query(
+      `UPDATE matches SET lineupavailable = 0, lineup_status = 'not_available' WHERE id = ?`,
+      [matchRow.id]
+    );
+    return { count: 0, reason: "Lineup not published yet by Sportmonks" };
+  }
+
+  // Step 3: lineup data prepare
+  // type_id === 11 → Starting XI, type_id === 12 → Substitute
+  const allLineupPlayers = lineups.map((l) => ({
+    pid:              String(l.player_id),
+    is_substitute:    l.type_id === 12 ? 1 : 0,
+    provider_team_id: String(l.team_id),
+  }));
+
+  const pids = [...new Set(allLineupPlayers.map((l) => l.pid))];
+
+  // Step 4: Players DB fetch
+  const [playerRows] = await db.query(
+    `SELECT id, provider_player_id, team_id, name, position, playerimage
+     FROM players WHERE provider_player_id IN (?)`,
+    [pids]
+  );
+  const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r]));
+
+  // Step 5: Team info fetch
+  const [teamRows] = await db.query(
+    `SELECT id, provider_team_id, name FROM teams WHERE id IN (?, ?)`,
+    [matchRow.home_team_id, matchRow.away_team_id]
+  );
+  const teamMap = new Map(teamRows.map((t) => [String(t.provider_team_id), t]));
+
+  // Step 6: match_players clean slate
+  await db.query(`DELETE FROM match_players WHERE match_id = ?`, [matchRow.id]);
+
+  let count      = 0;
+  const playingXI = [];
+  const subs      = [];
+
+  for (const l of allLineupPlayers) {
+    const player = playerMap.get(l.pid);
+    if (!player) {
+      console.warn(`Player not in DB — pid=${l.pid}, skipping`);
+      continue;
+    }
+
+    const team     = teamMap.get(l.provider_team_id);
+    const teamSide = team?.id === matchRow.home_team_id ? "home" : "away";
+
+    await db.query(
+      `INSERT INTO match_players
+         (match_id, player_id, team_id, is_playing, is_substitute, is_pre_squad)
+       VALUES (?, ?, ?, ?, ?, 0)
+       ON DUPLICATE KEY UPDATE
+         is_playing    = VALUES(is_playing),
+         is_substitute = VALUES(is_substitute),
+         is_pre_squad  = 0`,
+      [
+        matchRow.id,
+        player.id,
+        player.team_id,
+        l.is_substitute === 0 ? 1 : 0,
+        l.is_substitute,
+      ]
+    );
+
+    const entry = {
+      player_id:     player.id,
+      name:          player.name,
+      position:      player.position,
+      playerimage:   player.playerimage,
+      team:          team?.name || null,
+      team_side:     teamSide,
+      is_substitute: l.is_substitute === 1,
+    };
+
+    if (l.is_substitute === 0) playingXI.push(entry);
+    else subs.push(entry);
+
+    count++;
+  }
+
+  // Step 7: Match lineup status update
+  await db.query(
+    `UPDATE matches SET lineupavailable = 1, lineup_status = 'confirmed' WHERE id = ?`,
+    [matchRow.id]
+  );
+
+  console.log(`✅ Manual Playing XI synced: ${playingXI.length} playing, ${subs.length} subs — match ${matchId}`);
+
+  return {
+    count,
+    reason:      null,
+    playing_xi:  playingXI,
+    substitutes: subs,
+  };
 };

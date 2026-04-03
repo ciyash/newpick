@@ -8,6 +8,7 @@ import {
   getMatches,
   syncPlayingXI,
   syncPlayerPoints,
+  manualSyncPlayingXI,
 } from "./sportmonks.controller.js";
 
 const router = express.Router();
@@ -31,5 +32,10 @@ router.get("/matches/:seriesid",           getMatches);
 ══════════════════════════════════════════ */
 router.get("/sync-playingxi/:match_id",    syncPlayingXI);
 router.get("/sync-points/:match_id",       syncPlayerPoints);
+
+
+//  tetsing   playing xi sync 
+
+router.get("/manual-sync-playingxi/:match_id", manualSyncPlayingXI);
 
 export default router;

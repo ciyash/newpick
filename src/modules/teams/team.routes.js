@@ -16,7 +16,9 @@ router.get("/team-players/team/:id", getPlayerTeamById);
 router.get("/team-players/:id", getPlayerById);
 
 // user created teams after joining contest
+
 router.post("/create", createTeamRateLimit, createTeam);
+
 router.post("/generateTeams", createTeamRateLimit, generateTeams);
 
 router.put("/update-team/:teamId", updateTeamRateLimit, updateTeam);

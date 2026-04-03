@@ -7,6 +7,7 @@ import {
   toggleMatchesService,
   syncPlayingXIService,
   syncPlayerPointsService,
+  manualSyncPlayingXIService,
 } from "./sportmonks.service.js";
 
 /* ══════════════════════════════════════════
@@ -127,6 +128,31 @@ export const syncPlayerPoints = async (req, res) => {
     res.json({ success: true, message: `${result.count} player points synced`, count: result.count });
   } catch (err) {
     console.error("syncPlayerPoints error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};  
+
+
+export const manualSyncPlayingXI = async (req, res) => {
+  try {
+    const { match_id } = req.params;
+    if (!match_id)
+      return res.status(400).json({ success: false, message: "match_id required" });
+
+    const result = await manualSyncPlayingXIService(match_id);
+
+    if (result.reason)
+      return res.status(202).json({ success: false, message: result.reason, count: 0 });
+
+    res.json({
+      success:     true,
+      message:     "Playing XI synced successfully",
+      playing_xi:  result.playing_xi,
+      substitutes: result.substitutes,
+      total:       result.count,
+    });
+  } catch (err) {
+    console.error("manualSyncPlayingXI error:", err.message);
     res.status(500).json({ success: false, message: err.message });
   }
 };
