@@ -164,32 +164,32 @@ const cleanupOldInactiveMatches = async () => {
 ══════════════════════════════════════════ */
 export const startCronJobs = () => {
   // 1) Lineup sync → every 5 mins
-  cron.schedule("*/5 * * * *", syncLineups, {
+  cron.schedule("*/2 * * * *", syncLineups, {
     scheduled: true,
     timezone: "UTC",
   });
 
   // 2) Match status sync → every 5 mins
-  cron.schedule("*/5 * * * *", syncMatchStatuses, {
+  cron.schedule("*/2 * * * *", syncMatchStatuses, {
     scheduled: true,
     timezone: "UTC",
   });
 
   // 3) Points sync → every 5 mins
-  cron.schedule("*/5 * * * *", syncPoints, {
+  cron.schedule("*/2 * * * *", syncPoints, {
     scheduled: true,
     timezone: "UTC",
   });
 
   // 4) Cleanup → daily at 3 AM UTC
-  cron.schedule("0 3 * * *", cleanupOldInactiveMatches, {
+  cron.schedule("0 2 * * *", cleanupOldInactiveMatches, {
     scheduled: true,
     timezone: "UTC",
   });
 
   console.log("🚀 CRON STARTED [TESTING MODE]");
-  console.log("📋 Lineup  → every 5 mins (1 hour before match window)");
-  console.log("🔄 Status  → every 5 mins");
-  console.log("📊 Points  → every 5 mins");
+  console.log("📋 Lineup  → every 2 mins (1 hour before match window)");
+  console.log("🔄 Status  → every 2 mins");
+  console.log("📊 Points  → every 2 mins");
   console.log("🧹 Cleanup → daily at 3 AM UTC");
 };    

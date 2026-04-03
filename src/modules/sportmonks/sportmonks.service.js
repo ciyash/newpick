@@ -325,6 +325,147 @@ export const getMatchesService = async (seriesid) => {
   return { success: true, data: matches };
 };
 
+// export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
+//   const results   = [];
+//   const uniqueIds = [...new Set(matchIds.map(String))];
+
+//   for (const matchId of uniqueIds) {
+//     const [[existing]] = await db.query(
+//       `SELECT id, hometeamname, awayteamname, start_time, lineupavailable
+//        FROM matches WHERE provider_match_id = ? LIMIT 1`,
+//       [matchId]
+//     );  
+
+//     // ── EXISTING MATCH — toggle only ──────────────
+//     if (existing) {
+//       await db.query(
+//         `UPDATE matches SET is_active = ? WHERE provider_match_id = ?`,
+//         [isActive ? 1 : 0, matchId]
+//       );
+//       results.push({
+//         match_id:   matchId,
+//         home:       existing.hometeamname,
+//         away:       existing.awayteamname,
+//         start_time: existing.start_time,
+//         is_active:  isActive,
+//         note:       isActive
+//           ? "Match activated — lineup sync via cron when announced"
+//           : "Match deactivated",
+//       });
+//       continue;
+//     }
+
+//     // ── NEW MATCH ──────────────────────────────────
+//     if (!isActive) {
+//       results.push({ match_id: matchId, error: "Match not found in DB" });
+//       continue;
+//     }
+
+//     const data    = await apiGet(`/fixtures/${matchId}`, { include: "participants;league" });
+//     const fixture = data?.data;
+
+//     if (!fixture) {
+//       results.push({ match_id: matchId, error: "Match not found in API" });
+//       continue;
+//     }
+
+//     const home      = fixture.participants?.find((p) => p.meta?.location === "home");
+//     const away      = fixture.participants?.find((p) => p.meta?.location === "away");
+//     const lookupCid = seriesId ? String(seriesId) : String(fixture.league_id);
+
+//     const [[seriesRow]] = await db.query(
+//       `SELECT id, seriesid FROM series WHERE seriesid = ? LIMIT 1`,
+//       [lookupCid]
+//     );
+
+//     if (!seriesRow) {
+//       results.push({ match_id: matchId, error: "Series not active — toggle ON చేయి ముందు" });
+//       continue;
+//     }
+
+//     // ── Teams upsert ──────────────────────────────
+//     const teamIds = {};
+//     for (const participant of [home, away]) {
+//       if (!participant) continue;
+
+//       await db.query(
+//         `INSERT INTO teams (name, short_name, series_id, provider_team_id, logo)
+//          VALUES (?, ?, ?, ?, ?)
+//          ON DUPLICATE KEY UPDATE
+//            name       = VALUES(name),
+//            short_name = VALUES(short_name),
+//            logo       = VALUES(logo)`,
+//         [
+//           participant.name,
+//           participant.short_code || participant.name.substring(0, 3),
+//           seriesRow.seriesid,
+//           String(participant.id),
+//           participant.image_path || null,
+//         ]
+//       );
+
+//       const [[teamRow]] = await db.query(
+//         `SELECT id FROM teams WHERE provider_team_id = ? LIMIT 1`,
+//         [String(participant.id)]
+//       );
+//       teamIds[participant.meta.location] = teamRow?.id || null;
+//     }
+
+//     // ── Match upsert ──────────────────────────────
+//     await db.query(
+//       `INSERT INTO matches
+//          (provider_match_id, series_id, home_team_id, away_team_id,
+//           start_time, status, seriesname, hometeamname, awayteamname,
+//           matchdate, lineupavailable, lineup_status, is_active)
+//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'not_available', 1)
+//        ON DUPLICATE KEY UPDATE
+//          is_active     = 1,
+//          lineup_status = 'not_available',
+//          series_id     = VALUES(series_id),
+//          home_team_id  = VALUES(home_team_id),
+//          away_team_id  = VALUES(away_team_id),
+//          status        = VALUES(status),
+//          seriesname    = VALUES(seriesname),
+//          hometeamname  = VALUES(hometeamname),
+//          awayteamname  = VALUES(awayteamname),
+//          matchdate     = VALUES(matchdate),
+//          start_time    = VALUES(start_time)`,
+//       [
+//         matchId,
+//         seriesRow.seriesid,
+//         teamIds["home"] || null,
+//         teamIds["away"] || null,
+//         fixture.starting_at,
+//         mapStatus(fixture.state_id),
+//         fixture.league?.name || "",
+//         home?.name || "",
+//         away?.name || "",
+//         fixture.starting_at,
+//       ]
+//     );
+
+//     // ✅ players table కి squad sync — match_players కి కాదు
+//     try {
+//       await syncPlayersService(matchId);
+//     } catch (e) {
+//       console.warn(`Player sync failed for ${matchId}:`, e.message);
+//     }
+
+//     results.push({
+//       match_id:   matchId,
+//       home:       home?.name,
+//       away:       away?.name,
+//       start_time: fixture.starting_at,
+//       is_active:  true,
+//       note:       "Match added + squad synced to players table. Playing XI via cron after lineup announced.",
+//     });
+//   }
+
+//   return results;
+// };
+
+
+
 export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
   const results   = [];
   const uniqueIds = [...new Set(matchIds.map(String))];
@@ -334,7 +475,7 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
       `SELECT id, hometeamname, awayteamname, start_time, lineupavailable
        FROM matches WHERE provider_match_id = ? LIMIT 1`,
       [matchId]
-    );  
+    );
 
     // ── EXISTING MATCH — toggle only ──────────────
     if (existing) {
@@ -412,6 +553,12 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
     }
 
     // ── Match upsert ──────────────────────────────
+    // ✅ FIX: full datetime → start_time, only date → matchdate
+    const startingAt    = fixture.starting_at ?? "";
+    const matchDateOnly = startingAt.includes("T")
+      ? startingAt.split("T")[0]
+      : startingAt.split(" ")[0] || startingAt;
+
     await db.query(
       `INSERT INTO matches
          (provider_match_id, series_id, home_team_id, away_team_id,
@@ -435,12 +582,12 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
         seriesRow.seriesid,
         teamIds["home"] || null,
         teamIds["away"] || null,
-        fixture.starting_at,
+        startingAt,       // ✅ "2026-04-03 16:15:00" — full datetime
         mapStatus(fixture.state_id),
         fixture.league?.name || "",
         home?.name || "",
         away?.name || "",
-        fixture.starting_at,
+        matchDateOnly,    // ✅ "2026-04-03" — only date
       ]
     );
 
@@ -455,7 +602,7 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
       match_id:   matchId,
       home:       home?.name,
       away:       away?.name,
-      start_time: fixture.starting_at,
+      start_time: startingAt,
       is_active:  true,
       note:       "Match added + squad synced to players table. Playing XI via cron after lineup announced.",
     });
@@ -496,7 +643,7 @@ export const syncPlayersService = async (matchId) => {
     if (!players.length) {
       console.warn(`No squad found for team ${team.name} (provider_id: ${team.provider_team_id})`);
       continue;
-    }
+    }  
 
     console.log("PLAYER RAW SAMPLE:", JSON.stringify(players[0], null, 2));
 
