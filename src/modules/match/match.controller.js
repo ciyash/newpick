@@ -48,11 +48,17 @@ export const getAllMatches = async (req, res) => {
 };
 
 
+
 export const getMatchesByType = async (req, res) => {
   try {
     const { type } = req.params;
+    const userId = req.user?.id; // ✅ auth middleware నుండి వస్తుంది
 
-    const data = await getMatchesByTypeService(type);
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const data = await getMatchesByTypeService(type, userId);
 
     res.json({
       success: true,

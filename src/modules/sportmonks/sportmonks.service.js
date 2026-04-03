@@ -334,7 +334,7 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
       `SELECT id, hometeamname, awayteamname, start_time, lineupavailable
        FROM matches WHERE provider_match_id = ? LIMIT 1`,
       [matchId]
-    );
+    );  
 
     // ── EXISTING MATCH — toggle only ──────────────
     if (existing) {
