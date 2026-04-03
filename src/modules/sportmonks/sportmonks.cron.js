@@ -14,6 +14,7 @@ const formatDateTime = (date) => {
 /* ══════════════════════════════════════════
    JOB 1 — LINEUP SYNC — every 5 mins
 ══════════════════════════════════════════ */
+
 const syncLineups = async () => {
   console.log("⏰ [CRON] Lineup sync started:", new Date().toISOString());
 
@@ -25,16 +26,16 @@ const syncLineups = async () => {
       `SELECT id, provider_match_id, start_time, lineup_status
        FROM matches
        WHERE is_active = 1
-         AND status = 'UPCOMING'
+         AND status IN ('UPCOMING', 'LIVE')
          AND lineup_status != 'confirmed'
-         AND start_time >= NOW()
          AND start_time <= ?
+         AND start_time >= DATE_SUB(NOW(), INTERVAL 120 MINUTE)
        ORDER BY start_time ASC`,
       [formatDateTime(sixtyMinsLater)]
     );
 
     if (!matches.length) {
-      console.log("✅ [CRON] No upcoming matches needing lineup sync");
+      console.log("✅ [CRON] No matches needing lineup sync");
       return;
     }
 
