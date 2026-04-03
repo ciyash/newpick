@@ -192,4 +192,4 @@ export const startCronJobs = () => {
   console.log("🔄 Status  → every 5 mins");
   console.log("📊 Points  → every 5 mins");
   console.log("🧹 Cleanup → daily at 3 AM UTC");
-};
+};    
