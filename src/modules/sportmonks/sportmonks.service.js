@@ -318,6 +318,7 @@ export const getMatchesService = async (seriesid) => {
   return { success: true, data: matches };
 };
 
+
 export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
   const results = [];
   const uniqueIds = [...new Set(matchIds.map(String))];
@@ -378,7 +379,7 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
       continue;
     }
 
-    // Teams upsert
+    // ── Teams upsert ──────────────────────────────
     const teamIds = {};
     for (const participant of [home, away]) {
       if (!participant) continue;
@@ -406,7 +407,7 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
       teamIds[participant.meta.location] = teamRow?.id || null;
     }
 
-    // Match upsert
+    // ── Match upsert ──────────────────────────────
     await db.query(
       `INSERT INTO matches
          (provider_match_id, series_id, home_team_id, away_team_id,
@@ -439,12 +440,8 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
       ]
     );
 
-    // Auto sync players
-    try {
-      await syncPlayersService(matchId);
-    } catch (e) {
-      console.warn(`Player sync failed for ${matchId}:`, e.message);
-    }
+    // ✅ syncPlayersService call తీసేశాను — match_players కి squad వద్దు
+    // Playing XI only — syncPlayingXIService cron చేస్తుంది lineup announce అయినప్పుడు
 
     results.push({
       match_id:   matchId,
@@ -452,7 +449,7 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
       away:       away?.name,
       start_time: fixture.starting_at,
       is_active:  true,
-      note:       "Players synced to players table",
+      note:       "Match added — playing XI will sync via cron when lineup is announced",
     });
   }
 
