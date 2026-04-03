@@ -68,12 +68,12 @@ export const getAvailableSeriesService = async () => {
 
   if (!allLeagues.length) return [];
 
-  // Step 2: Fetch upcoming fixtures (today → +3 months)
+  // Step 2: Fetch upcoming fixtures — paginate fully, no hard cap
   const today  = new Date().toISOString().split("T")[0];
   const future = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
     .toISOString().split("T")[0];
 
-  let upcomingLeagueIds = new Set();
+  const upcomingLeagueIds = new Set();
   page = 1;
   hasMore = true;
 
@@ -89,19 +89,24 @@ export const getAvailableSeriesService = async () => {
 
     hasMore = data.pagination?.has_more || false;
     page++;
-    if (page > 10) break;
+
+    // Safety: stop if we already found all leagues
+    if (upcomingLeagueIds.size >= allLeagues.length) break;
+    if (page > 50) break; // hard safety cap
   }
+
+  console.log(`✅ Upcoming league IDs found: ${upcomingLeagueIds.size}`, [...upcomingLeagueIds]);
 
   if (!upcomingLeagueIds.size) return [];
 
-  // Step 3: Keep only leagues that have upcoming fixtures
+  // Step 3: Filter leagues that have upcoming fixtures
   const filteredLeagues = allLeagues.filter((l) =>
     upcomingLeagueIds.has(String(l.id))
   );
 
   if (!filteredLeagues.length) return [];
 
-  // Step 4: DB lookup for status/is_selected
+  // Step 4: DB lookup
   const leagueIds = filteredLeagues.map((l) => String(l.id));
 
   const [dbRows] = await db.query(
