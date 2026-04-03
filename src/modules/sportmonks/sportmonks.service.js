@@ -51,17 +51,15 @@ const getDateRange = (days = 60) => {
    SERIES
 ══════════════════════════════════════════ */
 
+
 export const getAvailableSeriesService = async () => {
+  // Step 1: Fetch all leagues
   let allLeagues = [];
   let page = 1;
   let hasMore = true;
 
   while (hasMore) {
-    const data = await apiGet("/leagues", {
-      per_page: 100,
-      page,
-    });
-
+    const data = await apiGet("/leagues", { per_page: 100, page });
     allLeagues.push(...(data.data || []));
     hasMore = data.pagination?.has_more || false;
     page++;
@@ -70,7 +68,41 @@ export const getAvailableSeriesService = async () => {
 
   if (!allLeagues.length) return [];
 
-  const leagueIds = allLeagues.map((l) => String(l.id));
+  // Step 2: Fetch upcoming fixtures (today → +3 months)
+  const today  = new Date().toISOString().split("T")[0];
+  const future = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000)
+    .toISOString().split("T")[0];
+
+  let upcomingLeagueIds = new Set();
+  page = 1;
+  hasMore = true;
+
+  while (hasMore) {
+    const data = await apiGet(`/fixtures/between/${today}/${future}`, {
+      per_page: 100,
+      page,
+    });
+
+    for (const fixture of data.data || []) {
+      if (fixture.league_id) upcomingLeagueIds.add(String(fixture.league_id));
+    }
+
+    hasMore = data.pagination?.has_more || false;
+    page++;
+    if (page > 10) break;
+  }
+
+  if (!upcomingLeagueIds.size) return [];
+
+  // Step 3: Keep only leagues that have upcoming fixtures
+  const filteredLeagues = allLeagues.filter((l) =>
+    upcomingLeagueIds.has(String(l.id))
+  );
+
+  if (!filteredLeagues.length) return [];
+
+  // Step 4: DB lookup for status/is_selected
+  const leagueIds = filteredLeagues.map((l) => String(l.id));
 
   const [dbRows] = await db.query(
     `SELECT seriesid, status, is_selected FROM series WHERE seriesid IN (?)`,
@@ -78,21 +110,23 @@ export const getAvailableSeriesService = async () => {
   );
   const dbMap = new Map(dbRows.map((r) => [String(r.seriesid), r]));
 
-  return allLeagues.map((l) => {
-    const dbRow = dbMap.get(String(l.id));
-    return {
-      cid:          String(l.id),
-      name:         l.name,
-      short_code:   l.short_code || null,
-      league_image: l.image_path || null,
-      type:         l.type,
-      sub_type:     l.sub_type,
-      category:     l.category,
-      last_played:  l.last_played_at || null,
-      is_active:    dbRow ? dbRow.is_selected === 1 : false,
-      status:       dbRow ? dbRow.status : "pending",
-    };
-  }).sort((a, b) => a.name.localeCompare(b.name));
+  return filteredLeagues
+    .map((l) => {
+      const dbRow = dbMap.get(String(l.id));
+      return {
+        cid:          String(l.id),
+        name:         l.name,
+        short_code:   l.short_code || null,
+        league_image: l.image_path || null,
+        type:         l.type,
+        sub_type:     l.sub_type,
+        category:     l.category,
+        last_played:  l.last_played_at || null,
+        is_active:    dbRow ? dbRow.is_selected === 1 : false,
+        status:       dbRow ? dbRow.status : "pending",
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 };
 
 export const toggleSeriesService = async (seriesIds, isActive) => {
