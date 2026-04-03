@@ -266,16 +266,19 @@ export const getAvailableMatchesService = async (seriesid) => {
   let page        = 1;
   let hasMore     = true;
 
-  // ✅ FIX 3: Filter by league ID at API level — don't fetch all then filter
   while (hasMore) {
     const data = await apiGet(`/fixtures/between/${today}/${future}`, {
-      include:   "participants",
-      per_page:  100,
+      include:  "participants",
+      per_page: 100,
       page,
-      leagues:   seriesid, // Sportmonks supports league filter param
     });
 
-    allFixtures.push(...(data.data || []));
+    // ✅ Manual filter — leagues param Sportmonks v3 లో పని చేయట్లేదు
+    const filtered = (data.data || []).filter(
+      (f) => String(f.league_id) === String(seriesid)
+    );
+    allFixtures.push(...filtered);
+
     hasMore = data.pagination?.has_more || false;
     page++;
     if (page > 10) break;
@@ -299,7 +302,7 @@ export const getAvailableMatchesService = async (seriesid) => {
 
     return {
       match_id:   String(f.id),
-      home:       home?.name        || "",
+      home:       home?.name        || "",  
       home_image: home?.image_path  || null,
       away:       away?.name        || "",
       away_image: away?.image_path  || null,
