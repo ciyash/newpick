@@ -822,7 +822,7 @@ export const syncPlayerPointsService = async (matchId) => {
   console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${matchId}`);
   return { count, reason: null };
 };
-
+  
 
 
 
