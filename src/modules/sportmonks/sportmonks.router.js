@@ -9,7 +9,7 @@ import {
   syncPlayingXI,
   syncPlayerPoints,
   manualSyncPlayingXI,
-
+   
 } from "./sportmonks.controller.js";
 
 const router = express.Router();

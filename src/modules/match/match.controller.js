@@ -1,4 +1,4 @@
-import { getMatchesByTypeService } from "./match.service.js";
+import { getMatchesByTypeService, getPastMatchesService } from "./match.service.js";
 import  db  from "../../config/db.js";
 
 export const getAllMatches = async (req, res) => {
@@ -523,6 +523,31 @@ export const getMatchFullDetails = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error",
+      error: error.message,
+    });
+  }
+};
+
+
+
+
+export const getPastMatches = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit, 10) || 5;  // ✅ radix 10 add cheyyi
+
+    const data = await getPastMatchesService(limit);
+
+    return res.status(200).json({
+      success: true,
+      count: data.length,
+      data,
+    });
+
+  } catch (error) {
+    console.error('getPastMatches error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch past matches',
       error: error.message,
     });
   }
