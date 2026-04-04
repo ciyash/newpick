@@ -643,8 +643,9 @@ export const syncPlayingXIService = async (matchId) => {
 //   );
 //   if (!matchRow) throw new Error("Match not found: " + matchId);
 
-//   if (matchRow.status !== "RESULT") {
-//     return { count: 0, reason: `Match not completed yet (status: ${matchRow.status})` };
+//   // ✅ LIVE kuda allow cheyyi
+//   if (matchRow.status !== "RESULT" && matchRow.status !== "LIVE") {
+//     return { count: 0, reason: `Match not started yet (status: ${matchRow.status})` };
 //   }
 
 //   const data    = await apiGet(`/fixtures/${matchId}`, { include: "events" });
@@ -717,10 +718,10 @@ export const syncPlayingXIService = async (matchId) => {
 //     count++;
 //   }
 
-//   console.log(`✅ Auto Points synced: ${count} players for match ${matchId}`);
+//   // ✅ Status log lo LIVE/RESULT differentiate cheyyadam
+//   console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${matchId}`);
 //   return { count, reason: null };
-// };
-
+// }; 
 
 
 export const syncPlayerPointsService = async (matchId) => {
@@ -731,7 +732,6 @@ export const syncPlayerPointsService = async (matchId) => {
   );
   if (!matchRow) throw new Error("Match not found: " + matchId);
 
-  // ✅ LIVE kuda allow cheyyi
   if (matchRow.status !== "RESULT" && matchRow.status !== "LIVE") {
     return { count: 0, reason: `Match not started yet (status: ${matchRow.status})` };
   }
@@ -790,6 +790,7 @@ export const syncPlayerPointsService = async (matchId) => {
       (stats.yellow_cards * POINTS.yellow_card) +
       (stats.red_cards    * POINTS.red_card);
 
+    // ✅ player_match_stats insert/update
     await db.query(
       `INSERT INTO player_match_stats
          (match_id, player_id, goals, assists, yellow_cards, red_cards, fantasy_points)
@@ -803,16 +804,24 @@ export const syncPlayerPointsService = async (matchId) => {
       [matchRow.id, internalId, stats.goals, stats.assists, stats.yellow_cards, stats.red_cards, fantasy_points]
     );
 
+    // ✅ players.points = all matches total sum
+    await db.query(
+      `UPDATE players
+       SET points = (
+         SELECT COALESCE(SUM(fantasy_points), 0)
+         FROM player_match_stats
+         WHERE player_id = ?
+       )
+       WHERE id = ?`,
+      [internalId, internalId]
+    );
+
     count++;
   }
 
-  // ✅ Status log lo LIVE/RESULT differentiate cheyyadam
   console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${matchId}`);
   return { count, reason: null };
-}; 
-
-
-
+};
 
 
 
