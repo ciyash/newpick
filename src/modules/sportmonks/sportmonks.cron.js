@@ -109,26 +109,22 @@ const syncMatchStatuses = async () => {
    JOB 3 — PLAYER POINTS SYNC — every 5 mins
    RESULT matches, last 6 hrs, no stats yet
 ══════════════════════════════════════════ */
+
 const syncPoints = async () => {
   console.log("⏰ [CRON] Points sync started:", new Date().toISOString());
 
   try {
     const [matches] = await db.query(
-      `SELECT m.id, m.provider_match_id, m.start_time
+      `SELECT m.id, m.provider_match_id, m.start_time, m.status
        FROM matches m
        WHERE m.is_active = 1
-         AND m.status = 'RESULT'
+         AND m.status IN ('LIVE', 'RESULT')
          AND m.start_time >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
-         AND NOT EXISTS (
-           SELECT 1 FROM player_match_stats pms
-           WHERE pms.match_id = m.id
-           LIMIT 1
-         )
        ORDER BY m.start_time DESC`
     );
 
     if (!matches.length) {
-      console.log("✅ [CRON] No completed matches needing points sync");
+      console.log("✅ [CRON] No live/completed matches needing points sync");
       return;
     }
 
@@ -142,7 +138,7 @@ const syncPoints = async () => {
           console.log(`⏳ [CRON] Match ${match.provider_match_id} — ${result.reason}`);
         } else {
           console.log(
-            `✅ [CRON] Match ${match.provider_match_id} — points synced: ${result.count} players`
+            `✅ [CRON] Match ${match.provider_match_id} — [${match.status}] points synced: ${result.count} players`
           );
         }
 
@@ -158,6 +154,7 @@ const syncPoints = async () => {
     console.error("❌ [CRON] syncPoints job failed:", err.message);
   }
 };
+
 
 /* ══════════════════════════════════════════
    JOB 4 — CLEANUP — daily at 2 AM UTC
