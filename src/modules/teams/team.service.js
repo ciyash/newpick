@@ -1,6 +1,6 @@
 import db from "../../config/db.js";
 
-
+  
 export const createTeamService = async (
   userId,
   matchId,
@@ -574,43 +574,130 @@ export const getMyTeamsWithPlayersServiceold = async (
 };
 
 
+// export const updateTeamService = async (
+//   userId,
+//   teamId,
+//   { players, captainId, viceCaptainId, teamName }
+// ) => {
+
+//   let conn;
+
+//   try {
+//     conn = await db.getConnection();
+//     await conn.beginTransaction();
+
+//     /* ✅ Team exists & belongs to user check */
+
+//     const [[team]] = await conn.query(
+//       `SELECT id FROM user_teams WHERE id = ? AND user_id = ?`,
+//       [teamId, userId]
+//     );
+
+//     if (!team) throw new Error("Team not found or not yours");
+
+//     /* ✅ Players validation */
+
+//     if (!players || players.length !== 11) {
+//       throw new Error("Team must have exactly 11 players");
+//     }
+
+//     if (!players.includes(captainId) || !players.includes(viceCaptainId)) {
+//       throw new Error("Captain/VC must be in selected players");
+//     }
+
+//     if (captainId === viceCaptainId) {
+//       throw new Error("Captain and Vice Captain cannot be same");
+//     }
+
+//     /* 🔥 Update team name */
+
+//     if (teamName) {
+//       await conn.query(
+//         `UPDATE user_teams SET team_name = ? WHERE id = ?`,
+//         [teamName, teamId]
+//       );
+//     }
+
+//     /* 🔥 Delete old players */
+
+//     await conn.query(
+//       `DELETE FROM user_team_players WHERE user_team_id = ?`,
+//       [teamId]
+//     );
+
+//     /* 🔥 Insert updated players */
+
+//     for (const playerId of players) {
+
+//       await conn.query(
+//         `INSERT INTO user_team_players
+//          (user_team_id, player_id, is_captain, is_vice_captain)
+//          VALUES (?, ?, ?, ?)`,
+//         [
+//           teamId,
+//           playerId,
+//           playerId === captainId ? 1 : 0,
+//           playerId === viceCaptainId ? 1 : 0
+//         ]
+//       );
+//     }
+
+//     await conn.commit();
+
+//     return { message: "Team updated successfully" };
+
+//   } catch (error) {
+//     if (conn) await conn.rollback();
+//     throw error;
+//   } finally {
+//     if (conn) conn.release();
+//   }
+// };
+
 export const updateTeamService = async (
   userId,
   teamId,
   { players, captainId, viceCaptainId, teamName }
 ) => {
-
   let conn;
 
   try {
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    /* ✅ Team exists & belongs to user check */
-
+    // 1️⃣ Team exists & belongs to user
     const [[team]] = await conn.query(
-      `SELECT id FROM user_teams WHERE id = ? AND user_id = ?`,
+      `SELECT id, match_id FROM user_teams WHERE id = ? AND user_id = ?`,
       [teamId, userId]
     );
-
     if (!team) throw new Error("Team not found or not yours");
 
-    /* ✅ Players validation */
-
-    if (!players || players.length !== 11) {
-      throw new Error("Team must have exactly 11 players");
+    // 2️⃣ Duplicate players check
+    const uniquePlayers = [...new Set(players)];
+    if (uniquePlayers.length !== 11) {
+      throw new Error("Team must have exactly 11 unique players");
     }
 
-    if (!players.includes(captainId) || !players.includes(viceCaptainId)) {
+    // 3️⃣ Captain / VC validation
+    if (!uniquePlayers.includes(captainId) || !uniquePlayers.includes(viceCaptainId)) {
       throw new Error("Captain/VC must be in selected players");
     }
-
     if (captainId === viceCaptainId) {
       throw new Error("Captain and Vice Captain cannot be same");
     }
 
-    /* 🔥 Update team name */
+    // 4️⃣ Players belong to this match check
+    const [validPlayers] = await conn.query(
+      `SELECT p.id FROM players p
+       JOIN match_players mp ON mp.player_id = p.id
+       WHERE mp.match_id = ? AND p.id IN (?)`,
+      [team.match_id, uniquePlayers]
+    );
+    if (validPlayers.length !== 11) {
+      throw new Error("Some players do not belong to this match");
+    }
 
+    // 5️⃣ Update team name
     if (teamName) {
       await conn.query(
         `UPDATE user_teams SET team_name = ? WHERE id = ?`,
@@ -618,32 +705,28 @@ export const updateTeamService = async (
       );
     }
 
-    /* 🔥 Delete old players */
-
+    // 6️⃣ Delete old players
     await conn.query(
       `DELETE FROM user_team_players WHERE user_team_id = ?`,
       [teamId]
     );
 
-    /* 🔥 Insert updated players */
+    // 7️⃣ Bulk insert — single query ✅
+    const values = uniquePlayers.map((pid) => [
+      teamId,
+      pid,
+      pid === captainId     ? 1 : 0,
+      pid === viceCaptainId ? 1 : 0,
+    ]);
 
-    for (const playerId of players) {
-
-      await conn.query(
-        `INSERT INTO user_team_players
-         (user_team_id, player_id, is_captain, is_vice_captain)
-         VALUES (?, ?, ?, ?)`,
-        [
-          teamId,
-          playerId,
-          playerId === captainId ? 1 : 0,
-          playerId === viceCaptainId ? 1 : 0
-        ]
-      );
-    }
+    await conn.query(
+      `INSERT INTO user_team_players
+       (user_team_id, player_id, is_captain, is_vice_captain)
+       VALUES ?`,
+      [values]
+    );
 
     await conn.commit();
-
     return { message: "Team updated successfully" };
 
   } catch (error) {
@@ -653,8 +736,6 @@ export const updateTeamService = async (
     if (conn) conn.release();
   }
 };
-
-
 
 export const getMyTeamsXIStatusService = async (userId, matchId, homeTeamId) => {
 
