@@ -251,13 +251,13 @@ export const getLeaderboard = async (req, res) => {
 
 export const getMyRank = async (req, res) => {
   try {
-    const { contest_id, team_id } = req.params;  // ✅ params నుండి
+    const { contest_id, teamId } = req.params;  // ✅ params నుండి
     const user_id = req.user.id;
 
-    if (!contest_id || !team_id)
-      return res.status(400).json({ success: false, message: "contest_id and team_id required" });
+    if (!contest_id || !teamId)
+      return res.status(400).json({ success: false, message: "contest_id and teamId required" });
 
-    const result = await getMyRankService(contest_id, user_id, team_id);
+    const result = await getMyRankService(contest_id, user_id, teamId);
     res.json(result);
   } catch (err) {
     console.error("getMyRank error:", err.message);

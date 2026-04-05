@@ -1412,7 +1412,7 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
   const [[entry]] = await db.query(
     `SELECT 
        ce.id,
-       ce.user_team_id,        -- ✅ team_id కాదు
+       ce.user_team_id,        
        ce.urank,
        ce.winning_amount,
        u.name,
