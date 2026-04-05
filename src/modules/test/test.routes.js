@@ -1,13 +1,12 @@
-import express from "express";
-import {
- sendOtpController,
- verifyOtpController
-} from "./test.controller.js";
+import express from 'express'
+import { createUser, getAllUser } from './test.controller.js';
+
+
 
 const router = express.Router();
 
-router.post("/send-otp", sendOtpController);
+router.post("/create", createUser);
 
-router.post("/verify-otp", verifyOtpController);
+router.get("/get-all", getAllUser);    
 
-export default router;
+export default router;   

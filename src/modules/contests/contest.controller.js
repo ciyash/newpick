@@ -1,4 +1,4 @@
-import { getContestsService, joinContestService,  getAllContestsService,  getMyContestsService,  getMyJoinedContestsService
+import { getContestsService, joinContestService,  getAllContestsService,  getMyContestsService, getLeaderboardService, getMyRankService,  
 } from "./contest.service.js";
 
 export const getAllContests = async (req, res) => {
@@ -223,46 +223,42 @@ export const getMyContests = async (req, res) => {
   }
 };  
 
-export const getMyJoinedContests = async (req, res) => {
+
+
+
+
+
+//===============================//===================================//
+
+export const getLeaderboard = async (req, res) => {
   try {
-    const userId = req.user?.id;
-    const match_id = req.params.match_id?.trim();
-    const contest_id = req.params.contest_id?.trim() || null;
+    const { contest_id } = req.params;
+    const { page = 1, limit = 50 } = req.query;
 
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: "Unauthorized"
-      });
-    }
+    if (!contest_id)
+      return res.status(400).json({ success: false, message: "contest_id required" });
 
-    if (!match_id) {
-      return res.status(400).json({
-        success: false,
-        message: "match_id param is required"
-      });
-    }
-
-    const contests = await getMyJoinedContestsService(userId, match_id, contest_id);
-    if (!contests || contests.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No contests found"
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      total: contests.length,
-      data: contests
-    });   
-
+    const result = await getLeaderboardService(contest_id, parseInt(page), parseInt(limit));
+    res.json(result);
   } catch (err) {
-    console.error("[getMyJoinedContests]", err);
+    console.error("getLeaderboard error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
-    return res.status(err.statusCode || 500).json({
-      success: false,
-      message: err.statusCode ? err.message : "Internal server error"
-    });
+
+export const getMyRank = async (req, res) => {
+  try {
+    const { contest_id } = req.params;
+    const user_id = req.user.id; // ✅ token నుండి
+
+    if (!contest_id)
+      return res.status(400).json({ success: false, message: "contest_id required" });
+
+    const result = await getMyRankService(contest_id, user_id);
+    res.json(result);
+  } catch (err) {
+    console.error("getMyRank error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 };

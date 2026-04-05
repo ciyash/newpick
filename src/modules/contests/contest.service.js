@@ -1238,82 +1238,220 @@ export const getMyContestsService = async (userId, matchId) => {
   }
 };
 
-export const getMyJoinedContestsService = async (
-  userId,
-  matchId,
-  contestId = null
-) => {
+
+//==========================================================================================
+
+/* ══════════════════════════════════════════
+   HELPER — prize amount for a given rank
+══════════════════════════════════════════ */
+const getPrizeForRank = (rank, prizeDistribution, firstPrize) => {
+  if (!prizeDistribution) return 0;
+
+  let distribution;
   try {
-
-    if (!userId) throw new Error("userId is required");
-    if (!matchId) throw new Error("matchId is required");
-
-    let query = `
-      SELECT 
-        c.id                  AS contest_id,
-        c.match_id,
-        c.entry_fee,
-        c.prize_pool,
-        c.max_entries,
-        c.current_entries,
-        c.contest_type,
-        c.status,
-        c.first_prize,
-        c.total_winners,
-        c.winner_percentage,
-        c.platform_fee_percentage,
-        COUNT(ce.id)          AS my_team_count
-      FROM contest_entries ce
-      JOIN contest c ON ce.contest_id = c.id
-      WHERE ce.user_id = ?
-      AND c.match_id = ?
-    `;
-
-    const params = [userId, matchId];
-
-    if (contestId) {
-      query += ` AND c.id = ?`;
-      params.push(contestId);
-    }
-
-    query += `
-      GROUP BY c.id
-      ORDER BY MAX(ce.id) DESC
-    `;
-
-    const [rows] = await db.query(query, params);
-
-    if (!rows || rows.length === 0) {
-      return [];
-    }
-
-    return rows.map((c) => ({
-      contest_id: c.contest_id,
-      match_id: c.match_id,
-
-      entry_fee: Number(c.entry_fee) || 0,
-      prize_pool: Number(c.prize_pool) || 0,
-
-      max_entries: c.max_entries || 0,
-      current_entries: c.current_entries || 0,
-      remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
-
-      contest_type: c.contest_type || null,
-      status: c.status || null,
-
-      first_prize: Number(c.first_prize) || 0,
-      total_winners: c.total_winners || 0,
-      winner_percentage: Number(c.winner_percentage) || 0,
-      platform_fee_percentage: Number(c.platform_fee_percentage) || 0,
-
-      // ✅ user joined teams count
-      myTeamCount: Number(c.my_team_count) || 0
-
-    }));
-
-  } catch (err) {
-    console.error("[getMyJoinedContestsService]", err);
-    throw err;
+    distribution = typeof prizeDistribution === "string"
+      ? JSON.parse(prizeDistribution)
+      : prizeDistribution;
+  } catch {
+    return 0;
   }
+
+  // prize_distribution format:
+  // [{ rank_from: 1, rank_to: 1, amount: 3000000 }, { rank_from: 2, rank_to: 5, amount: 10000 }, ...]
+  for (const tier of distribution) {
+    if (rank >= tier.rank_from && rank <= tier.rank_to) {
+      return tier.amount || 0;
+    }
+  }
+  return 0;
 };
-      
+
+/* ══════════════════════════════════════════
+   HELPER — calculate user team total points
+   from player_match_stats via user_team_players
+══════════════════════════════════════════ */
+
+
+const calcTeamPoints = async (userTeamId, matchId) => {
+  const [rows] = await db.query(
+    `SELECT 
+       SUM(pms.fantasy_points) AS total_points
+     FROM user_team_players utp
+     JOIN player_match_stats pms 
+       ON pms.player_id = utp.player_id 
+      AND pms.match_id = ?
+     WHERE utp.user_team_id = ?`,
+    [matchId, userTeamId]
+  );
+  return parseFloat(rows[0]?.total_points || 0);
+};
+
+/* ══════════════════════════════════════════
+   LEADERBOARD SERVICE
+══════════════════════════════════════════ */
+
+
+
+export const getLeaderboardService = async (contestId, page = 1, limit = 50) => {
+  const offset = (page - 1) * limit;
+
+  // Step 1: Contest info fetch
+  const [[contest]] = await db.query(
+    `SELECT c.id, c.match_id, c.prize_pool, c.first_prize,
+            c.prize_distribution, c.current_entries,
+            c.entry_fee, c.status, c.contest_type,
+            c.total_winners, c.net_pool_prize
+     FROM contest c WHERE c.id = ?`,
+    [contestId]
+  );
+
+  if (!contest)
+    return { success: false, message: "Contest not found" };
+
+  // Step 2: All entries with user info
+  const [entries] = await db.query(
+    `SELECT 
+       ce.id,
+       ce.user_id,
+       ce.user_team_id,
+       ce.urank,
+       ce.winning_amount,
+       ce.status,
+       u.name,
+       u.nickname,
+       u.image
+     FROM contest_entries ce
+     JOIN users u ON u.id = ce.user_id
+     WHERE ce.contest_id = ?
+     ORDER BY ce.urank ASC
+     LIMIT ? OFFSET ?`,
+    [contestId, limit, offset]
+  );
+
+  // Step 3: Total count for pagination
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) as total FROM contest_entries WHERE contest_id = ?`,
+    [contestId]
+  );
+
+  // Step 4: Build leaderboard rows with points + prize
+  const leaderboard = await Promise.all(
+    entries.map(async (entry) => {
+      const points = await calcTeamPoints(entry.user_team_id, contest.match_id);
+      const prize  = entry.winning_amount ||
+                     getPrizeForRank(entry.urank, contest.prize_distribution, contest.first_prize);
+
+      return {
+        rank:           entry.urank,
+        user_id:        entry.user_id,
+        username:       entry.nickname || entry.name || "User" + entry.user_id,
+        profile_image:  entry.image || null,
+        user_team_id:   entry.user_team_id,
+        points:         points,
+        winning_amount: prize,
+        is_winner:      prize > 0,
+      };
+    })
+  );
+
+  // Step 5: Prize distribution tiers for frontend winnings tab
+  let prizeTiers = [];
+  try {
+    prizeTiers = typeof contest.prize_distribution === "string"
+      ? JSON.parse(contest.prize_distribution)
+      : contest.prize_distribution || [];
+  } catch {
+    prizeTiers = [];
+  }
+
+  return {
+    success: true,
+    contest: {
+      id:             contest.id,
+      prize_pool:     contest.prize_pool,
+      net_pool_prize: contest.net_pool_prize,
+      first_prize:    contest.first_prize,
+      entry_fee:      contest.entry_fee,
+      total_entries:  contest.current_entries,
+      total_winners:  contest.total_winners,
+      contest_type:   contest.contest_type,
+      status:         contest.status,
+      prize_tiers:    prizeTiers,
+    },
+    leaderboard,
+    pagination: {
+      current_page:  page,
+      per_page:      limit,
+      total_entries: parseInt(total),
+      total_pages:   Math.ceil(total / limit),
+      has_more:      offset + limit < total,
+    },
+  };
+};
+
+/* ══════════════════════════════════════════
+   MY RANK SERVICE — specific user position
+══════════════════════════════════════════ */
+
+
+
+export const getMyRankService = async (contestId, userId) => {
+  const [[contest]] = await db.query(
+    `SELECT id, match_id, prize_pool, first_prize,
+            prize_distribution, current_entries, status
+     FROM contest c WHERE c.id = ?`,   // ✅ fixed table name
+    [contestId]
+  );
+
+  if (!contest)
+    return { success: false, message: "Contest not found" };
+
+  const [myEntries] = await db.query(
+    `SELECT 
+       ce.id,
+       ce.user_team_id,
+       ce.urank,
+       ce.winning_amount,
+       u.name,          
+       u.nickname,      
+       u.image          
+     FROM contest_entries ce
+     JOIN users u ON u.id = ce.user_id
+     WHERE ce.contest_id = ? AND ce.user_id = ?
+     ORDER BY ce.urank ASC`,
+    [contestId, userId]
+  );
+
+  if (!myEntries.length)
+    return { success: false, message: "User not in this contest" };
+
+  const myTeams = await Promise.all(
+    myEntries.map(async (entry) => {
+      const points = await calcTeamPoints(entry.user_team_id, contest.match_id);
+      const prize  = entry.winning_amount ||
+                     getPrizeForRank(entry.urank, contest.prize_distribution, contest.first_prize);
+      return {
+        user_team_id:   entry.user_team_id,
+        rank:           entry.urank,
+        points:         points,
+        winning_amount: prize,
+        is_winner:      prize > 0,
+      };
+    })
+  );
+
+  const bestEntry = myTeams.reduce((best, t) =>
+    (t.rank || Infinity) < (best.rank || Infinity) ? t : best
+  );
+
+  return {
+    success:       true,
+    user_id:       parseInt(userId),
+    username:      myEntries[0].nickname || myEntries[0].name || "User" + userId,  // ✅ fixed
+    profile_image: myEntries[0].image || null,   // ✅ fixed
+    best_rank:     bestEntry.rank,
+    best_points:   bestEntry.points,
+    total_entries: contest.current_entries,
+    my_teams:      myTeams,
+  };
+};
