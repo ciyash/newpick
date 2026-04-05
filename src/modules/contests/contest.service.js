@@ -1408,10 +1408,11 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
     return { success: false, message: "Contest not found" };
 
   // ✅ specific team మాత్రమే fetch చేస్తాం
+
   const [[entry]] = await db.query(
     `SELECT 
        ce.id,
-       ce.team_id,
+       ce.user_team_id,        -- ✅ team_id కాదు
        ce.urank,
        ce.winning_amount,
        u.name,
@@ -1419,14 +1420,16 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
        u.image
      FROM contest_entries ce
      JOIN users u ON u.id = ce.user_id
-     WHERE ce.contest_id = ? AND ce.user_id = ? AND ce.team_id = ?`,
+     WHERE ce.contest_id = ? AND ce.user_id = ? AND ce.user_team_id = ?`,  
     [contestId, userId, userTeamId]
   );
+
+ 
 
   if (!entry)
     return { success: false, message: "This team not found in contest" };
 
-  const points = await calcTeamPoints(entry.team_id, contest.match_id);
+   const points = await calcTeamPoints(entry.user_team_id, contest.match_id);
   const prize  = entry.winning_amount ||
                  getPrizeForRank(entry.urank, contest.prize_distribution, contest.first_prize);
 
@@ -1435,7 +1438,7 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
     user_id:        parseInt(userId),
     username:       entry.nickname || entry.name || "User" + userId,
     profile_image:  entry.image || null,
-    user_team_id:   entry.team_id,
+     user_team_id: entry.user_team_id,  
     rank:           entry.urank,
     points:         points,
     winning_amount: prize,
