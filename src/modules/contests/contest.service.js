@@ -1395,63 +1395,51 @@ export const getLeaderboardService = async (contestId, page = 1, limit = 50) => 
 
 
 
-export const getMyRankService = async (contestId, userId) => {
+
+export const getMyRankService = async (contestId, userId, userTeamId) => {
   const [[contest]] = await db.query(
     `SELECT id, match_id, prize_pool, first_prize,
             prize_distribution, current_entries, status
-     FROM contest c WHERE c.id = ?`,   // ✅ fixed table name
+     FROM contest c WHERE c.id = ?`,
     [contestId]
   );
 
   if (!contest)
     return { success: false, message: "Contest not found" };
 
-  const [myEntries] = await db.query(
+  // ✅ specific team మాత్రమే fetch చేస్తాం
+  const [[entry]] = await db.query(
     `SELECT 
        ce.id,
-       ce.user_team_id,
+       ce.team_id,
        ce.urank,
        ce.winning_amount,
-       u.name,          
-       u.nickname,      
-       u.image          
+       u.name,
+       u.nickname,
+       u.image
      FROM contest_entries ce
      JOIN users u ON u.id = ce.user_id
-     WHERE ce.contest_id = ? AND ce.user_id = ?
-     ORDER BY ce.urank ASC`,
-    [contestId, userId]
+     WHERE ce.contest_id = ? AND ce.user_id = ? AND ce.team_id = ?`,
+    [contestId, userId, userTeamId]
   );
 
-  if (!myEntries.length)
-    return { success: false, message: "User not in this contest" };
+  if (!entry)
+    return { success: false, message: "This team not found in contest" };
 
-  const myTeams = await Promise.all(
-    myEntries.map(async (entry) => {
-      const points = await calcTeamPoints(entry.user_team_id, contest.match_id);
-      const prize  = entry.winning_amount ||
-                     getPrizeForRank(entry.urank, contest.prize_distribution, contest.first_prize);
-      return {
-        user_team_id:   entry.user_team_id,
-        rank:           entry.urank,
-        points:         points,
-        winning_amount: prize,
-        is_winner:      prize > 0,
-      };
-    })
-  );
-
-  const bestEntry = myTeams.reduce((best, t) =>
-    (t.rank || Infinity) < (best.rank || Infinity) ? t : best
-  );
+  const points = await calcTeamPoints(entry.team_id, contest.match_id);
+  const prize  = entry.winning_amount ||
+                 getPrizeForRank(entry.urank, contest.prize_distribution, contest.first_prize);
 
   return {
-    success:       true,
-    user_id:       parseInt(userId),
-    username:      myEntries[0].nickname || myEntries[0].name || "User" + userId,  // ✅ fixed
-    profile_image: myEntries[0].image || null,   // ✅ fixed
-    best_rank:     bestEntry.rank,
-    best_points:   bestEntry.points,
-    total_entries: contest.current_entries,
-    my_teams:      myTeams,
+    success:        true,
+    user_id:        parseInt(userId),
+    username:       entry.nickname || entry.name || "User" + userId,
+    profile_image:  entry.image || null,
+    user_team_id:   entry.team_id,
+    rank:           entry.urank,
+    points:         points,
+    winning_amount: prize,
+    is_winner:      prize > 0,
+    total_entries:  contest.current_entries,
   };
 };

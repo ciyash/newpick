@@ -26,8 +26,11 @@ router.get("/:match_id",  getContestsByMatchId);
 
 router.get("/leaderboard/:contest_id", getLeaderboard);
 
-router.get("/my-rank/:contest_id",  getMyRank);   
+// router.get("/my-rank/:contest_id",  getMyRank);   
 
+router.get("/my-rank/:contest_id/:team_id", getMyRank); 
+  
 export default router;   
    
 
+   
