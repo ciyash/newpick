@@ -21,99 +21,6 @@ export const getAllContests = async (req, res) => {
 
 //===============================//===================================//
 
-// export const getContestsByMatchId = async (req, res) => {
-//   try {
-//     const userId = req.user?.id;
-//     const match_id = req.params.match_id?.trim();
-
-//     if (!userId) {
-//       return res.status(401).json({
-//         success: false,
-//         message: "Unauthorized"
-//       });
-//     }
-
-//     if (!match_id) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "match_id param is required"
-//       });
-//     }
-
-//     const contests = await getContestsService(match_id, userId);
-//     if (!contests || contests.length === 0) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "No contests found for this match"
-//       });
-//     }
-
-//     // ✅ currentEntries 0 అయితే only message
-//     if (contests.every(c => c.currentEntries === 0)) {
-//       return res.status(200).json({
-//         success: true,
-//         message: "No spots available"
-//       });
-//     }
-
-//     return res.status(200).json({
-//       success: true,
-//       total: contests.length,
-//       data: contests
-//     });
-
-//   } catch (err) {
-//     console.error("[getContestsByMatchId]", err);
-
-//     return res.status(err.statusCode || 500).json({
-//       success: false,
-//       message: err.statusCode ? err.message : "Internal server error"
-//     });
-//   }
-// };
-
-// export const getContestsByMatchId = async (req, res) => {
-//   try {
-//     const userId = req.user?.id;
-//     const match_id = req.params.match_id?.trim();
-
-//     if (!userId) {
-//       return res.status(401).json({ success: false, message: "Unauthorized" });
-//     }
-
-//     if (!match_id) {
-//       return res.status(400).json({ success: false, message: "match_id param is required" });
-//     }
-
-//     const contests = await getContestsService(match_id, userId);
-
-//     if (!contests || contests.length === 0) {
-//       return res.status(404).json({ success: false, message: "No contests found for this match" });
-//     }
-
-//     // ✅ CORRECT: remainingSpots తో check చేయాలి
-//     if (contests.every(c => c.remainingSpots === 0)) {
-//       return res.status(200).json({
-//         success: true,
-//         message: "No spots available"
-//       });
-//     }
-
-//     return res.status(200).json({
-//       success: true,
-//       total: contests.length,
-//       data: contests
-//     });
-
-//   } catch (err) {
-//     console.error("[getContestsByMatchId]", err);
-//     return res.status(err.statusCode || 500).json({
-//       success: false,
-//       message: err.statusCode ? err.message : "Internal server error"
-//     });
-//   }
-// };
-
 
 export const getContestsByMatchId = async (req, res) => {
   try {
@@ -223,11 +130,6 @@ export const getMyContests = async (req, res) => {
   }
 };  
 
-
-
-
-  
-
 //===============================//===================================//
 
 export const getLeaderboard = async (req, res) => {
@@ -245,9 +147,6 @@ export const getLeaderboard = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
-
-
 
 export const getMyRank = async (req, res) => {
   try {
