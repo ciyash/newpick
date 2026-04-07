@@ -14,7 +14,7 @@ const router = express.Router();
 
 // user contest
 router.post("/join",  joinContest);
-
+  
 router.get("/my-contests/:match_id",  getMyContests);
 
 
@@ -25,8 +25,6 @@ router.get("/", getAllContests);
 router.get("/:match_id",  getContestsByMatchId);
 
 router.get("/leaderboard/:contest_id", getLeaderboard);
-
-// router.get("/my-rank/:contest_id",  getMyRank);   
 
 router.get("/my-rank/:contest_id/:teamId", getMyRank); 
   
