@@ -522,6 +522,182 @@ export const joinContestService = async (userId, amount, meta = {}) => {
 };
 
 
+// export const getMyContestsService = async (userId, matchId) => {
+//   try {
+//     if (!userId) throw new Error("userId is required");
+//     if (!matchId) throw new Error("matchId is required");
+
+//     // Step 1: get contests user joined
+//     const [contestRows] = await db.query(`
+//       SELECT 
+//         c.id                  AS contest_id,
+//         c.match_id,
+//         c.entry_fee,
+//         c.prize_pool,
+//         c.max_entries,
+//         c.current_entries,
+//         c.contest_type,
+//         c.status,
+//         c.first_prize,
+//         c.total_winners,
+//         c.winner_percentage,
+//         c.platform_fee_percentage,
+//         COUNT(ce.id)          AS my_team_count
+//       FROM contest_entries ce
+//       JOIN contest c ON ce.contest_id = c.id
+//       WHERE ce.user_id = ?
+//       AND c.match_id = ?
+//       GROUP BY c.id
+//       ORDER BY MAX(ce.id) DESC
+//     `, [userId, matchId]);
+
+//     if (!contestRows || contestRows.length === 0) return [];
+
+//     const contestIds = contestRows.map(c => c.contest_id);
+
+//     // Step 2: get all entries
+//     const [entryRows] = await db.query(`
+//       SELECT
+//         ce.id             AS entry_id,
+//         ce.contest_id,
+//         ce.user_team_id,
+//         ce.entry_fee,
+//         ce.urank,
+//         ce.winning_amount,
+//         ce.status         AS entry_status,
+//         ce.joined_at
+//       FROM contest_entries ce
+//       WHERE ce.user_id = ?
+//       AND ce.contest_id IN (?)
+//     `, [userId, contestIds]);
+
+//     const allTeamIds = [...new Set(
+//       entryRows.map(e => e.user_team_id).filter(Boolean)
+//     )];
+
+//     let teamsMap = {};
+
+//     if (allTeamIds.length > 0) {
+
+//       // ✅ players table JOIN add chesanu — name, image vasthundi
+//       const [teamRows] = await db.query(`
+//         SELECT
+//           ut.id               AS team_id,
+//           ut.team_name,
+//           ut.team_rank,
+//           ut.locked,
+//           ut.created_at,
+//           utp.id              AS player_entry_id,
+//           utp.player_id,
+//           utp.is_captain,
+//           utp.is_vice_captain,
+//           utp.points,
+//           utp.role,
+//           utp.is_substitude,
+//           p.name              AS player_name,
+//           p.playerimage       AS player_image,
+//           p.position,
+//           p.playercredits,
+//           p.flag_image,
+//           p.country
+//         FROM user_teams ut
+//         LEFT JOIN user_team_players utp ON utp.user_team_id = ut.id
+//         LEFT JOIN players p ON p.id = utp.player_id
+//         WHERE ut.id IN (?)
+//         AND ut.user_id = ?
+//       `, [allTeamIds, userId]);
+
+//       teamRows.forEach((row) => {
+//         if (!teamsMap[row.team_id]) {
+//           teamsMap[row.team_id] = {
+//             teamId:    row.team_id,
+//             teamName:  row.team_name  || null,
+//             teamRank:  row.team_rank  || null,
+//             locked:    row.locked === 1,
+//             createdAt: row.created_at || null,
+//             players:   []
+//           };
+//         }
+
+//         if (row.player_entry_id) {
+//           teamsMap[row.team_id].players.push({
+//             playerEntryId:  row.player_entry_id,
+//             playerId:       row.player_id,
+//             playerName:     row.player_name    || null,   // ✅ added
+//             playerImage:    row.player_image   || null,   // ✅ added
+//             position:       row.position       || null,   // ✅ added
+//             playercredits:  Number(row.playercredits) || 0, // ✅ added
+//             flagImage:      row.flag_image     || null,   // ✅ added
+//             country:        row.country        || null,   // ✅ added
+//             role:           row.role           || null,
+//             isCaptain:      row.is_captain      === 1,
+//             isViceCaptain:  row.is_vice_captain === 1,
+//             isSubstitute:   row.is_substitude   === 1,
+//             points:         Number(row.points)  || 0
+//           });
+//         }
+//       });
+//     }
+
+//     const entriesByContest = {};
+//     entryRows.forEach((e) => {
+//       if (!entriesByContest[e.contest_id]) {
+//         entriesByContest[e.contest_id] = [];
+//       }
+//       entriesByContest[e.contest_id].push(e);
+//     });
+
+//     return contestRows.map((c) => {
+//       const entries = entriesByContest[c.contest_id] || [];
+
+//       const teams = entries.map((e) => {
+//         const team = teamsMap[e.user_team_id] || null;
+//         return {
+//           entryId:       e.entry_id,
+//           entryFee:      Number(e.entry_fee)      || 0,
+//           urank:         e.urank                  || null,
+//           winningAmount: Number(e.winning_amount) || 0,
+//           entryStatus:   e.entry_status           || null,
+//           joinedAt:      e.joined_at              || null,
+//           ...(team || {
+//             teamId:    null,
+//             teamName:  null,
+//             teamRank:  null,
+//             locked:    null,
+//             createdAt: null,
+//             players:   []
+//           })
+//         };
+//       });
+
+//       return {
+//         contest_id:              c.contest_id,
+//         match_id:                c.match_id,
+//         entry_fee:               Number(c.entry_fee)               || 0,
+//         prize_pool:              Number(c.prize_pool)              || 0,
+//         max_entries:             c.max_entries                     || 0,
+//         current_entries:         c.current_entries                 || 0,
+//         remainingSpots:          Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+//         contest_type:            c.contest_type                    || null,
+//         status:                  c.status                         || null,
+//         first_prize:             Number(c.first_prize)             || 0,
+//         total_winners:           c.total_winners                   || 0,
+//         winner_percentage:       Number(c.winner_percentage)       || 0,
+//         platform_fee_percentage: Number(c.platform_fee_percentage) || 0,
+//         myTeamCount:             Number(c.my_team_count)           || 0,
+//         teams
+//       };
+//     });
+
+//   } catch (err) {
+//     console.error("[getMyContestsService]", err);
+//     throw err;
+//   }
+// };
+
+
+//==========================================================================================
+
 export const getMyContestsService = async (userId, matchId) => {
   try {
     if (!userId) throw new Error("userId is required");
@@ -579,7 +755,6 @@ export const getMyContestsService = async (userId, matchId) => {
 
     if (allTeamIds.length > 0) {
 
-      // ✅ players table JOIN add chesanu — name, image vasthundi
       const [teamRows] = await db.query(`
         SELECT
           ut.id               AS team_id,
@@ -598,11 +773,14 @@ export const getMyContestsService = async (userId, matchId) => {
           p.playerimage       AS player_image,
           p.position,
           p.playercredits,
+          p.points            AS player_points,
           p.flag_image,
-          p.country
+          p.country,
+          t.short_name        AS real_team_short_name
         FROM user_teams ut
         LEFT JOIN user_team_players utp ON utp.user_team_id = ut.id
         LEFT JOIN players p ON p.id = utp.player_id
+        LEFT JOIN teams t ON t.id = p.team_id
         WHERE ut.id IN (?)
         AND ut.user_id = ?
       `, [allTeamIds, userId]);
@@ -610,32 +788,50 @@ export const getMyContestsService = async (userId, matchId) => {
       teamRows.forEach((row) => {
         if (!teamsMap[row.team_id]) {
           teamsMap[row.team_id] = {
-            teamId:    row.team_id,
-            teamName:  row.team_name  || null,
-            teamRank:  row.team_rank  || null,
-            locked:    row.locked === 1,
-            createdAt: row.created_at || null,
-            players:   []
+            teamId:       row.team_id,
+            teamName:     row.team_name  || null,
+            teamRank:     row.team_rank  || null,
+            locked:       row.locked === 1,
+            createdAt:    row.created_at || null,
+            totalPoints:  0,
+            totalCredits: 0,
+            creditsLeft:  100,
+            players:      []
           };
         }
 
         if (row.player_entry_id) {
+          const credits = parseFloat(row.playercredits) || 0;
+          const points  = parseFloat(row.player_points) || 0;
+
           teamsMap[row.team_id].players.push({
-            playerEntryId:  row.player_entry_id,
-            playerId:       row.player_id,
-            playerName:     row.player_name    || null,   // ✅ added
-            playerImage:    row.player_image   || null,   // ✅ added
-            position:       row.position       || null,   // ✅ added
-            playercredits:  Number(row.playercredits) || 0, // ✅ added
-            flagImage:      row.flag_image     || null,   // ✅ added
-            country:        row.country        || null,   // ✅ added
-            role:           row.role           || null,
-            isCaptain:      row.is_captain      === 1,
-            isViceCaptain:  row.is_vice_captain === 1,
-            isSubstitute:   row.is_substitude   === 1,
-            points:         Number(row.points)  || 0
+            playerEntryId:      row.player_entry_id,
+            playerId:           row.player_id,
+            playerName:         row.player_name         || null,
+            playerImage:        row.player_image        || null,
+            position:           row.position            || null,
+            credits:            credits,                          // ✅ player credits
+            flagImage:          row.flag_image          || null,
+            country:            row.country             || null,
+            realTeamShortName:  row.real_team_short_name || null, // ✅ added
+            role:               row.role                || null,
+            isCaptain:          row.is_captain      === 1,
+            isViceCaptain:      row.is_vice_captain === 1,
+            isSubstitute:       row.is_substitude   === 1,
+            points:             points                            // ✅ player points
           });
+
+          // ✅ team totals accumulate
+          teamsMap[row.team_id].totalPoints  += points;
+          teamsMap[row.team_id].totalCredits += credits;
         }
+      });
+
+      // ✅ toFixed after all players processed
+      Object.values(teamsMap).forEach(team => {
+        team.totalPoints  = parseFloat(team.totalPoints.toFixed(2));
+        team.totalCredits = parseFloat(team.totalCredits.toFixed(2));
+        team.creditsLeft  = parseFloat((100 - team.totalCredits).toFixed(2));
       });
     }
 
@@ -660,12 +856,15 @@ export const getMyContestsService = async (userId, matchId) => {
           entryStatus:   e.entry_status           || null,
           joinedAt:      e.joined_at              || null,
           ...(team || {
-            teamId:    null,
-            teamName:  null,
-            teamRank:  null,
-            locked:    null,
-            createdAt: null,
-            players:   []
+            teamId:       null,
+            teamName:     null,
+            teamRank:     null,
+            locked:       null,
+            createdAt:    null,
+            totalPoints:  0,
+            totalCredits: 0,
+            creditsLeft:  100,
+            players:      []
           })
         };
       });
@@ -694,9 +893,6 @@ export const getMyContestsService = async (userId, matchId) => {
     throw err;
   }
 };
-
-
-//==========================================================================================
 
 /* ══════════════════════════════════════════
    HELPER — prize amount for a given rank
