@@ -256,8 +256,6 @@ export const updateProfile = async (req, res) => {
   }
 };
 
-
-
 export const verifyEmailLink = async (req, res) => {
   try {
     const { token } = req.query;

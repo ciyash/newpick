@@ -1,4 +1,4 @@
-import { getContestsService, joinContestService,  getAllContestsService,  getMyContestsService, getLeaderboardService, getMyRankService,  
+import { getContestsService, joinContestService,  getAllContestsService,  getMyContestsService, getLeaderboardService, getMyRankService, getScoreBreakdownService,  
 } from "./contest.service.js";
 
 export const getAllContests = async (req, res) => {
@@ -163,3 +163,33 @@ export const getMyRank = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
+
+// ─────────────────────────────────────────────
+// GET /api/scoring/breakdown/:contestId/:userTeamId?matchId=xxx
+// Get detailed score breakdown for a user's team
+// ─────────────────────────────────────────────
+export const getScoreBreakdown = async (req, res) => {
+  try {
+    const { contestId, userTeamId } = req.params;
+    const { matchId }               = req.query;
+
+    if (!contestId || !userTeamId || !matchId) {
+      return res.status(400).json({
+        success: false,
+        message: "contestId, userTeamId (params) and matchId (query) are required",
+      });
+    }
+
+    const result = await getScoreBreakdownService(contestId, userTeamId, matchId);
+
+    return res.status(200).json(result);
+
+  } catch (err) {
+    console.error("[getScoreBreakdown]", err);
+    return res.status(err.statusCode || 500).json({
+      success: false,
+      message:err.statusCode
+    });
+  }
+};  
+   
