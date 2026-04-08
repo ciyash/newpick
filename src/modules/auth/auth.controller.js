@@ -134,7 +134,7 @@ export const sendLoginOtp = async (req, res) => {
   try {
     await sendOtpSchema.validateAsync(req.body);
     const result = await sendLoginOtpService(req.body);
-    res.status(200).json(result); // ✅ service result directly return చేయి
+    res.status(200).json(result); 
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
