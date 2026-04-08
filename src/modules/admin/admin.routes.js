@@ -4,7 +4,7 @@ import * as v from "./admin.validation.js";
 import { adminAuth, adminLimiter } from "../../middlewares/adminAuth.middleware.js";
 // import entitySportRoutes from '../entity-sport/entitysport.routes.js'
 import sportmonksRoutes from '../sportmonks/sportmonks.router.js'
-// import scoringRoutes from '../scoring/scoring.routes.js'
+
 
 
 const router = Router();
@@ -83,7 +83,5 @@ router.post("/fetchusersbyaccount",   adminAuth(), c.fetchUsersByAccountStatus);
 
 //sportmonks
 router.use("/sportmonks", adminAuth(), sportmonksRoutes);
-
-// router.use("/scoring", adminAuth(), scoringRoutes);
 
 export default router;     

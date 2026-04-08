@@ -965,7 +965,6 @@ export const verifyNewContactService = async (userId, otp) => {
 };
 
 
-
 // export const signupService = async ({ mobile, otp }) => {
 
 //   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
@@ -1159,11 +1158,11 @@ export const verifyNewContactService = async (userId, otp) => {
 
 //       await redis.set(`EMAIL_VERIFY:${emailToken}`, userId, { ex: 86400 }); // 24hrs
 
-//       const verifyLink = `${process.env.FRONTEND_URL}/verify-email?token=${emailToken}`;
+//       const verifyLink = `${process.env.BACKEND_URL}/api/auth/verify-email?token=${emailToken}`;  // ✅ backend URL
 
 //       await sendVerificationEmail(email, verifyLink);
 //     } catch (emailErr) {
-//       // Don't fail signup if email sending fails — user can request resend
+//       // signup fail చేయకు — user resend చేయవచ్చు
 //       console.error("Email verification send failed:", emailErr.message);
 //     }
 
@@ -1195,7 +1194,6 @@ export const verifyNewContactService = async (userId, otp) => {
 //   }
 // };
 
-
 export const signupService = async ({ mobile, otp }) => {
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
@@ -1211,19 +1209,18 @@ export const signupService = async ({ mobile, otp }) => {
 
   let signupData;
   try {
-    signupData =
-      typeof signupRaw === "string" ? JSON.parse(signupRaw) : signupRaw;
+    signupData = typeof signupRaw === "string" ? JSON.parse(signupRaw) : signupRaw;
   } catch {
     throw new Error("Invalid signup session data");
   }
 
-  const name       = String(signupData.name      || "").trim().slice(0, 100);
-  const email      = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
-  const region     = String(signupData.region     || "").trim().slice(0, 100);
-  const nickname   = signupData.nickname  ? String(signupData.nickname).trim().slice(0, 50)  : null;
-  const address    = signupData.address   ? String(signupData.address).trim().slice(0, 300)  : null;
-  const dob        = signupData.dob       ? String(signupData.dob).trim()                    : null;
-  const referralid = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20) : null;
+  const name             = String(signupData.name      || "").trim().slice(0, 100);
+  const email            = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
+  const region           = String(signupData.region     || "").trim().slice(0, 100);
+  const nickname         = signupData.nickname   ? String(signupData.nickname).trim().slice(0, 50)   : null;
+  const address          = signupData.address    ? String(signupData.address).trim().slice(0, 300)   : null;
+  const dob              = signupData.dob        ? String(signupData.dob).trim()                     : null;
+  const referralid       = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20) : null;
   const categoryNormalized = String(signupData.category || "").toLowerCase().trim();
 
   if (!name)  throw new Error("Invalid signup session: missing name");
@@ -1310,7 +1307,7 @@ export const signupService = async ({ mobile, otp }) => {
        FOR UPDATE`
     );
     let companyBalance = Number(companyLast?.closing_balance || 0);
-    let userBalance = 0;
+    let userBalance    = 0;
 
     /* ─── 🔟 Joining Bonus ─── */
     {
@@ -1383,26 +1380,24 @@ export const signupService = async ({ mobile, otp }) => {
       await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
     } catch (_) {}
 
-    /* ─── 1️⃣2️⃣ Send Email Verification Link (after commit) ─── */
-    try {
-      const emailToken = crypto.randomBytes(32).toString("hex");
-
-      await redis.set(`EMAIL_VERIFY:${emailToken}`, userId, { ex: 86400 }); // 24hrs
-
-      const verifyLink = `${process.env.BACKEND_URL}/api/auth/verify-email?token=${emailToken}`;  // ✅ backend URL
-
-      await sendVerificationEmail(email, verifyLink);
-    } catch (emailErr) {
-      // signup fail చేయకు — user resend చేయవచ్చు
-      console.error("Email verification send failed:", emailErr.message);
-    }
-
     /* ─── Cleanup Redis ─── */
     await Promise.all([
       redis.del(`SIGNUP:${normalizedMobile}`),
       redis.del(`SIGNUP_OTP:${normalizedMobile}`),
       redis.del(`KYC_VERIFIED:${normalizedMobile}`),
     ]);
+
+    // ✅ Email background లో పంపు — response block చేయదు
+    setImmediate(async () => {
+      try {
+        const emailToken = crypto.randomBytes(32).toString("hex");
+        await redis.set(`EMAIL_VERIFY:${emailToken}`, userId, { ex: 86400 });
+        const verifyLink = `${process.env.BACKEND_URL}/api/auth/verify-email?token=${emailToken}`;
+        await sendVerificationEmail(email, verifyLink);
+      } catch (emailErr) {
+        console.error("Background email verification send failed:", emailErr.message);
+      }
+    });
 
     return {
       success: true,
