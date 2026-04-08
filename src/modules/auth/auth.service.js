@@ -216,7 +216,7 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
   }
 
   /* ─── 3 Email Verify Check ─── */
-  if (user.email_verify !== 0) {
+  if (user.email_verify !== 1) {
     throw new Error("Please verify your email before login");
   }
 
