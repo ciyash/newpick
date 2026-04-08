@@ -372,10 +372,9 @@ const MAX_USERCODE_RETRIES   = 10;
 
 export const sendLoginOtpService = async ({ email, mobile }) => {
 
-
   /* ─── 1 Fetch User ─── */
   const [users] = await db.query(
-    `SELECT id, email, mobile, loginotp, loginotpexpires, account_status
+    `SELECT id, email, mobile, loginotp, loginotpexpires, account_status, email_verify
      FROM users
      WHERE (email = ? OR mobile = ?)
      LIMIT 1`,
@@ -390,35 +389,51 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
     throw new Error("This account has been deleted");
   }
 
-  /* ─── 3 Reuse Existing OTP if Still Valid ─── */
+  /* ─── 3 Email Verify Check ─── */
+  if (user.email_verify !== 1) {
+    throw new Error("Please verify your email before login");
+  }
+
+  /* ─── 4 Generate OTP ─── */
+  let otpToSend;
+
   if (
-    user.loginotp        &&
+    user.loginotp &&
     user.loginotpexpires &&
     new Date(user.loginotpexpires) > new Date()
   ) {
-    return {
-      success: true,
-      message: "OTP already sent",
-      ...(process.env.NODE_ENV !== "production" && { otp: user.loginotp })
-    };
+    // Reuse existing valid OTP
+    otpToSend = user.loginotp;
+  } else {
+    // Generate new OTP
+    otpToSend = crypto.randomInt(100000, 999999).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    const [updateResult] = await db.query(
+      `UPDATE users SET loginotp = ?, loginotpexpires = ? WHERE id = ?`,
+      [otpToSend, expiresAt, user.id]
+    );
+
+    if (updateResult.affectedRows === 0) throw new Error("Failed to generate OTP");
   }
 
-  /* ─── 4 Generate New OTP ─── */
-  const otp       = crypto.randomInt(100000, 999999).toString();
-  const expiresAt = new Date(Date.now() + 5 * 60 * 1000);  // 5 mins
-
-  const [updateResult] = await db.query(
-    `UPDATE users SET loginotp = ?, loginotpexpires = ? WHERE id = ?`,
-    [otp, expiresAt, user.id]
-  );
-
-  if (updateResult.affectedRows === 0) throw new Error("Failed to generate OTP");
-
+  /* ─── 5 Send OTP Email — always, dev + production ─── */
+  /* ─── 5 Send OTP Email ─── */
+try {
+  console.log("📧 Attempting to send email to:", user.email);
+  console.log("📧 OTP:", otpToSend);
+  await sendOtpEmail(user.email, otpToSend);
+  console.log("✅ Email sent successfully");
+} catch (emailErr) {
+  console.error("❌ Email failed:", emailErr.message);
+  console.error("❌ Full error:", emailErr); // full stack చూపిస్తుంది
+  throw new Error("Failed to send OTP email. Please try again.");
+}
 
   return {
     success: true,
-    message: "OTP sent successfully",
-    ...(process.env.NODE_ENV !== "production" && { otp })
+    message: "OTP sent to your registered email",
+    ...(process.env.NODE_ENV !== "production" && { otp: otpToSend })
   };
 };
 
@@ -1418,4 +1433,4 @@ export const signupService = async ({ mobile, otp }) => {
   } finally {
     conn.release();
   }
-};
+};  
