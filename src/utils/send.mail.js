@@ -38,4 +38,3 @@ export const sendMail = async (options) => {
     throw err;  // caller కి error propagate చేస్తుంది
   }
 }; 
-//
