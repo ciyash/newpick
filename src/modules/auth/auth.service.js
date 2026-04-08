@@ -47,6 +47,66 @@ const getLastBalance = async (conn, userId) => {
 
 /* ================= REQUEST SIGNUP OTP ================= */
 
+// export const requestSignupOtpService = async (data) => {
+//   const { name, email, mobile, region, address, dob, nickname, category, referralid } = data;
+
+//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+//   /* ─── 1 Age Check ─── */
+//   const birthDate = new Date(dob);
+//   const age       = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
+//   if (age < 18) throw new Error("You must be at least 18 years old");
+
+//   /* ─── 2 Email & Mobile Check — parallel for speed ─── */
+//   const [
+//     [[emailUser]],
+//     [[mobileUser]]
+//   ] = await Promise.all([
+//     db.query(`SELECT id, account_status FROM users WHERE email = ?`,  [email]),
+//     db.query(`SELECT id, account_status FROM users WHERE mobile = ?`, [normalizedMobile])
+//   ]);
+
+//   if (emailUser) {
+//     throw new Error(
+//       emailUser.account_status === "deleted"
+//         ? "This email was previously deleted. Contact support."
+//         : "Email already registered"
+//     );
+//   }
+
+//   if (mobileUser) {
+//     throw new Error(
+//       mobileUser.account_status === "deleted"
+//         ? "This mobile was previously deleted. Contact support."
+//         : "Mobile already registered"
+//     );
+//   }
+
+//   /* ─── 3 Generate & Store OTP — parallel for speed ─── */
+//   const otp = crypto.randomInt(100000, 999999).toString();
+
+//   await Promise.all([
+//     redis.set(
+//       `SIGNUP:${normalizedMobile}`,
+//       JSON.stringify({
+//         name, email, nickname,
+//         mobile: normalizedMobile,
+//         region, address, dob, category,
+//         referralid: referralid || "AAAAA1111"
+//       }),
+//       { ex: 300 }
+//     ),
+//     redis.set(`SIGNUP_OTP:${normalizedMobile}`, otp, { ex: 300 })
+//   ]);
+
+
+//   return {
+//     success: true,
+//     message: "OTP sent successfully",
+//     ...(process.env.NODE_ENV !== "production" && { otp })
+//   };
+// };
+
 export const requestSignupOtpService = async (data) => {
   const { name, email, mobile, region, address, dob, nickname, category, referralid } = data;
 
@@ -54,15 +114,15 @@ export const requestSignupOtpService = async (data) => {
 
   /* ─── 1 Age Check ─── */
   const birthDate = new Date(dob);
-  const age       = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
+  const age = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
   if (age < 18) throw new Error("You must be at least 18 years old");
 
-  /* ─── 2 Email & Mobile Check — parallel for speed ─── */
+  /* ─── 2 Email & Mobile Check ─── */
   const [
     [[emailUser]],
     [[mobileUser]]
   ] = await Promise.all([
-    db.query(`SELECT id, account_status FROM users WHERE email = ?`,  [email]),
+    db.query(`SELECT id, account_status FROM users WHERE email = ?`, [email]),
     db.query(`SELECT id, account_status FROM users WHERE mobile = ?`, [normalizedMobile])
   ]);
 
@@ -82,7 +142,27 @@ export const requestSignupOtpService = async (data) => {
     );
   }
 
-  /* ─── 3 Generate & Store OTP — parallel for speed ─── */
+  /* ─── 3 Referral Validate ─── */
+  // ✅ referral enter చేస్తే — DB లో exist అవుతుందా check చేయి
+  // ✅ referral enter చేయకపోతే — null గా store చేయి, default పెట్టకు
+  let validatedReferralId = null;
+
+  if (referralid && referralid.trim() !== "") {
+    const cleanReferral = referralid.trim().toUpperCase();
+
+    const [[referrer]] = await db.query(
+      `SELECT id FROM users WHERE usercode = ?`,
+      [cleanReferral]
+    );
+
+    if (!referrer) {
+      throw new Error("Invalid referral code. Please check and try again.");
+    }
+
+    validatedReferralId = cleanReferral;
+  }
+
+  /* ─── 4 Generate & Store OTP ─── */
   const otp = crypto.randomInt(100000, 999999).toString();
 
   await Promise.all([
@@ -92,13 +172,12 @@ export const requestSignupOtpService = async (data) => {
         name, email, nickname,
         mobile: normalizedMobile,
         region, address, dob, category,
-        referralid: referralid || "AAAAA1111"
+        referralid: validatedReferralId   // ✅ null or valid code — no default
       }),
       { ex: 300 }
     ),
     redis.set(`SIGNUP_OTP:${normalizedMobile}`, otp, { ex: 300 })
   ]);
-
 
   return {
     success: true,
