@@ -37,5 +37,4 @@ export const sendMail = async (options) => {
     console.error("❌ sendMail failed:", err.message);
     throw err;  // caller కి error propagate చేస్తుంది
   }
-}; 
-//
+};
