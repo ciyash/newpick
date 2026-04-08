@@ -69,7 +69,7 @@ export const resendSignupOtp = async (req, res) => {
     await redis.set(
       `SIGNUP_OTP:${normalizedMobile}`,
       otp,
-      { EX: 300 } // 5 minutes
+      { ex: 300 } // 5 minutes
     );
 
     /* 5️⃣ send OTP (SMS service) */
