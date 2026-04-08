@@ -107,8 +107,6 @@ export const requestSignupOtpService = async (data) => {
   };
 };
 
-
-
 /* ================= VERIFY SIGNUP OTP ================= */
 
 const JOINING_BONUS          = 5;
@@ -118,6 +116,7 @@ const MAX_USERCODE_RETRIES   = 10;
 
 
 /* ================= SEND LOGIN OTP ================= */
+
 
 export const sendLoginOtpService = async ({ email, mobile }) => {
 
@@ -138,11 +137,11 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
     throw new Error("This account has been deleted");
   }
 
-  /* ─── 3 Email Verify Check ─── */
-  if (user.email_verify !== 1) {
+  // 3 email_verify check
+
+   if (user.email_verify !== 1) {
     throw new Error("Please verify your email before login");
   }
-
   /* ─── 4 Generate OTP ─── */
   let otpToSend;
 
@@ -166,27 +165,17 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
     if (updateResult.affectedRows === 0) throw new Error("Failed to generate OTP");
   }
 
-  /* ─── 5 Send OTP Email — always, dev + production ─── */
-  /* ─── 5 Send OTP Email ─── */
-try {
-  console.log("📧 Attempting to send email to:", user.email);
-  console.log("📧 OTP:", otpToSend);
-  await sendOtpEmail(user.email, otpToSend);
-  console.log("✅ Email sent successfully");
-} catch (emailErr) {
-  console.error("❌ Email failed:", emailErr.message);
-  console.error("❌ Full error:", emailErr); // full stack చూపిస్తుంది
-  throw new Error("Failed to send OTP email. Please try again.");
-}
 
   return {
-    success: true,
-    message: "OTP sent to your registered email",
-    ...(process.env.NODE_ENV !== "production" && { otp: otpToSend })
+     success: true,
+    message: "OTP sent successfully",
+    ...(process.env.NODE_ENV !== "production" && {otp: otpToSend})
+
   };
 };
 
-/* ================= LOGIN ================= */
+
+/* ================= LOGIN ====================================== */
 
 export const loginService = async ({ email, mobile, otp }, ipAddress) => {
 

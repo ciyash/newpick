@@ -134,7 +134,12 @@ export const sendLoginOtp = async (req, res) => {
   try {
     await sendOtpSchema.validateAsync(req.body);
     const result = await sendLoginOtpService(req.body);
-    res.status(200).json(result); 
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      ...(process.env.NODE_ENV !== "production" && { otp: result.otp })
+    });
+
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
