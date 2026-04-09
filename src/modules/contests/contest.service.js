@@ -1,5 +1,7 @@
 import db from "../../config/db.js";
 import { createWalletTransaction } from "../wallet/wallet.service.js";
+import { calculateTeamPoints } from "../scoring/scoring.engine.js";       // ✅
+import { fetchPlayerStats } from "../scoring/scoring.service.js";   
 
 
 export const getAllContestsService = async () => {
@@ -41,7 +43,7 @@ export const getAllContestsService = async () => {
     createdAt: c.created_at
   }));
 };
-
+  
 
 export const getContestsServiceold = async (matchId) => {
 
@@ -522,181 +524,6 @@ export const joinContestService = async (userId, amount, meta = {}) => {
 };
 
 
-// export const getMyContestsService = async (userId, matchId) => {
-//   try {
-//     if (!userId) throw new Error("userId is required");
-//     if (!matchId) throw new Error("matchId is required");
-
-//     // Step 1: get contests user joined
-//     const [contestRows] = await db.query(`
-//       SELECT 
-//         c.id                  AS contest_id,
-//         c.match_id,
-//         c.entry_fee,
-//         c.prize_pool,
-//         c.max_entries,
-//         c.current_entries,
-//         c.contest_type,
-//         c.status,
-//         c.first_prize,
-//         c.total_winners,
-//         c.winner_percentage,
-//         c.platform_fee_percentage,
-//         COUNT(ce.id)          AS my_team_count
-//       FROM contest_entries ce
-//       JOIN contest c ON ce.contest_id = c.id
-//       WHERE ce.user_id = ?
-//       AND c.match_id = ?
-//       GROUP BY c.id
-//       ORDER BY MAX(ce.id) DESC
-//     `, [userId, matchId]);
-
-//     if (!contestRows || contestRows.length === 0) return [];
-
-//     const contestIds = contestRows.map(c => c.contest_id);
-
-//     // Step 2: get all entries
-//     const [entryRows] = await db.query(`
-//       SELECT
-//         ce.id             AS entry_id,
-//         ce.contest_id,
-//         ce.user_team_id,
-//         ce.entry_fee,
-//         ce.urank,
-//         ce.winning_amount,
-//         ce.status         AS entry_status,
-//         ce.joined_at
-//       FROM contest_entries ce
-//       WHERE ce.user_id = ?
-//       AND ce.contest_id IN (?)
-//     `, [userId, contestIds]);
-
-//     const allTeamIds = [...new Set(
-//       entryRows.map(e => e.user_team_id).filter(Boolean)
-//     )];
-
-//     let teamsMap = {};
-
-//     if (allTeamIds.length > 0) {
-
-//       // ✅ players table JOIN add chesanu — name, image vasthundi
-//       const [teamRows] = await db.query(`
-//         SELECT
-//           ut.id               AS team_id,
-//           ut.team_name,
-//           ut.team_rank,
-//           ut.locked,
-//           ut.created_at,
-//           utp.id              AS player_entry_id,
-//           utp.player_id,
-//           utp.is_captain,
-//           utp.is_vice_captain,
-//           utp.points,
-//           utp.role,
-//           utp.is_substitude,
-//           p.name              AS player_name,
-//           p.playerimage       AS player_image,
-//           p.position,
-//           p.playercredits,
-//           p.flag_image,
-//           p.country
-//         FROM user_teams ut
-//         LEFT JOIN user_team_players utp ON utp.user_team_id = ut.id
-//         LEFT JOIN players p ON p.id = utp.player_id
-//         WHERE ut.id IN (?)
-//         AND ut.user_id = ?
-//       `, [allTeamIds, userId]);
-
-//       teamRows.forEach((row) => {
-//         if (!teamsMap[row.team_id]) {
-//           teamsMap[row.team_id] = {
-//             teamId:    row.team_id,
-//             teamName:  row.team_name  || null,
-//             teamRank:  row.team_rank  || null,
-//             locked:    row.locked === 1,
-//             createdAt: row.created_at || null,
-//             players:   []
-//           };
-//         }
-
-//         if (row.player_entry_id) {
-//           teamsMap[row.team_id].players.push({
-//             playerEntryId:  row.player_entry_id,
-//             playerId:       row.player_id,
-//             playerName:     row.player_name    || null,   // ✅ added
-//             playerImage:    row.player_image   || null,   // ✅ added
-//             position:       row.position       || null,   // ✅ added
-//             playercredits:  Number(row.playercredits) || 0, // ✅ added
-//             flagImage:      row.flag_image     || null,   // ✅ added
-//             country:        row.country        || null,   // ✅ added
-//             role:           row.role           || null,
-//             isCaptain:      row.is_captain      === 1,
-//             isViceCaptain:  row.is_vice_captain === 1,
-//             isSubstitute:   row.is_substitude   === 1,
-//             points:         Number(row.points)  || 0
-//           });
-//         }
-//       });
-//     }
-
-//     const entriesByContest = {};
-//     entryRows.forEach((e) => {
-//       if (!entriesByContest[e.contest_id]) {
-//         entriesByContest[e.contest_id] = [];
-//       }
-//       entriesByContest[e.contest_id].push(e);
-//     });
-
-//     return contestRows.map((c) => {
-//       const entries = entriesByContest[c.contest_id] || [];
-
-//       const teams = entries.map((e) => {
-//         const team = teamsMap[e.user_team_id] || null;
-//         return {
-//           entryId:       e.entry_id,
-//           entryFee:      Number(e.entry_fee)      || 0,
-//           urank:         e.urank                  || null,
-//           winningAmount: Number(e.winning_amount) || 0,
-//           entryStatus:   e.entry_status           || null,
-//           joinedAt:      e.joined_at              || null,
-//           ...(team || {
-//             teamId:    null,
-//             teamName:  null,
-//             teamRank:  null,
-//             locked:    null,
-//             createdAt: null,
-//             players:   []
-//           })
-//         };
-//       });
-
-//       return {
-//         contest_id:              c.contest_id,
-//         match_id:                c.match_id,
-//         entry_fee:               Number(c.entry_fee)               || 0,
-//         prize_pool:              Number(c.prize_pool)              || 0,
-//         max_entries:             c.max_entries                     || 0,
-//         current_entries:         c.current_entries                 || 0,
-//         remainingSpots:          Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
-//         contest_type:            c.contest_type                    || null,
-//         status:                  c.status                         || null,
-//         first_prize:             Number(c.first_prize)             || 0,
-//         total_winners:           c.total_winners                   || 0,
-//         winner_percentage:       Number(c.winner_percentage)       || 0,
-//         platform_fee_percentage: Number(c.platform_fee_percentage) || 0,
-//         myTeamCount:             Number(c.my_team_count)           || 0,
-//         teams
-//       };
-//     });
-
-//   } catch (err) {
-//     console.error("[getMyContestsService]", err);
-//     throw err;
-//   }
-// };
-
-
-//==========================================================================================
 
 export const getMyContestsService = async (userId, matchId) => {
   try {
@@ -945,10 +772,11 @@ const calcTeamPoints = async (userTeamId, matchId) => {
 
 
 
+
 export const getLeaderboardService = async (contestId, page = 1, limit = 50) => {
   const offset = (page - 1) * limit;
 
-  // Step 1: Contest info fetch
+  // Step 1: Contest info
   const [[contest]] = await db.query(
     `SELECT c.id, c.match_id, c.prize_pool, c.first_prize,
             c.prize_distribution, c.current_entries,
@@ -961,7 +789,7 @@ export const getLeaderboardService = async (contestId, page = 1, limit = 50) => 
   if (!contest)
     return { success: false, message: "Contest not found" };
 
-  // Step 2: All entries with user info
+  // Step 2: All entries with user info (paginated)
   const [entries] = await db.query(
     `SELECT 
        ce.id,
@@ -987,27 +815,49 @@ export const getLeaderboardService = async (contestId, page = 1, limit = 50) => 
     [contestId]
   );
 
-  // Step 4: Build leaderboard rows with points + prize
-  const leaderboard = await Promise.all(
-    entries.map(async (entry) => {
-      const points = await calcTeamPoints(entry.user_team_id, contest.match_id);
-      const prize  = entry.winning_amount ||
-                     getPrizeForRank(entry.urank, contest.prize_distribution, contest.first_prize);
+  // Step 4: ✅ Batch fetch all team points in ONE query (fixes N+1)
+  const teamIds = entries.map(e => e.user_team_id).filter(Boolean);
 
-      return {
-        rank:           entry.urank,
-        user_id:        entry.user_id,
-        username:       entry.nickname || entry.name || "User" + entry.user_id,
-        profile_image:  entry.image || null,
-        user_team_id:   entry.user_team_id,
-        points:         points,
-        winning_amount: prize,
-        is_winner:      prize > 0,
-      };
-    })
-  );
+  let pointsMap = {};
 
-  // Step 5: Prize distribution tiers for frontend winnings tab
+  if (teamIds.length > 0) {
+    const [pointsRows] = await db.query(
+      `SELECT 
+         utp.user_team_id,
+         SUM(pms.fantasy_points) AS total_points
+       FROM user_team_players utp
+       JOIN player_match_stats pms 
+         ON pms.player_id = utp.player_id 
+        AND pms.match_id = ?
+       WHERE utp.user_team_id IN (?)
+       GROUP BY utp.user_team_id`,
+      [contest.match_id, teamIds]
+    );
+
+    pointsRows.forEach(r => {
+      pointsMap[r.user_team_id] = parseFloat(r.total_points || 0);
+    });
+  }
+
+  // Step 5: Build leaderboard rows
+  const leaderboard = entries.map((entry) => {
+    const points = pointsMap[entry.user_team_id] || 0;
+    const prize  = entry.winning_amount ||
+                   getPrizeForRank(entry.urank, contest.prize_distribution, contest.first_prize);
+
+    return {
+      rank:           entry.urank,
+      user_id:        entry.user_id,
+      username:       entry.nickname || entry.name || "User" + entry.user_id,
+      profile_image:  entry.image || null,
+      user_team_id:   entry.user_team_id,
+      points,
+      winning_amount: prize,
+      is_winner:      prize > 0,
+    };
+  });
+
+  // Step 6: Prize tiers for frontend
   let prizeTiers = [];
   try {
     prizeTiers = typeof contest.prize_distribution === "string"
@@ -1045,7 +895,6 @@ export const getLeaderboardService = async (contestId, page = 1, limit = 50) => 
 /* ══════════════════════════════════════════
    MY RANK SERVICE — specific user position
 ══════════════════════════════════════════ */
-
 
 
 
@@ -1100,4 +949,66 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
   };
 };  
 
+
+// ─────────────────────────────────────────────
+// GET SCORE BREAKDOWN SERVICE (single entry)
+// ─────────────────────────────────────────────
+export const getScoreBreakdownService = async (contestId, userTeamId, matchId) => {
+  if (!contestId || !userTeamId || !matchId)
+    throw new Error("contestId, userTeamId, matchId are required");
+
+  // Fetch team players
+  const [teamPlayers] = await db.query(
+    `SELECT
+       utp.player_id     AS playerId,
+       utp.is_captain    AS isCaptain,
+       utp.is_vice_captain AS isViceCaptain,
+       p.name,
+       p.position,
+       p.playerimage     AS image
+     FROM user_team_players utp
+     JOIN players p ON p.id = utp.player_id
+     WHERE utp.user_team_id = ?`,
+    [userTeamId]
+  );
+
+  if (!teamPlayers.length) throw new Error("Team not found");
+
+  const playerIds   = teamPlayers.map((p) => p.playerId);
+  const allStats    = await fetchPlayerStats(matchId, playerIds);
+  const statsMap    = {};
+  allStats.forEach((s) => { statsMap[s.playerId] = s; });
+
+  const captainId    = teamPlayers.find((p) => p.isCaptain)?.playerId    || null;
+  const viceCaptainId= teamPlayers.find((p) => p.isViceCaptain)?.playerId || null;
+
+  const playerStatsList = teamPlayers
+    .map((p) => statsMap[p.playerId])
+    .filter(Boolean);
+
+  const result = calculateTeamPoints(playerStatsList, captainId, viceCaptainId);
+
+  // Merge player info with score breakdown
+  const playersWithInfo = result.players.map((scored) => {
+    const info = teamPlayers.find((p) => p.playerId === scored.playerId) || {};
+    return {
+      playerId:     scored.playerId,
+      name:         info.name     || null,
+      image:        info.image    || null,
+      position:     info.position || null,
+      isCaptain:    info.isCaptain    === 1,
+      isViceCaptain:info.isViceCaptain === 1,
+      basePoints:   scored.basePoints,
+      finalPoints:  scored.finalPoints,
+      breakdown:    scored.breakdown,
+    };
+  });
+
+  return {
+    success:    true,
+    userTeamId,
+    teamTotal:  result.teamTotal,
+    players:    playersWithInfo,
+  };
+};
 

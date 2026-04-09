@@ -69,7 +69,7 @@ export const resendSignupOtp = async (req, res) => {
     await redis.set(
       `SIGNUP_OTP:${normalizedMobile}`,
       otp,
-      { EX: 300 } // 5 minutes
+      { ex: 300 } // 5 minutes
     );
 
     /* 5️⃣ send OTP (SMS service) */
@@ -129,19 +129,17 @@ export const verifySignupOtp = async (req, res) => {
 
 /* ================= SEND LOGIN OTP ================= */ 
 
+
 export const sendLoginOtp = async (req, res) => {
   try {
     await sendOtpSchema.validateAsync(req.body);
     const result = await sendLoginOtpService(req.body);
-
     res.status(200).json({
       success: true,
       message: result.message,
-      // ✅ OTP only in development for testing
-      // ❌ BEFORE: always exposed to anyone
-      // 🔒 PRODUCTION RESTORE: remove this line entirely
       ...(process.env.NODE_ENV !== "production" && { otp: result.otp })
     });
+
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
@@ -255,8 +253,6 @@ export const updateProfile = async (req, res) => {
     res.status(400).json({ success: false, message: err.message });
   }
 };
-
-
 
 export const verifyEmailLink = async (req, res) => {
   try {
