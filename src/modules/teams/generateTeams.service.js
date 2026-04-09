@@ -68,289 +68,22 @@ function groupByTeam(players) {
 
 /* MAIN SERVICE */
 
-// export const generateTeamsService = async (userId, matchId, teamA, teamB) => {
-
-//   const conn = await db.getConnection();
-
-//   try {
-
-//     await conn.beginTransaction();
-
-
-//     /* MATCH CHECK */
-
-//     const [[match]] = await conn.query(
-//       `SELECT status, start_time, home_team_id, away_team_id
-//        FROM matches WHERE id = ?`,
-//       [matchId]
-//     );
-
-//     if (!match) throw new Error("Match not found");
-
-//     if (
-//       match.status?.trim().toLowerCase() !== "upcoming" ||
-//       new Date() >= new Date(match.start_time)
-//     ) throw new Error("Team generation is closed for this match");
-
-
-//     /* ALREADY GENERATED CHECK */
-
-//     const [[existingLog]] = await conn.query(
-//   `SELECT id FROM match_generation_log
-//    WHERE match_id = ? AND user_id = ?`,
-//   [matchId, userId]
-// );
-
-// if (existingLog) {
-//   throw new Error("Teams already generated for this match");
-// }
-
-
-//     /* VALIDATE PLAYERS BELONG TO THIS MATCH'S TEAMS */
-
-//     const allPlayerIds = [...teamA, ...teamB].map(p => Number(p.Player));
-
-//     if (!allPlayerIds.length) throw new Error("No players provided");
-
-//     const [validPlayers] = await conn.query(
-//       `SELECT id FROM players
-//        WHERE id IN (?)
-//        AND team_id IN (?, ?)`,
-//       [allPlayerIds, match.home_team_id, match.away_team_id]
-//     );
-
-//     if (validPlayers.length !== allPlayerIds.length) {
-//       const validIds = new Set(validPlayers.map(r => r.id));
-//       const invalid = allPlayerIds.filter(id => !validIds.has(id));
-//       throw new Error(`Players do not belong to this match: ${invalid.join(", ")}`);
-//     }
-
-
-//     /* EXISTING TEAMS */
-
-//     const [existingTeams] = await conn.query(
-//       `SELECT id FROM user_teams
-//        WHERE user_id = ? AND match_id = ?
-//        ORDER BY id`,
-//       [userId, matchId]
-//     );
-
-
-//     /* RUN BINARY */
-
-//     const rawOutput = await runBinary(teamA, teamB);
-
-//     const grouped = groupByTeam(rawOutput);
-
-//     const teamsToSave = Object.entries(grouped).slice(0, 20);
-
-//     if (!teamsToSave.length) throw new Error("Binary generated no teams");
-
-
-//     const savedTeams = [];
-
-//     for (let i = 0; i < teamsToSave.length; i++) {
-
-//       const [, members] = teamsToSave[i];
-
-//       const captain       = members.find(p => p.Cap === "C");
-//       const vice          = members.find(p => p.Cap === "VC");
-//       const captainId     = captain?.Player ? Number(captain.Player) : null;
-//       const viceCaptainId = vice?.Player    ? Number(vice.Player)    : null;
-
-//       const playerIds = members.map(p => Number(p.Player));
-
-//       const signature =
-//         [...playerIds].sort((a, b) => a - b).join(",") +
-//         `|C${captainId}|VC${viceCaptainId}`;
-
-//       let teamId;
-
-
-//       /* UPDATE EXISTING TEAM */
-
-//       if (i < existingTeams.length) {
-
-//         teamId = existingTeams[i].id;
-
-//         await conn.query(
-//           `UPDATE user_teams
-//            SET team_signature = ?, locked = 0
-//            WHERE id = ?`,
-//           [signature, teamId]
-//         );
-
-//         await conn.query(
-//           `DELETE FROM user_team_players
-//            WHERE user_team_id = ?`,
-//           [teamId]
-//         );
-
-//       }
-
-//       /* INSERT NEW TEAM */
-
-//       else {
-
-//         const [result] = await conn.execute(
-//           `INSERT INTO user_teams
-//            (user_id, match_id, team_name, team_signature, locked)
-//            VALUES (?, ?, ?, ?, 0)`,
-//           [userId, matchId, `Team ${i + 1}`, signature]
-//         );
-
-//         teamId = result.insertId;
-
-//       }
-
-
-//       /* INSERT PLAYERS */
-
-//       const rows = members.map(p => [
-//         teamId,
-//         Number(p.Player),
-//         p.Role,
-//         Number(p.Player) === captainId     ? 1 : 0,
-//         Number(p.Player) === viceCaptainId ? 1 : 0
-//       ]);
-
-//       await conn.query(
-//         `INSERT INTO user_team_players
-//          (user_team_id, player_id, role, is_captain, is_vice_captain)
-//          VALUES ?`,
-//         [rows]
-//       );
-
-//       savedTeams.push({ teamId });
-
-//     }
-
-
-//     /* DELETE STALE TEAMS IF BINARY GENERATED FEWER THAN BEFORE */
-
-//     if (existingTeams.length > teamsToSave.length) {
-
-//       const staleIds = existingTeams.slice(teamsToSave.length).map(t => t.id);
-
-//       await conn.query(
-//         `DELETE FROM user_team_players WHERE user_team_id IN (?)`,
-//         [staleIds]
-//       );
-
-//       await conn.query(
-//         `DELETE FROM user_teams WHERE id IN (?)`,
-//         [staleIds]
-//       );
-
-//     }
-
-
-//     /* UPDATE PLAYER PERCENTAGES */
-
-//     const [[{ totalTeams }]] = await conn.query(
-//       `SELECT COUNT(*) totalTeams
-//        FROM user_teams
-//        WHERE match_id = ?`,
-//       [matchId]
-//     );
-
-//     if (totalTeams && allPlayerIds.length) {
-
-//       await conn.query(
-//         `UPDATE players p SET
-
-//           selectpercent = ROUND((
-//             SELECT COUNT(*)
-//             FROM user_team_players utp
-//             JOIN user_teams ut ON ut.id = utp.user_team_id
-//             WHERE utp.player_id = p.id AND ut.match_id = ?
-//           ) / ? * 100, 2),
-
-//           captainper = ROUND((
-//             SELECT COUNT(*)
-//             FROM user_team_players utp
-//             JOIN user_teams ut ON ut.id = utp.user_team_id
-//             WHERE utp.player_id = p.id
-//             AND ut.match_id = ?
-//             AND utp.is_captain = 1
-//           ) / ? * 100, 2),
-
-//           vcper = ROUND((
-//             SELECT COUNT(*)
-//             FROM user_team_players utp
-//             JOIN user_teams ut ON ut.id = utp.user_team_id
-//             WHERE utp.player_id = p.id
-//             AND ut.match_id = ?
-//             AND utp.is_vice_captain = 1
-//           ) / ? * 100, 2)
-
-//         WHERE p.id IN (?)`,
-//         [
-//           matchId, totalTeams,
-//           matchId, totalTeams,
-//           matchId, totalTeams,
-//           allPlayerIds
-//         ]
-//       );
-
-//     }
-
-
-//     /* SAVE GENERATION LOG */
-
-//     await conn.query(
-//       `INSERT INTO match_generation_log
-//        (match_id, user_id, total_teams)
-//        VALUES (?, ?, ?)`,
-//       [matchId, userId, savedTeams.length]
-//     );
-
-
-//     await conn.commit();
-
-//     return {
-//       success: true,
-//       message: "Teams generated successfully",
-//       totalSaved: savedTeams.length
-//     };
-
-//   } catch (err) {
-
-//     await conn.rollback();
-//     throw err;
-
-//   } finally {
-
-//     conn.release();
-
-//   }
-
-// };
-
-
 export const generateTeamsService = async (userId, matchId, teamA, teamB) => {
 
   const conn = await db.getConnection();
 
   try {
+
     await conn.beginTransaction();
 
-    /* ── MATCH CHECK + EXISTING CHECK — parallel ── */
-    const [
-      [[match]],
-      [[existingLog]]
-    ] = await Promise.all([
-      conn.query(
-        `SELECT status, start_time, home_team_id, away_team_id
-         FROM matches WHERE id = ?`,
-        [matchId]
-      ),
-      conn.query(
-        `SELECT id FROM match_generation_log
-         WHERE match_id = ? AND user_id = ?`,
-        [matchId, userId]
-      )
-    ]);
+
+    /* MATCH CHECK */
+
+    const [[match]] = await conn.query(
+      `SELECT status, start_time, home_team_id, away_team_id
+       FROM matches WHERE id = ?`,
+      [matchId]
+    );
 
     if (!match) throw new Error("Match not found");
 
@@ -359,9 +92,22 @@ export const generateTeamsService = async (userId, matchId, teamA, teamB) => {
       new Date() >= new Date(match.start_time)
     ) throw new Error("Team generation is closed for this match");
 
-    if (existingLog) throw new Error("Teams already generated for this match");
 
-    /* ── VALIDATE PLAYERS ── */
+    /* ALREADY GENERATED CHECK */
+
+    const [[existingLog]] = await conn.query(
+  `SELECT id FROM match_generation_log
+   WHERE match_id = ? AND user_id = ?`,
+  [matchId, userId]
+);
+
+if (existingLog) {
+  throw new Error("Teams already generated for this match");
+}
+
+
+    /* VALIDATE PLAYERS BELONG TO THIS MATCH'S TEAMS */
+
     const allPlayerIds = [...teamA, ...teamB].map(p => Number(p.Player));
 
     if (!allPlayerIds.length) throw new Error("No players provided");
@@ -375,191 +121,210 @@ export const generateTeamsService = async (userId, matchId, teamA, teamB) => {
 
     if (validPlayers.length !== allPlayerIds.length) {
       const validIds = new Set(validPlayers.map(r => r.id));
-      const invalid  = allPlayerIds.filter(id => !validIds.has(id));
+      const invalid = allPlayerIds.filter(id => !validIds.has(id));
       throw new Error(`Players do not belong to this match: ${invalid.join(", ")}`);
     }
 
-    /* ── EXISTING TEAMS + RUN BINARY — parallel ── */
-    const [
-      [existingTeams],
-      rawOutput
-    ] = await Promise.all([
-      conn.query(
-        `SELECT id FROM user_teams
-         WHERE user_id = ? AND match_id = ?
-         ORDER BY id`,
-        [userId, matchId]
-      ),
-      runBinary(teamA, teamB)   // ✅ DB query tో parallel ga run
-    ]);
 
-    const grouped     = groupByTeam(rawOutput);
+    /* EXISTING TEAMS */
+
+    const [existingTeams] = await conn.query(
+      `SELECT id FROM user_teams
+       WHERE user_id = ? AND match_id = ?
+       ORDER BY id`,
+      [userId, matchId]
+    );
+
+
+    /* RUN BINARY */
+
+    const rawOutput = await runBinary(teamA, teamB);
+
+    const grouped = groupByTeam(rawOutput);
+
     const teamsToSave = Object.entries(grouped).slice(0, 20);
 
     if (!teamsToSave.length) throw new Error("Binary generated no teams");
 
-    /* ── BULK DELETE OLD PLAYERS — one shot ── */
-    if (existingTeams.length) {
-      const existingIds = existingTeams.map(t => t.id);
-      await conn.query(
-        `DELETE FROM user_team_players WHERE user_team_id IN (?)`,
-        [existingIds]
-      );
-    }
 
-    /* ── PREPARE ALL DATA ── */
-    const allPlayerRows = [];   // bulk insert కోసం
-    const updateTeamIds = [];
-    const newTeams      = [];
+    const savedTeams = [];
 
     for (let i = 0; i < teamsToSave.length; i++) {
-      const [, members]   = teamsToSave[i];
+
+      const [, members] = teamsToSave[i];
+
       const captain       = members.find(p => p.Cap === "C");
       const vice          = members.find(p => p.Cap === "VC");
       const captainId     = captain?.Player ? Number(captain.Player) : null;
       const viceCaptainId = vice?.Player    ? Number(vice.Player)    : null;
-      const playerIds     = members.map(p => Number(p.Player));
-      const signature     = [...playerIds].sort((a, b) => a - b).join(",")
-                            + `|C${captainId}|VC${viceCaptainId}`;
+
+      const playerIds = members.map(p => Number(p.Player));
+
+      const signature =
+        [...playerIds].sort((a, b) => a - b).join(",") +
+        `|C${captainId}|VC${viceCaptainId}`;
+
+      let teamId;
+
+
+      /* UPDATE EXISTING TEAM */
 
       if (i < existingTeams.length) {
-        // existing team update
-        updateTeamIds.push({ teamId: existingTeams[i].id, signature });
-      } else {
-        // new team insert
-        newTeams.push({
-          index: i,
-          signature,
-          captainId,
-          viceCaptainId,
-          members
-        });
+
+        teamId = existingTeams[i].id;
+
+        await conn.query(
+          `UPDATE user_teams
+           SET team_signature = ?, locked = 0
+           WHERE id = ?`,
+          [signature, teamId]
+        );
+
+        await conn.query(
+          `DELETE FROM user_team_players
+           WHERE user_team_id = ?`,
+          [teamId]
+        );
+
       }
 
-      // player rows prepare — teamId later fill చేస్తాం
-      members.forEach(p => {
-        allPlayerRows.push({
-          teamIndex:      i,
-          playerId:       Number(p.Player),
-          role:           p.Role,
-          isCaptain:      Number(p.Player) === captainId     ? 1 : 0,
-          isViceCaptain:  Number(p.Player) === viceCaptainId ? 1 : 0,
-        });
-      });
-    }
+      /* INSERT NEW TEAM */
 
-    /* ── BULK UPDATE EXISTING TEAMS ── */
-    if (updateTeamIds.length) {
-      await Promise.all(
-        updateTeamIds.map(({ teamId, signature }) =>
-          conn.query(
-            `UPDATE user_teams SET team_signature = ?, locked = 0 WHERE id = ?`,
-            [signature, teamId]
-          )
-        )
-      );
-    }
+      else {
 
-    /* ── BULK INSERT NEW TEAMS ── */
-    const teamIdMap = {};  // index → teamId
+        const [result] = await conn.execute(
+          `INSERT INTO user_teams
+           (user_id, match_id, team_name, team_signature, locked)
+           VALUES (?, ?, ?, ?, 0)`,
+          [userId, matchId, `Team ${i + 1}`, signature]
+        );
 
-    // existing teams map
-    existingTeams.forEach((t, i) => {
-      teamIdMap[i] = t.id;
-    });
+        teamId = result.insertId;
 
-    if (newTeams.length) {
-      const newTeamRows = newTeams.map(t => [
-        userId, matchId, `Team ${t.index + 1}`, t.signature, 0
+      }
+
+
+      /* INSERT PLAYERS */
+
+      const rows = members.map(p => [
+        teamId,
+        Number(p.Player),
+        p.Role,
+        Number(p.Player) === captainId     ? 1 : 0,
+        Number(p.Player) === viceCaptainId ? 1 : 0
       ]);
 
-      const [insertResult] = await conn.query(
-        `INSERT INTO user_teams
-         (user_id, match_id, team_name, team_signature, locked)
+      await conn.query(
+        `INSERT INTO user_team_players
+         (user_team_id, player_id, role, is_captain, is_vice_captain)
          VALUES ?`,
-        [newTeamRows]
+        [rows]
       );
 
-      // ✅ insertId from bulk insert
-      let autoId = insertResult.insertId;
-      newTeams.forEach((t) => {
-        teamIdMap[t.index] = autoId++;
-      });
+      savedTeams.push({ teamId });
+
     }
 
-    /* ── BULK INSERT ALL PLAYERS — one shot ── */
-    const bulkPlayerRows = allPlayerRows.map(p => [
-      teamIdMap[p.teamIndex],
-      p.playerId,
-      p.role,
-      p.isCaptain,
-      p.isViceCaptain
-    ]);
 
-    await conn.query(
-      `INSERT INTO user_team_players
-       (user_team_id, player_id, role, is_captain, is_vice_captain)
-       VALUES ?`,
-      [bulkPlayerRows]
-    );
+    /* DELETE STALE TEAMS IF BINARY GENERATED FEWER THAN BEFORE */
 
-    /* ── DELETE STALE TEAMS ── */
     if (existingTeams.length > teamsToSave.length) {
+
       const staleIds = existingTeams.slice(teamsToSave.length).map(t => t.id);
+
+      await conn.query(
+        `DELETE FROM user_team_players WHERE user_team_id IN (?)`,
+        [staleIds]
+      );
+
       await conn.query(
         `DELETE FROM user_teams WHERE id IN (?)`,
         [staleIds]
       );
+
     }
 
-    /* ── UPDATE PLAYER PERCENTAGES ── */
+
+    /* UPDATE PLAYER PERCENTAGES */
+
     const [[{ totalTeams }]] = await conn.query(
-      `SELECT COUNT(*) totalTeams FROM user_teams WHERE match_id = ?`,
+      `SELECT COUNT(*) totalTeams
+       FROM user_teams
+       WHERE match_id = ?`,
       [matchId]
     );
 
     if (totalTeams && allPlayerIds.length) {
+
       await conn.query(
         `UPDATE players p SET
+
           selectpercent = ROUND((
-            SELECT COUNT(*) FROM user_team_players utp
+            SELECT COUNT(*)
+            FROM user_team_players utp
             JOIN user_teams ut ON ut.id = utp.user_team_id
             WHERE utp.player_id = p.id AND ut.match_id = ?
           ) / ? * 100, 2),
+
           captainper = ROUND((
-            SELECT COUNT(*) FROM user_team_players utp
+            SELECT COUNT(*)
+            FROM user_team_players utp
             JOIN user_teams ut ON ut.id = utp.user_team_id
-            WHERE utp.player_id = p.id AND ut.match_id = ? AND utp.is_captain = 1
+            WHERE utp.player_id = p.id
+            AND ut.match_id = ?
+            AND utp.is_captain = 1
           ) / ? * 100, 2),
+
           vcper = ROUND((
-            SELECT COUNT(*) FROM user_team_players utp
+            SELECT COUNT(*)
+            FROM user_team_players utp
             JOIN user_teams ut ON ut.id = utp.user_team_id
-            WHERE utp.player_id = p.id AND ut.match_id = ? AND utp.is_vice_captain = 1
+            WHERE utp.player_id = p.id
+            AND ut.match_id = ?
+            AND utp.is_vice_captain = 1
           ) / ? * 100, 2)
+
         WHERE p.id IN (?)`,
-        [matchId, totalTeams, matchId, totalTeams, matchId, totalTeams, allPlayerIds]
+        [
+          matchId, totalTeams,
+          matchId, totalTeams,
+          matchId, totalTeams,
+          allPlayerIds
+        ]
       );
+
     }
 
-    /* ── SAVE LOG ── */
+
+    /* SAVE GENERATION LOG */
+
     await conn.query(
-      `INSERT INTO match_generation_log (match_id, user_id, total_teams)
+      `INSERT INTO match_generation_log
+       (match_id, user_id, total_teams)
        VALUES (?, ?, ?)`,
-      [matchId, userId, teamsToSave.length]
+      [matchId, userId, savedTeams.length]
     );
+
 
     await conn.commit();
 
     return {
       success: true,
       message: "Teams generated successfully",
-      totalSaved: teamsToSave.length
+      totalSaved: savedTeams.length
     };
 
   } catch (err) {
+
     await conn.rollback();
     throw err;
+
   } finally {
+
     conn.release();
+
   }
+
 };
+
+
