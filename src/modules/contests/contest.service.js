@@ -562,12 +562,12 @@ export const joinContestService = async (userId, amount, meta = {}) => {
 
     /* ================= FREE CONTEST TEAM LIMIT CHECK ================= */
 
-    const [[contestType]] = await conn.query(
-      `SELECT contest_type FROM contest WHERE id = ?`,
+    const [[contestCheck]] = await conn.query(
+      `SELECT entry_fee FROM contest WHERE id = ?`,
       [contestId]
     );
 
-    if (contestType?.contest_type === "FREE") {
+    if (contestCheck && parseFloat(contestCheck.entry_fee) === 0) {
 
       const [[user]] = await conn.query(
         `SELECT subscribe FROM users WHERE id = ?`,
@@ -576,7 +576,6 @@ export const joinContestService = async (userId, amount, meta = {}) => {
 
       if (!user?.subscribe) {
 
-        // ✅ Non-subscriber — already joined teams count
         const [[{ joinedCount }]] = await conn.query(
           `SELECT COUNT(*) as joinedCount
            FROM contest_entries
@@ -584,16 +583,14 @@ export const joinContestService = async (userId, amount, meta = {}) => {
           [contestId, userId]
         );
 
-        // ✅ Already joined + new teams trying to join
         if (joinedCount + teamIds.length > 1) {
           throw new Error("Free contest allows only 1 team for non-subscribers");
         }
 
       }
       // ✅ Subscriber — no limit
-
     }
-    // ✅ MEGA, ULTRA, etc — no restriction
+    // ✅ LITE, MEGA, ULTRA — no restriction
 
     /* ================= CONTEST + MATCH LOCK ================= */
 
