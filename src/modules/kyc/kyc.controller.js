@@ -5,39 +5,6 @@ import { createSumsubHeaders,  sumsubPost } from "../../utils/sumsub.js";
 import { createApplicantService, generateAddressKycTokenService } from "./kyc.service.js";
  
 
-// export const startKyc = async (req, res) => {
-
-//   const { mobile, email } = req.body;
-
-//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-//   const applicantId = await createApplicantService(normalizedMobile);
-
-//   await db.query(
-//     `INSERT INTO kyc_sessions (mobile, email, applicant_id, age_verified)
-//      VALUES (?, ?, ?, 0)
-//      ON DUPLICATE KEY UPDATE
-//      applicant_id = VALUES(applicant_id)`,
-//     [normalizedMobile, email, applicantId]
-//   );
-
-//   const path = `/resources/accessTokens?userId=${normalizedMobile}&levelName=${process.env.SUMSUB_LEVEL}`;
-
-//   const headers = createSumsubHeaders("POST", path, "");
-
-//   const data = await sumsubPost(
-//     process.env.SUMSUB_BASE_URL + path,
-//     headers
-//   );
-
-//   res.json({
-//     success: true,
-//     token: data.token
-//   });
-
-// };
-
-
 export const startKyc = async (req, res) => {
   const { mobile, email } = req.body;
 

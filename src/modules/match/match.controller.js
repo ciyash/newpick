@@ -52,7 +52,7 @@ export const getAllMatches = async (req, res) => {
 export const getMatchesByType = async (req, res) => {
   try {
     const { type } = req.params;
-    const userId = req.user?.id; // ✅ auth middleware నుండి వస్తుంది
+    const userId = req.user?.id; 
 
     if (!userId) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -356,7 +356,7 @@ export const getMatchFullDetails = async (req, res) => {
       `SELECT COUNT(*) AS count
        FROM match_players
        WHERE match_id = ?`,
-      [match.id] // ✅ always DB id
+      [match.id] 
     );
 
     let players = [];

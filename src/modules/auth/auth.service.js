@@ -187,7 +187,6 @@ const REFERRAL_SIGNUP_BONUS  = 3;
 const MAX_USERCODE_RETRIES   = 10;
 
 
-
 /* ================= SEND LOGIN OTP ================= */
 
 
@@ -328,7 +327,6 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
     name:     user.name
   };
 };
-
 
 /* ================= PAUSE ACCOUNT ====================== */
 
@@ -525,7 +523,6 @@ export const applyReferralContestBonus = async (userId) => {
   }
 };
 
-
 /* ================= VERIFY EMAIL LINK ================= */
 export const verifyEmailLinkService = async (token) => {
 
@@ -701,7 +698,6 @@ export const verifyNewContactService = async (userId, otp) => {
     message: `${type} updated successfully`
   };
 };
-
 
 export const signupService = async ({ mobile, otp }) => {
 
@@ -928,3 +924,4 @@ export const signupService = async ({ mobile, otp }) => {
     conn.release();
   }
 };  
+
