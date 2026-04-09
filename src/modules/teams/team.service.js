@@ -984,7 +984,7 @@ export const getMyTeamsXIStatusService = async (userId, matchId, homeTeamId) => 
 
 
 /* ══════════════════════════════════════════
-   GET PLAYING XI
+   GET PLAYING XI FOR A MATCH (HOME + AWAY SEPARATE)
 ══════════════════════════════════════════ */
 
 export const getPlayingXIService = async (matchId) => {
