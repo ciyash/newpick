@@ -1518,7 +1518,201 @@ export const createContestol = async (data, admin, ip) => {
     conn.release();
   }
 };
+
 export const createContest = async (data, admin, ip) => {
+  if (!admin?.id || !admin?.email) {
+    throw new Error("Invalid admin context");
+  }
+
+  const conn = await db.getConnection();
+
+  try {
+    await conn.beginTransaction();
+    const [[match]] = await conn.query(
+      `SELECT id, status FROM matches WHERE id = ?`,
+      [data.match_id]
+    );
+
+    if (!match) throw new Error("Match not found");
+    if (match.status !== "UPCOMING") {
+      throw new Error(`Match must be UPCOMING`);
+    }
+    const [[category]] = await conn.query(
+      `SELECT name, entryfee, platformfee, percentage AS winner_percentage
+       FROM contestcategory WHERE name = ?`,
+      [data.contest_type]
+    );
+
+    if (!category) throw new Error("Invalid contest_type");
+
+    
+    const [[existing]] = await conn.query(
+      `SELECT id FROM contest WHERE match_id = ? AND contest_type = ?`,
+      [data.match_id, category.name]
+    );
+
+    if (existing) throw new Error("Contest already exists");
+
+    const max_entries = parseInt(data.max_entries);
+    if (!max_entries || max_entries < 2) {
+      throw new Error("max_entries must be >= 2");
+    }
+
+    const entry_fee = Number(category.entryfee);
+    const platform_fee_percentage = Number(category.platformfee);
+    const winner_percentage = Number(category.winner_percentage);
+    const prize_pool = max_entries * entry_fee;
+
+    const platformFeeAmount =
+      (prize_pool * platform_fee_percentage) / 100;
+
+    const netAfterFee = prize_pool - platformFeeAmount;
+
+    const totalWinners = Math.floor(
+      (max_entries * winner_percentage) / 100
+    );
+
+    const refundStart = Math.floor(totalWinners * 0.01);
+    const bonusRanks = refundStart - 1;
+
+    const refundWinners = totalWinners - bonusRanks;
+
+    const totalRefund = refundWinners * entry_fee;
+
+    const bonusPool = Math.max(0, netAfterFee - totalRefund);
+
+    if (!data.prize_distribution) {
+      throw new Error("prize_distribution is required");
+    }
+
+   let parsedDistribution;
+
+if (Array.isArray(data.prize_distribution)) {
+  parsedDistribution = data.prize_distribution;
+
+} else if (typeof data.prize_distribution === "object") {
+  parsedDistribution = Object.entries(data.prize_distribution).map(
+    ([key, amount]) => ({
+      rank: parseInt(key.replace(/\D/g, "")),
+      amount: Number(amount),
+    })
+  );
+
+} else {
+  throw new Error("Invalid prize_distribution format");
+}
+
+  
+    let coveredRanks = 0;
+
+    const totalBonusDistributed = parsedDistribution.reduce((sum, p) => {
+      if (p.rank) {
+        coveredRanks += 1;
+        return sum + Number(p.amount);
+      }
+
+      if (p.rank_from && p.rank_to) {
+        const count = p.rank_to - p.rank_from + 1;
+        coveredRanks += count;
+        return sum + count * Number(p.amount);
+      }
+
+      throw new Error("Invalid prize_distribution format");
+    }, 0);
+
+    if (coveredRanks !== bonusRanks) {
+      throw new Error(
+        `Distribution mismatch: covers ${coveredRanks}, expected ${bonusRanks}`
+      );
+    }
+
+    if (totalBonusDistributed > bonusPool) {
+  const scale = bonusPool / totalBonusDistributed;
+
+  parsedDistribution = parsedDistribution.map(p => {
+    if (p.rank) {
+      return { ...p, amount: Math.floor(p.amount * scale) };
+    }
+
+    if (p.rank_from && p.rank_to) {
+      return { ...p, amount: Math.floor(p.amount * scale) };
+    }
+
+    return p;
+  });
+} 
+    if (totalBonusDistributed > bonusPool) {
+      throw new Error(
+        `Bonus exceeds pool: ${totalBonusDistributed} > ${bonusPool}`
+      );
+    }
+
+    const rankOne = parsedDistribution.find(
+      (p) =>
+        p.rank === 1 ||
+        (p.rank_from && p.rank_from <= 1 && p.rank_to >= 1)
+    );
+
+    const first_prize = rankOne
+      ? Number(rankOne.amount)
+      : 0;
+
+    const [result] = await conn.query(
+      `INSERT INTO contest
+       (match_id, contest_type, entry_fee,
+        prize_pool,netpool_amount, net_pool_prize,
+        max_entries, current_entries,
+        winner_percentage, total_winners,
+        first_prize, prize_distribution,
+        refund_start_rank, bonus_ranks, refund_winners, refund_total,
+        platform_fee_percentage, platform_fee_amount,
+        status, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+      [
+        data.match_id,
+        category.name,
+        entry_fee,
+        prize_pool,
+        netAfterFee,
+        bonusPool,
+        max_entries,
+        0,
+        winner_percentage,
+        totalWinners,
+        first_prize,
+        JSON.stringify(parsedDistribution),
+
+        refundStart,
+        bonusRanks,
+        refundWinners,
+        totalRefund,
+
+        platform_fee_percentage,
+        platformFeeAmount,
+        data.status ?? "UPCOMING",
+      ]
+    );
+
+    await conn.commit();
+
+    return {
+      success: true,
+      id: result.insertId,
+      details: {
+        bonusPool,
+        first_prize,
+        totalBonusDistributed,
+      },
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+export const createContests = async (data, admin, ip) => {
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
 
