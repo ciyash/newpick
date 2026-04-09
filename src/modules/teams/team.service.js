@@ -463,15 +463,19 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
       }
     : null;
 
-  // ✅ contestId ఉంటే JOIN చేసి filter చేయి
+  // ✅ contestId ఉంటే LEFT JOIN — join కాని teams filter
   const contestJoin = contestId
-    ? `JOIN contest_entries ce ON ce.user_team_id = ut.id AND ce.contest_id = ?`
+    ? `LEFT JOIN contest_entries ce ON ce.user_team_id = ut.id AND ce.contest_id = ?`
+    : "";
+
+  const contestWhere = contestId
+    ? `AND ce.user_team_id IS NULL`
     : "";
 
   const params = [];
-  if (contestId) params.push(contestId);
-  params.push(userId);
-  if (matchId) params.push(matchId);
+  if (contestId) params.push(contestId);  // ← LEFT JOIN కి
+  params.push(userId);                     // ← WHERE ut.user_id = ?
+  if (matchId) params.push(matchId);      // ← AND ut.match_id = ?
 
   const [rows] = await db.query(
     `SELECT 
@@ -510,6 +514,7 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
 
      WHERE ut.user_id = ?
      ${matchId ? "AND ut.match_id = ?" : ""}
+     ${contestWhere}
 
      ORDER BY ut.created_at DESC`,
     params
@@ -612,7 +617,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
 
   return Object.values(teams);
 };
-
 
 
 
