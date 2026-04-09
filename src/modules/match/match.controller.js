@@ -531,11 +531,13 @@ export const getMatchFullDetails = async (req, res) => {
 
 
 
+
+
 export const getPastMatches = async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 5;  // ✅ radix 10 add cheyyi
+    const userId = req.user.id;
 
-    const data = await getPastMatchesService(limit);
+    const data = await getPastMatchesService(userId);
 
     return res.status(200).json({
       success: true,
@@ -544,10 +546,10 @@ export const getPastMatches = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('getPastMatches error:', error);
+    console.error("getMyMatches error:", error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch past matches',
+      message: "Failed to fetch my matches",
       error: error.message,
     });
   }
