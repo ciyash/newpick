@@ -19,8 +19,8 @@ router.post("/join",                               joinContest);
 router.get("/my-contests/:match_id",               getMyContests);
 
 // ── Leaderboard + Winnings (two tabs in the UI) ──────
-router.get("/leaderboard/:contest_id",             getLeaderboard);   // Leaderboard tab
-router.get("/winnings/:contest_id",                getContestWinnings); // Winnings tab  ← NEW
+router.get("/leaderboard/:contest_id",             getLeaderboard);   // Leaderboard tab  
+router.get("/winnings/:contest_id",                getContestWinnings); // Winnings tab  
 
 // ── Rank / Score ──────────────────────────────────────
 router.get("/my-rank/:contest_id/:teamId",         getMyRank);
