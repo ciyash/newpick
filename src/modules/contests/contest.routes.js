@@ -30,7 +30,7 @@ router.get("/breakdown/:contestId/:userTeamId",    getScoreBreakdown);
 router.get("/",                                    getAllContests);
 router.get("/:match_id",                           getContestsByMatchId);
 
-export default router;
+export default router; 
 
 
 
