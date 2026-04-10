@@ -525,31 +525,16 @@ export const applyReferralContestBonus = async (userId) => {
 
 /* ================= VERIFY EMAIL LINK ================= */
 export const verifyEmailLinkService = async (token) => {
+  console.log("🔍 Received token:", token);
 
   if (!token) throw new Error("Invalid verification link");
 
   const userId = await redis.get(`EMAIL_VERIFY:${token}`);
+  console.log("📦 Redis lookup result:", userId);  // null means token not found
 
-  if (!userId)
-    throw new Error("Verification link expired");
-
-  const [result] = await db.query(
-    `UPDATE users
-     SET email_verify = 1
-     WHERE id = ?`,
-    [userId]
-  );
-
-  if (result.affectedRows === 0)
-    throw new Error("User not found");
-
-  await redis.del(`EMAIL_VERIFY:${token}`);
-
-  return {
-    success: true,
-    message: "Email verified successfully"
-  };
-};   
+  if (!userId) throw new Error("Verification link expired");
+  // ... rest of code
+}; 
 
 //* ================= CONTACT CHANGE (EMAIL/MOBILE) ================= */
 
@@ -719,13 +704,13 @@ export const signupService = async ({ mobile, otp }) => {
     throw new Error("Invalid signup session data");
   }
 
-  const name             = String(signupData.name      || "").trim().slice(0, 100);
-  const email            = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
-  const region           = String(signupData.region     || "").trim().slice(0, 100);
-  const nickname         = signupData.nickname   ? String(signupData.nickname).trim().slice(0, 50)   : null;
-  const address          = signupData.address    ? String(signupData.address).trim().slice(0, 300)   : null;
-  const dob              = signupData.dob        ? String(signupData.dob).trim()                     : null;
-  const referralid       = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20) : null;
+  const name               = String(signupData.name      || "").trim().slice(0, 100);
+  const email              = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
+  const region             = String(signupData.region     || "").trim().slice(0, 100);
+  const nickname           = signupData.nickname   ? String(signupData.nickname).trim().slice(0, 50)  : null;
+  const address            = signupData.address    ? String(signupData.address).trim().slice(0, 300)  : null;
+  const dob                = signupData.dob        ? String(signupData.dob).trim()                    : null;
+  const referralid         = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20): null;
   const categoryNormalized = String(signupData.category || "").toLowerCase().trim();
 
   if (!name)  throw new Error("Invalid signup session: missing name");
@@ -892,15 +877,29 @@ export const signupService = async ({ mobile, otp }) => {
       redis.del(`KYC_VERIFIED:${normalizedMobile}`),
     ]);
 
-    // ✅ Email background లో పంపు — response block చేయదు
+    /* ─── Send Verification Email (background) ─── */
+    const emailSnapshot = email;       // ✅ capture before async boundary
+    const userIdSnapshot = userId;     // ✅ capture before async boundary
+
     setImmediate(async () => {
       try {
+        const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
+
+        console.log("📧 Sending verification email to:", emailSnapshot);
+        console.log("🔍 BACKEND_URL:", BACKEND);
+
         const emailToken = crypto.randomBytes(32).toString("hex");
-        await redis.set(`EMAIL_VERIFY:${emailToken}`, userId, { ex: 86400 });
-        const verifyLink = `${process.env.BACKEND_URL}/api/auth/verify-email?token=${emailToken}`;
-        await sendVerificationEmail(email, verifyLink);
+
+        await redis.set(`EMAIL_VERIFY:${emailToken}`, userIdSnapshot, { ex: 86400 });
+
+        const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
+        console.log("🔗 Verify link:", verifyLink);
+
+        await sendVerificationEmail(emailSnapshot, verifyLink);
+        console.log("✅ Verification email sent to:", emailSnapshot);
+
       } catch (emailErr) {
-        console.error("Background email verification send failed:", emailErr.message);
+        console.error("❌ Email send failed:", emailErr.message);
       }
     });
 
@@ -923,5 +922,5 @@ export const signupService = async ({ mobile, otp }) => {
   } finally {
     conn.release();
   }
-};  
+};
 

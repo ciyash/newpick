@@ -263,7 +263,8 @@ export const verifyEmailLink = async (req, res) => {
     }
 
     await verifyEmailLinkService(token);
-
+    console.console.log('token',token);
+    
     return res.status(200).send(`
       <html>
         <body style="font-family: sans-serif; text-align: center; padding: 50px;">
