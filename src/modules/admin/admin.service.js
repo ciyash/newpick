@@ -1620,7 +1620,7 @@ if (Array.isArray(data.prize_distribution)) {
       throw new Error("Invalid prize_distribution format");
     }, 0);
 
-    if (coveredRanks !== bonusRanks) {
+    if ((coveredRanks !== bonusRanks)&&(bonusRanks>0)) {
       throw new Error(
         `Distribution mismatch: covers ${coveredRanks}, expected ${bonusRanks}`
       );
