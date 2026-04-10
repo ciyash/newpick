@@ -1005,5 +1005,49 @@ export const syncPlayerPointsService = async (matchId) => {
   return { count, reason: null };
 };
   
+
+
+// utils/sportmonks.js
+
+
+
+/* ─── Fetch Fixtures Between Two Dates ─── */
+export const getFixturesBetween = async (fromDate, toDate, page = 1) => {
+
+  const url = `${BASE_URL}/fixtures/between/${fromDate}/${toDate}` +
+    `?include=participants;league;state;venue` +
+    `&per_page=50` +
+    `&page=${page}` +
+    `&api_token=${TOKEN}`;
+
+  const response = await fetch(url);
+  const data = await response.json();
+
+  if (!response.ok || data.errors) {
+    throw new Error(data.message || "SportMonks API error");
+  }
+
+  return data;
+};
+
+/* ─── Fetch ALL pages ─── */
+export const getAllFixturesBetween = async (fromDate, toDate) => {
+
+  const first = await getFixturesBetween(fromDate, toDate, 1);
+
+  const totalPages = first.pagination?.last_page || 1;
+  let allFixtures = [...(first.data || [])];
+
+  if (totalPages > 1) {
+    const promises = [];
+    for (let p = 2; p <= totalPages; p++) {
+      promises.push(getFixturesBetween(fromDate, toDate, p));
+    }
+    const rest = await Promise.all(promises);
+    rest.forEach(r => allFixtures.push(...(r.data || [])));
+  }
+
+  return allFixtures;
+};
   
    

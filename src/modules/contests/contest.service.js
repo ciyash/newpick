@@ -837,7 +837,7 @@ export const joinContestService = async (userId, amount, meta = {}) => {
 
   }
 
-};//
+};
 
 export const getMyContestsService = async (userId, matchId) => {
   try {
@@ -1396,17 +1396,21 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   const offset = (page - 1) * limit;
 
   // Step 1: Contest info + current_over for the "last updated" banner
+  
   const [[contest]] = await db.query(
-    `SELECT c.id, c.match_id, c.prize_pool, c.first_prize,
-            c.prize_distribution, c.current_entries,
-            c.entry_fee, c.status, c.contest_type,
-            c.total_winners, c.net_pool_prize,
-            m.current_over, m.last_updated_at
-     FROM contest c
-     JOIN matches m ON m.id = c.match_id
-     WHERE c.id = ?`,
-    [contestId]
-  );
+  `SELECT c.id, c.match_id, c.prize_pool, c.first_prize,
+          c.prize_distribution, c.current_entries,
+          c.entry_fee, c.status, c.contest_type,
+          c.total_winners, c.net_pool_prize,
+          m.status AS match_status,
+          m.start_time, m.seriesname,
+          m.hometeamname, m.awayteamname,
+          m.matchdate, m.lineupavailable
+   FROM contest c
+   JOIN matches m ON m.id = c.match_id
+   WHERE c.id = ?`,
+  [contestId]
+);
 
   if (!contest)
     return { success: false, message: "Contest not found" };
