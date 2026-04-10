@@ -524,16 +524,34 @@ export const applyReferralContestBonus = async (userId) => {
 };
 
 /* ================= VERIFY EMAIL LINK ================= */
+
 export const verifyEmailLinkService = async (token) => {
+
   console.log("🔍 Received token:", token);
 
   if (!token) throw new Error("Invalid verification link");
 
   const userId = await redis.get(`EMAIL_VERIFY:${token}`);
-  console.log("📦 Redis lookup result:", userId);  // null means token not found
+  console.log("📦 Redis userId:", userId);
 
   if (!userId) throw new Error("Verification link expired");
-  // ... rest of code
+
+  const [result] = await db.query(
+    `UPDATE users SET email_verify = 1 WHERE id = ?`,
+    [userId]
+  );
+
+  console.log("📦 DB update result:", result);  // ✅ result — not result.log
+
+  if (result.affectedRows === 0)
+    throw new Error("User not found");
+
+  await redis.del(`EMAIL_VERIFY:${token}`);
+
+  return {
+    success: true,
+    message: "Email verified successfully"
+  };
 }; 
 
 //* ================= CONTACT CHANGE (EMAIL/MOBILE) ================= */
