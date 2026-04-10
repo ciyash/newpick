@@ -1688,10 +1688,12 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
        ce.winning_amount,
        ce.status,
        u.name,
+      ut.team_name   ,
        u.nickname,
        u.image
      FROM contest_entries ce
      JOIN users u ON u.id = ce.user_id
+        LEFT JOIN user_teams ut ON ut.id = ce.user_team_id   -- ✅ ఇది add చేయండి
      WHERE ce.contest_id = ?
      ORDER BY ce.urank ASC
      LIMIT ? OFFSET ?`,
@@ -1736,6 +1738,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       user_id:        entry.user_id,
       username:       entry.nickname || entry.name || "User" + entry.user_id,
       profile_image:  entry.image || null,
+       team_name:      entry.team_name || null,
       user_team_id:   entry.user_team_id,
       points,
       winning_amount: prize,
@@ -1747,19 +1750,23 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   // Step 6: Fetch current user's OWN entry (for the top "my rank" card)
   let my_entry = null;
   if (userId) {
-    const [myEntries] = await db.query(
-      `SELECT 
-         ce.user_team_id,
-         ce.urank,
-         ce.winning_amount,
-         ut.team_name
-       FROM contest_entries ce
-       LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
-       WHERE ce.contest_id = ? AND ce.user_id = ?
-       ORDER BY ce.urank ASC
-       LIMIT 1`,
-      [contestId, userId]
-    );
+   const [myEntries] = await db.query(
+  `SELECT 
+     ce.user_team_id,
+     ce.urank,
+     ce.winning_amount,
+     ut.team_name,
+     u.name,
+     u.nickname,
+     u.image
+   FROM contest_entries ce
+   LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+   LEFT JOIN users u ON u.id = ce.user_id        -- ✅ ఇది add చేయండి
+   WHERE ce.contest_id = ? AND ce.user_id = ?
+   ORDER BY ce.urank ASC
+   LIMIT 1`,
+  [contestId, userId]
+);
 
     if (myEntries.length > 0) {
       const me = myEntries[0];
@@ -1767,14 +1774,16 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
                        await calcTeamPoints(me.user_team_id, contest.match_id);
       const myPrize  = me.winning_amount ||
                        getPrizeForRank(me.urank, contest.prize_distribution, contest.first_prize);
-      my_entry = {
-        user_team_id:   me.user_team_id,
-        team_name:      me.team_name || null,
-        rank:           me.urank,
-        points:         myPoints,
-        winning_amount: myPrize,
-        is_winner:      myPrize > 0,
-      };
+    my_entry = {
+  user_team_id:   me.user_team_id,
+  team_name:      me.team_name || null,
+  username:       me.nickname || me.name || "User" + userId,  // ✅ కొత్తది
+  profile_image:  me.image || null,                           // ✅ కొత్తది
+  rank:           me.urank,
+  points:         myPoints,
+  winning_amount: myPrize,
+  is_winner:      myPrize > 0,
+};
     }
   }
 
