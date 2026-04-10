@@ -282,29 +282,31 @@ const syncLineups = async () => {
 /* ══════════════════════════════════════════
    JOB 2 — MATCH STATUS SYNC — every 5 mins
 ══════════════════════════════════════════ */
+
 const syncMatchStatuses = async () => {
   console.log("⏰ [CRON] Match status sync started:", new Date().toISOString());
 
   try {
+    /* ─── UPCOMING → LIVE ─── */
     const [upcomingToLive] = await db.query(
       `UPDATE matches
        SET status = 'LIVE'
        WHERE is_active = 1
          AND status = 'UPCOMING'
-         AND start_time <= NOW()
-         AND start_time >= DATE_SUB(NOW(), INTERVAL 3 HOUR)`
+         AND start_time <= NOW()`
     );
 
+    /* ─── LIVE / STUCK UPCOMING → RESULT ─── */
     const [liveToResult] = await db.query(
       `UPDATE matches
        SET status = 'RESULT'
        WHERE is_active = 1
-         AND status = 'LIVE'
+         AND status IN ('UPCOMING', 'LIVE')
          AND start_time <= DATE_SUB(NOW(), INTERVAL 150 MINUTE)`
     );
 
     console.log(
-      `✅ [CRON] Statuses updated | UPCOMING→LIVE: ${upcomingToLive.affectedRows}, LIVE→RESULT: ${liveToResult.affectedRows}`
+      `✅ [CRON] Statuses updated | UPCOMING→LIVE: ${upcomingToLive.affectedRows}, LIVE/STUCK→RESULT: ${liveToResult.affectedRows}`
     );
   } catch (err) {
     console.error("❌ [CRON] syncMatchStatuses failed:", err.message);

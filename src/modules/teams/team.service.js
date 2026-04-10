@@ -285,9 +285,9 @@ export const getTeamPlayersService = async (teamId) => {
   return rows;
 };
 
+
 // export const getMyTeamsWithPlayersService = async (userId, matchId) => {
 
-//   // ✅ Fetch match data
 //   const [matchRows] = await db.query(
 //     `SELECT id, lineup_status, lineupavailable, is_active 
 //      FROM matches 
@@ -314,6 +314,7 @@ export const getTeamPlayersService = async (teamId) => {
 //         p.name,
 //         p.position,
 //         p.points,
+//         p.playercredits AS credits,
 //         p.player_type,
 //         p.playerimage,
 //         p.team_id AS real_team_id,
@@ -357,11 +358,14 @@ export const getTeamPlayersService = async (teamId) => {
 //         teamId: row.team_id,
 //         teamName: row.team_name,
 //         matchId: row.match_id,
-//         match: matchData,          // ✅ match data attached here
+//         match: matchData,
 //         captain: null,
 //         viceCaptain: null,
 //         players: [],
 //         totalPlayers: 0,
+//         totalPoints: 0,
+//         totalCredits: 0,
+//         creditsLeft: 100,
 //         realTeamsBreakdown: {},
 //         playersNotInMatch: 0
 //       };
@@ -371,7 +375,8 @@ export const getTeamPlayersService = async (teamId) => {
 //       playerId: row.player_id,
 //       name: row.name,
 //       position: row.position,
-//       points: row.points,
+//       points: parseFloat(row.points) || 0,          // ✅ parseFloat
+//       credits: parseFloat(row.credits) || 0,         // ✅ parseFloat
 //       playerType: row.player_type,
 //       image: row.playerimage,
 //       isCaptain: row.is_captain === 1,
@@ -387,6 +392,14 @@ export const getTeamPlayersService = async (teamId) => {
 
 //     teams[row.team_id].players.push(player);
 //     teams[row.team_id].totalPlayers++;
+
+//     // ✅ playing XI only points
+//     if (player.isInMatch) {
+//       teams[row.team_id].totalPoints += player.points;
+//     }
+
+//     // ✅ all players credits
+//     teams[row.team_id].totalCredits += player.credits;
 
 //     if (!player.isInMatch) {
 //       teams[row.team_id].playersNotInMatch++;
@@ -411,6 +424,11 @@ export const getTeamPlayersService = async (teamId) => {
 
 //     team.realTeamsBreakdown = Object.values(team.realTeamsBreakdown);
 
+//     // ✅ toFixed before returning
+//     team.totalPoints   = parseFloat(team.totalPoints.toFixed(2));
+//     team.totalCredits  = parseFloat(team.totalCredits.toFixed(2));
+//     team.creditsLeft   = parseFloat((100 - team.totalCredits).toFixed(2));
+
 //     if (!team.captain && team.players.length) {
 //       team.captain = team.players[0];
 //       team.captain.isCaptain = true;
@@ -427,7 +445,7 @@ export const getTeamPlayersService = async (teamId) => {
 // };
 
 
-export const getMyTeamsWithPlayersService = async (userId, matchId) => {
+export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) => {
 
   const [matchRows] = await db.query(
     `SELECT id, lineup_status, lineupavailable, is_active 
@@ -444,6 +462,20 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
         isActive: matchRows[0].is_active
       }
     : null;
+
+  // ✅ contestId ఉంటే LEFT JOIN — join కాని teams filter
+  const contestJoin = contestId
+    ? `LEFT JOIN contest_entries ce ON ce.user_team_id = ut.id AND ce.contest_id = ?`
+    : "";
+
+  const contestWhere = contestId
+    ? `AND ce.user_team_id IS NULL`
+    : "";
+
+  const params = [];
+  if (contestId) params.push(contestId);  // ← LEFT JOIN కి
+  params.push(userId);                     // ← WHERE ut.user_id = ?
+  if (matchId) params.push(matchId);      // ← AND ut.match_id = ?
 
   const [rows] = await db.query(
     `SELECT 
@@ -472,6 +504,7 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
         END AS is_in_match
 
      FROM user_teams ut
+     ${contestJoin}
      JOIN user_team_players utp ON ut.id = utp.user_team_id
      JOIN players p ON utp.player_id = p.id
      LEFT JOIN teams t ON p.team_id = t.id
@@ -481,9 +514,10 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
 
      WHERE ut.user_id = ?
      ${matchId ? "AND ut.match_id = ?" : ""}
+     ${contestWhere}
 
      ORDER BY ut.created_at DESC`,
-    matchId ? [userId, matchId] : [userId]
+    params
   );
 
   if (!rows.length) {
@@ -516,8 +550,8 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
       playerId: row.player_id,
       name: row.name,
       position: row.position,
-      points: parseFloat(row.points) || 0,          // ✅ parseFloat
-      credits: parseFloat(row.credits) || 0,         // ✅ parseFloat
+      points: parseFloat(row.points) || 0,
+      credits: parseFloat(row.credits) || 0,
       playerType: row.player_type,
       image: row.playerimage,
       isCaptain: row.is_captain === 1,
@@ -565,10 +599,9 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
 
     team.realTeamsBreakdown = Object.values(team.realTeamsBreakdown);
 
-    // ✅ toFixed before returning
-    team.totalPoints   = parseFloat(team.totalPoints.toFixed(2));
-    team.totalCredits  = parseFloat(team.totalCredits.toFixed(2));
-    team.creditsLeft   = parseFloat((100 - team.totalCredits).toFixed(2));
+    team.totalPoints  = parseFloat(team.totalPoints.toFixed(2));
+    team.totalCredits = parseFloat(team.totalCredits.toFixed(2));
+    team.creditsLeft  = parseFloat((100 - team.totalCredits).toFixed(2));
 
     if (!team.captain && team.players.length) {
       team.captain = team.players[0];
@@ -584,10 +617,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId) => {
 
   return Object.values(teams);
 };
-
-
-
-
 
 
 
@@ -741,85 +770,6 @@ export const getMyTeamsWithPlayersServiceold = async (
 };
 
 
-// export const updateTeamService = async (
-//   userId,
-//   teamId,
-//   { players, captainId, viceCaptainId, teamName }
-// ) => {
-
-//   let conn;
-
-//   try {
-//     conn = await db.getConnection();
-//     await conn.beginTransaction();
-
-//     /* ✅ Team exists & belongs to user check */
-
-//     const [[team]] = await conn.query(
-//       `SELECT id FROM user_teams WHERE id = ? AND user_id = ?`,
-//       [teamId, userId]
-//     );
-
-//     if (!team) throw new Error("Team not found or not yours");
-
-//     /* ✅ Players validation */
-
-//     if (!players || players.length !== 11) {
-//       throw new Error("Team must have exactly 11 players");
-//     }
-
-//     if (!players.includes(captainId) || !players.includes(viceCaptainId)) {
-//       throw new Error("Captain/VC must be in selected players");
-//     }
-
-//     if (captainId === viceCaptainId) {
-//       throw new Error("Captain and Vice Captain cannot be same");
-//     }
-
-//     /* 🔥 Update team name */
-
-//     if (teamName) {
-//       await conn.query(
-//         `UPDATE user_teams SET team_name = ? WHERE id = ?`,
-//         [teamName, teamId]
-//       );
-//     }
-
-//     /* 🔥 Delete old players */
-
-//     await conn.query(
-//       `DELETE FROM user_team_players WHERE user_team_id = ?`,
-//       [teamId]
-//     );
-
-//     /* 🔥 Insert updated players */
-
-//     for (const playerId of players) {
-
-//       await conn.query(
-//         `INSERT INTO user_team_players
-//          (user_team_id, player_id, is_captain, is_vice_captain)
-//          VALUES (?, ?, ?, ?)`,
-//         [
-//           teamId,
-//           playerId,
-//           playerId === captainId ? 1 : 0,
-//           playerId === viceCaptainId ? 1 : 0
-//         ]
-//       );
-//     }
-
-//     await conn.commit();
-
-//     return { message: "Team updated successfully" };
-
-//   } catch (error) {
-//     if (conn) await conn.rollback();
-//     throw error;
-//   } finally {
-//     if (conn) conn.release();
-//   }
-// };
 
 export const updateTeamService = async (
   userId,
@@ -1030,7 +980,7 @@ export const getMyTeamsXIStatusService = async (userId, matchId, homeTeamId) => 
   // 🔟 Return all user teams as array
   return Object.values(teamsMap);
 };
-
+  
 
 
 /* ══════════════════════════════════════════
@@ -1245,3 +1195,5 @@ export const getTeamComparisonService = async (userTeamId, userId) => {
     },
   };
 };
+
+

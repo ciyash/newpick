@@ -52,7 +52,7 @@ export const getAllMatches = async (req, res) => {
 export const getMatchesByType = async (req, res) => {
   try {
     const { type } = req.params;
-    const userId = req.user?.id; // ✅ auth middleware నుండి వస్తుంది
+    const userId = req.user?.id; 
 
     if (!userId) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -356,7 +356,7 @@ export const getMatchFullDetails = async (req, res) => {
       `SELECT COUNT(*) AS count
        FROM match_players
        WHERE match_id = ?`,
-      [match.id] // ✅ always DB id
+      [match.id] 
     );
 
     let players = [];
@@ -531,11 +531,13 @@ export const getMatchFullDetails = async (req, res) => {
 
 
 
+
+
 export const getPastMatches = async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit, 10) || 5;  // ✅ radix 10 add cheyyi
+    const userId = req.user.id;
 
-    const data = await getPastMatchesService(limit);
+    const data = await getPastMatchesService(userId);
 
     return res.status(200).json({
       success: true,
@@ -544,10 +546,10 @@ export const getPastMatches = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('getPastMatches error:', error);
+    console.error("getMyMatches error:", error);
     return res.status(500).json({
       success: false,
-      message: 'Failed to fetch past matches',
+      message: "Failed to fetch my matches",
       error: error.message,
     });
   }
