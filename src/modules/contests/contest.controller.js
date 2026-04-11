@@ -96,13 +96,15 @@ export const getMyContests = async (req, res) => {
       return res.status(404).json({ success: false, message: "No contests found" });
 
     return res.status(200).json({ success: true, total: contests.length, data: contests });
-  } catch (err) {
-    console.error("[getMyContests]", err.message);
-    return res.status(err.statusCode || 500).json({
-      success: false,
-      message: err.statusCode ? err.message : "Internal server error",
-    });
-  }
+  } 
+  
+  catch (err) {
+  console.error("ERROR:", err.message); // ← add this line
+  return res.status(err.statusCode || 500).json({
+    success: false,
+    message: err.message  // now shows real error in response too
+  });
+}
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

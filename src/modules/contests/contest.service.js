@@ -167,324 +167,6 @@ export const getContestsService = async (matchId, userId) => {
 //   3. Bonus wallet     (max 5% of total entry)
 // ─────────────────────────────────────────────────────────────────────────────
 
-
-// export const joinContestService = async (userId, amount, meta = {}) => {
-
-//   const conn = await db.getConnection();
-
-//   try {
-
-//     await conn.beginTransaction();
-
-//     const { contestId, userTeamId } = meta;
-
-//     if (!contestId || !userTeamId) {
-//       throw new Error("ContestId and TeamId required");
-//     }
-
-//     const teamIds = Array.isArray(userTeamId)
-//       ? userTeamId
-//       : [userTeamId];
-
-//     /* ================= DUPLICATE CHECK ================= */
-
-//     for (const teamId of teamIds) {
-
-//       const [[already]] = await conn.query(
-//         `SELECT id
-//          FROM contest_entries
-//          WHERE contest_id = ?
-//          AND user_id = ?
-//          AND user_team_id = ?`,
-//         [contestId, userId, teamId]
-//       );
-
-//       if (already) {
-//         throw new Error(`Team ${teamId} already joined`);
-//       }
-
-//     }
-
-//     /* ================= FREE CONTEST TEAM LIMIT CHECK ================= */
-
-//     const [[contestCheck]] = await conn.query(
-//       `SELECT entry_fee FROM contest WHERE id = ?`,
-//       [contestId]
-//     );
-
-//     if (contestCheck && parseFloat(contestCheck.entry_fee) === 0) {
-
-//       const [[user]] = await conn.query(
-//         `SELECT subscribe FROM users WHERE id = ?`,
-//         [userId]
-//       );
-
-//       if (!user?.subscribe) {
-
-//         const [[{ joinedCount }]] = await conn.query(
-//           `SELECT COUNT(*) as joinedCount
-//            FROM contest_entries
-//            WHERE contest_id = ? AND user_id = ?`,
-//           [contestId, userId]
-//         );
-
-//         if (joinedCount + teamIds.length > 1) {
-//           throw new Error("Free contest allows only 1 team for non-subscribers");
-//         }
-
-//       }
-//       // ✅ Subscriber — no limit
-//     }
-//     // ✅ LITE, MEGA, ULTRA — no restriction
-
-//     /* ================= CONTEST + MATCH LOCK ================= */
-
-//     const [[contest]] = await conn.query(
-//       `SELECT
-//           c.max_entries,
-//           c.current_entries,
-//           c.status,
-//           m.status AS match_status,
-//           m.matchdate,
-//           m.start_time
-//        FROM contest c
-//        JOIN matches m ON m.id = c.match_id
-//        WHERE c.id = ?
-//        FOR UPDATE`,
-//       [contestId]
-//     );
-
-//     if (!contest) {
-//       throw new Error("Contest not found");
-//     }
-
-//     /* ---------- Match Status Check ---------- */
-
-//     if (contest.match_status !== "UPCOMING") {
-//       throw new Error("Match already started or completed");
-//     }
-
-//     /* ---------- Match Time Check ---------- */
-
-//     const now = new Date();
-
-//     const matchStart = new Date(
-//       `${contest.matchdate.toISOString().split("T")[0]} ${contest.start_time}`
-//     );
-
-//     if (now >= matchStart) {
-//       throw new Error("Match already started");
-//     }
-
-//     /* ---------- Contest Status Check ---------- */
-
-//     if (contest.status !== "UPCOMING") {
-//       throw new Error("Contest not available");
-//     }
-
-//     const totalTeamsToJoin = teamIds.length;
-
-//     if (contest.current_entries >= contest.max_entries) {
-//       throw new Error("Contest full");
-//     }
-
-//     if (contest.current_entries + totalTeamsToJoin > contest.max_entries) {
-//       throw new Error("Not enough spots left");
-//     }
-
-//     /* ================= ENTRY AMOUNT ================= */
-
-//     const entryAmount = parseFloat(amount);
-
-//     if (isNaN(entryAmount) || entryAmount < 0) {
-//       throw new Error("Invalid contest amount");
-//     }
-
-//     const totalEntry = entryAmount * totalTeamsToJoin;
-
-//     /* ================= FREE CONTEST ================= */
-
-//     if (entryAmount === 0) {
-
-//       for (const teamId of teamIds) {
-
-//         await conn.query(
-//           `INSERT INTO contest_entries
-//            (contest_id, user_id, user_team_id, entry_fee, status)
-//            VALUES (?, ?, ?, 0, 'joined')`,
-//           [contestId, userId, teamId]
-//         );
-
-//       }
-
-//       await conn.query(
-//         `UPDATE contest
-//          SET current_entries = current_entries + ?
-//          WHERE id = ?`,
-//         [totalTeamsToJoin, contestId]
-//       );
-
-//       await conn.commit();
-
-//       return {
-//         success: true,
-//         message: "Joined free contest successfully"
-//       };
-
-//     }
-
-//     /* ================= WALLET LOCK ================= */
-
-//     const [[wallet]] = await conn.query(
-//       `SELECT depositwallet, earnwallet, bonusamount, is_frozen
-//        FROM wallets
-//        WHERE user_id = ?
-//        FOR UPDATE`,
-//       [userId]
-//     );
-
-//     if (!wallet) throw new Error("Wallet not found");
-
-//     if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
-
-//     let remaining = totalEntry;
-
-//     /* ================= BONUS (MAX 5%) ================= */
-
-//     const maxBonusAllowed = Number((totalEntry * 0.05).toFixed(2));
-
-//     const bonusUse = Math.min(
-//       Number(wallet.bonusamount || 0),
-//       maxBonusAllowed,
-//       remaining
-//     );
-
-//     remaining -= bonusUse;
-
-//     /* ================= EARN ================= */
-
-//     const earnUse = Math.min(
-//       Number(wallet.earnwallet || 0),
-//       remaining
-//     );
-
-//     remaining -= earnUse;
-
-//     /* ================= DEPOSIT ================= */
-
-//     const depositUse = Math.min(
-//       Number(wallet.depositwallet || 0),
-//       remaining
-//     );
-
-//     remaining -= depositUse;
-
-//     remaining = Number(remaining.toFixed(2));
-
-//     if (remaining > 0) {
-//       throw new Error("Insufficient balance");
-//     }
-
-//     /* ================= UPDATE WALLET ================= */
-
-//     await conn.query(
-//       `UPDATE wallets SET
-//          bonusamount = bonusamount - ?,
-//          earnwallet = earnwallet - ?,
-//          depositwallet = depositwallet - ?
-//        WHERE user_id = ?`,
-//       [bonusUse, earnUse, depositUse, userId]
-//     );
-
-//     /* ================= WALLET TRANSACTIONS ================= */
-
-//     const insertTxn = async (walletType, amountUsed) => {
-
-//       if (amountUsed <= 0) return;
-
-//       await conn.query(
-//         `INSERT INTO wallet_transactions
-//          (user_id, wallettype, transtype, amount, remark, reference_id)
-//          VALUES (?, ?, 'debit', ?, ?, ?)`,
-//         [
-//           userId,
-//           walletType,
-//           amountUsed,
-//           "Contest Join",
-//           contestId
-//         ]
-//       );
-
-//     };
-
-//     await insertTxn("bonus", bonusUse);
-//     await insertTxn("winning", earnUse);
-//     await insertTxn("deposit", depositUse);
-
-//     /* ================= INSERT ENTRIES ================= */
-
-//     for (const teamId of teamIds) {
-
-//       await conn.query(
-//         `INSERT INTO contest_entries
-//          (contest_id, user_id, user_team_id, entry_fee, status)
-//          VALUES (?, ?, ?, ?, 'joined')`,
-//         [contestId, userId, teamId, entryAmount]
-//       );
-
-//     }
-
-//     /* ================= UPDATE CONTEST COUNT ================= */
-
-//     const newCount = contest.current_entries + totalTeamsToJoin;
-
-//     await conn.query(
-//       `UPDATE contest
-//        SET current_entries = ?
-//        WHERE id = ?`,
-//       [newCount, contestId]
-//     );
-
-//     /* ================= AUTO MARK FULL ================= */
-
-//     if (newCount >= contest.max_entries) {
-
-//       await conn.query(
-//         `UPDATE contest
-//          SET status = 'FULL'
-//          WHERE id = ?`,
-//         [contestId]
-//       );
-
-//     }
-
-//     await conn.commit();
-
-//     return {
-//       success: true,
-//       message: "Contest joined successfully",
-//       deduction: {
-//         totalEntry,
-//         bonusUsed: bonusUse,
-//         earnUsed: earnUse,
-//         depositUsed: depositUse
-//       }
-//     };
-
-//   } catch (err) {
-
-//     await conn.rollback();
-//     throw err;
-
-//   } finally {
-
-//     conn.release();
-
-//   }
-
-// };
-
-
 export const joinContestService = async (userId, amount, meta = {}) => {
   const conn = await db.getConnection();
 
@@ -695,10 +377,27 @@ export const getMyContestsService = async (userId, matchId) => {
   if (!matchId) throw new Error("matchId is required");
 
   // Step 1 — Match status (controls visibility of other teams)
-  const [[match]] = await db.query(
-    `SELECT status FROM matches WHERE id = ?`,
-    [matchId]
-  );
+
+
+
+const [[match]] = await db.query(
+  `SELECT 
+     m.status,
+     m.matchdate,
+     ht.name       AS home_team_name,
+     ht.short_name AS home_team_short_name,
+     at.name       AS away_team_name,
+     at.short_name AS away_team_short_name
+   FROM matches m
+   JOIN teams ht ON ht.id = m.home_team_id
+   JOIN teams at ON at.id = m.away_team_id
+   WHERE m.id = ?`,
+  [matchId]
+);
+
+
+
+
   if (!match) throw new Error("Match not found");
 
   const matchStatus  = match.status?.toUpperCase();
@@ -929,6 +628,13 @@ export const getMyContestsService = async (userId, matchId) => {
       contest_id:              c.contest_id,
       match_id:                c.match_id,
       match_status:            matchStatus,
+      match_date:              match.matchdate              || null,
+      home_team_name:          match.home_team_name          || null,
+      home_team_short_name:    match.home_team_short_name    || null,
+      away_team_name:          match.away_team_name          || null,
+      away_team_short_name:    match.away_team_short_name    || null,
+
+    entry_fee:               Number(c.entry_fee)           || 0,
       entry_fee:               Number(c.entry_fee)               || 0,
       prize_pool:              Number(c.prize_pool)              || 0,
       net_pool_prize:          Number(c.net_pool_prize)          || 0,
