@@ -1,4 +1,3 @@
-   
 import express from "express";
 import {
   getAllContests,
@@ -8,28 +7,27 @@ import {
   getMyRank,
   getScoreBreakdown,
   joinContest,
-  getContestWinnings,    
+  getContestWinnings,
 } from "./contest.controller.js";
 
 const router = express.Router();
 
-// ── Mutation ──────────────────────────────────────────
-router.post("/join",                               joinContest);
+// ── Mutation ──────────────────────────────────────────────────────────────────
+router.post("/join",                              joinContest);
 
-// ── Authenticated user's contests ────────────────────
-router.get("/my-contests/:match_id",               getMyContests);
+// ── Authenticated user's contests ────────────────────────────────────────────
+router.get("/my-contests/:match_id",              getMyContests);
 
-// ── Leaderboard + Winnings (two tabs in the UI) ──────
-router.get("/leaderboard/:contest_id",             getLeaderboard);   // Leaderboard tab
-router.get("/winnings/:contest_id",                getContestWinnings); // Winnings tab  ← NEW
+// ── Leaderboard + Winnings (two tabs in the UI) ───────────────────────────────
+router.get("/leaderboard/:contest_id",            getLeaderboard);    // Leaderboard tab
+router.get("/winnings/:contest_id",               getContestWinnings); // Winnings tab
 
-// ── Rank / Score ──────────────────────────────────────
-router.get("/my-rank/:contest_id/:teamId",         getMyRank);  // Get user's rank and score in the contest
-router.get("/breakdown/:contestId/:userTeamId",    getScoreBreakdown);
+// ── Rank / Score breakdown ────────────────────────────────────────────────────
+router.get("/my-rank/:contest_id/:teamId",        getMyRank);
+router.get("/breakdown/:contestId/:userTeamId",   getScoreBreakdown);  // ?matchId=xxx
 
-// ── General (keep these LAST — broad patterns) ───────
-router.get("/",                                    getAllContests);
-router.get("/:match_id",                           getContestsByMatchId);
+// ── General (keep LAST — broad patterns must not shadow specific routes) ──────
+router.get("/",                                   getAllContests);
+router.get("/:match_id",                          getContestsByMatchId);
 
 export default router;
-
