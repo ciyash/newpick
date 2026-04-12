@@ -702,248 +702,6 @@ export const verifyNewContactService = async (userId, otp) => {
   };
 };
 
-// export const signupService = async ({ mobile, otp }) => {
-
-//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-//   /* ─── 1️⃣ OTP Check ─── */
-//   const savedOtp = await redis.get(`SIGNUP_OTP:${normalizedMobile}`);
-//   if (!savedOtp) throw new Error("OTP expired");
-//   if (String(savedOtp) !== String(otp)) throw new Error("Invalid OTP");
-
-//   /* ─── 2️⃣ Get & Validate Signup Session ─── */
-//   const signupRaw = await redis.get(`SIGNUP:${normalizedMobile}`);
-//   if (!signupRaw) throw new Error("Signup session expired");
-
-//   let signupData;
-//   try {
-//     signupData = typeof signupRaw === "string" ? JSON.parse(signupRaw) : signupRaw;
-//   } catch {
-//     throw new Error("Invalid signup session data");
-//   }
-
-//   const name               = String(signupData.name      || "").trim().slice(0, 100);
-//   const email              = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
-//   const region             = String(signupData.region     || "").trim().slice(0, 100);
-//   const nickname           = signupData.nickname   ? String(signupData.nickname).trim().slice(0, 50)  : null;
-//   const address            = signupData.address    ? String(signupData.address).trim().slice(0, 300)  : null;
-//   const dob                = signupData.dob        ? String(signupData.dob).trim()                    : null;
-//   const referralid         = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20): null;
-//   const categoryNormalized = String(signupData.category || "").toLowerCase().trim();
-
-//   if (!name)  throw new Error("Invalid signup session: missing name");
-//   if (!email) throw new Error("Invalid signup session: missing email");
-
-//   /* ─── 3️⃣ Transaction ─── */
-//   const conn = await db.getConnection();
-
-//   try {
-//     await conn.beginTransaction();
-
-//     /* ─── 4️⃣ Named Lock ─── */
-//     const [[lockResult]] = await conn.query(
-//       `SELECT GET_LOCK('company_balance_lock', 10) AS locked`
-//     );
-//     if (!lockResult?.locked) throw new Error("Server busy, please try again");
-
-//     /* ─── 5️⃣ Generate Unique Usercode ─── */
-//     let usercode;
-//     let retries = 0;
-
-//     while (true) {
-//       if (retries >= MAX_USERCODE_RETRIES) {
-//         throw new Error("Failed to generate unique usercode, please try again");
-//       }
-//       usercode = generateUserCode();
-
-//       const [[exists]] = await conn.query(
-//         "SELECT id FROM users WHERE usercode = ?",
-//         [usercode]
-//       );
-
-//       if (!exists) break;
-//       retries++;
-//     }
-
-//     /* ─── 6️⃣ Generate Userid ─── */
-//     const [[lastUser]] = await conn.query(
-//       "SELECT userid FROM users ORDER BY id DESC LIMIT 1 FOR UPDATE"
-//     );
-
-//     const nextNumber = lastUser?.userid
-//       ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
-//       : 1;
-
-//     const userid = "PTW" + String(nextNumber).padStart(6, "0");
-
-//     /* ─── 7️⃣ Insert User ─── */
-//     const [result] = await conn.query(
-//       `INSERT INTO users
-//        (userid, usercode, name, email, mobile, region, address,
-//         dob, referralid, nickname, category,
-//         email_verify, mobile_verify,
-//         created_at, age_verified)
-//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, NOW(), 1)`,
-//       [
-//         userid, usercode, name, email,
-//         normalizedMobile, region, address,
-//         dob, referralid, nickname,
-//         categoryNormalized,
-//       ]
-//     );
-
-//     const userId = result.insertId;
-
-//     /* ─── 8️⃣ Create Wallet ─── */
-//     const depositLimit = categoryNormalized === "students" ? 300 : 1500;
-
-//     await conn.query(
-//       `INSERT INTO wallets
-//        (user_id, depositwallet, earnwallet, bonusamount,
-//         total_deposits, total_withdrawals, deposit_limit, monthly_limit, depositelimitdate)
-//        VALUES (?, 0, 0, 0, 0, 0, ?, ?, CURDATE())`,
-//       [userId, depositLimit, depositLimit]
-//     );
-
-//     /* ─── 9️⃣ Company Last Balance ─── */
-//     const [[companyLast]] = await conn.query(
-//       `SELECT closing_balance
-//        FROM wallet_transactions
-//        WHERE closing_balance != 0
-//        ORDER BY id DESC
-//        LIMIT 1
-//        FOR UPDATE`
-//     );
-//     let companyBalance = Number(companyLast?.closing_balance || 0);
-//     let userBalance    = 0;
-
-//     /* ─── 🔟 Joining Bonus ─── */
-//     {
-//       const uOpen  = userBalance;
-//       const uClose = Number((userBalance    + JOINING_BONUS).toFixed(2));
-//       userBalance  = uClose;
-
-//       const coOpen  = companyBalance;
-//       const coClose = Number((companyBalance - JOINING_BONUS).toFixed(2));
-//       companyBalance = coClose;
-
-//       await conn.query(
-//         `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
-//         [JOINING_BONUS, userId]
-//       );
-
-//       await conn.query(
-//         `INSERT INTO wallet_transactions
-//          (user_id, wallettype, transtype, remark,
-//           amount, useropeningbalance, userclosingbalance,
-//           opening_balance, closing_balance)
-//          VALUES (?, 'bonus', 'credit', 'Joining bonus', ?, ?, ?, ?, ?)`,
-//         [userId, JOINING_BONUS, uOpen, uClose, coOpen, coClose]
-//       );
-//     }
-
-//     /* ─── 1️⃣1️⃣ Referral Bonus ─── */
-//     if (referralid) {
-
-//       const [[referrer]] = await conn.query(
-//         "SELECT id FROM users WHERE usercode = ? FOR UPDATE",
-//         [referralid]
-//       );
-
-//       if (referrer && referrer.id !== userId) {
-
-//         await conn.query(
-//           `INSERT IGNORE INTO referral_rewards (referrer_id, referred_id) VALUES (?, ?)`,
-//           [referrer.id, userId]
-//         );
-
-//         const uOpen  = userBalance;
-//         const uClose = Number((userBalance    + REFERRAL_SIGNUP_BONUS).toFixed(2));
-//         userBalance  = uClose;
-
-//         const coOpen  = companyBalance;
-//         const coClose = Number((companyBalance - REFERRAL_SIGNUP_BONUS).toFixed(2));
-//         companyBalance = coClose;
-
-//         await conn.query(
-//           `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
-//           [REFERRAL_SIGNUP_BONUS, userId]
-//         );
-
-//         await conn.query(
-//           `INSERT INTO wallet_transactions
-//            (user_id, wallettype, transtype, remark,
-//             amount, useropeningbalance, userclosingbalance,
-//             opening_balance, closing_balance)
-//            VALUES (?, 'bonus', 'credit', 'Referral signup bonus', ?, ?, ?, ?, ?)`,
-//           [userId, REFERRAL_SIGNUP_BONUS, uOpen, uClose, coOpen, coClose]
-//         );
-//       }
-//     }
-
-//     await conn.commit();
-
-//     /* ─── Release Lock ─── */
-//     try {
-//       await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
-//     } catch (_) {}
-
-//     /* ─── Cleanup Redis ─── */
-//     await Promise.all([
-//       redis.del(`SIGNUP:${normalizedMobile}`),
-//       redis.del(`SIGNUP_OTP:${normalizedMobile}`),
-//       redis.del(`KYC_VERIFIED:${normalizedMobile}`),
-//     ]);
-
-//     /* ─── Send Verification Email (background) ─── */
-//     const emailSnapshot = email;       // ✅ capture before async boundary
-//     const userIdSnapshot = userId;     // ✅ capture before async boundary
-
-//     setImmediate(async () => {
-//       try {
-//         const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
-
-//         console.log("📧 Sending verification email to:", emailSnapshot);
-//         console.log("🔍 BACKEND_URL:", BACKEND);
-
-//         const emailToken = crypto.randomBytes(32).toString("hex");
-
-//         await redis.set(`EMAIL_VERIFY:${emailToken}`, userIdSnapshot, { ex: 86400 });
-
-//         const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
-//         console.log("🔗 Verify link:", verifyLink);
-
-//         await sendVerificationEmail(emailSnapshot, verifyLink);
-//         console.log("✅ Verification email sent to:", emailSnapshot);
-
-//       } catch (emailErr) {
-//         console.error("❌ Email send failed:", emailErr.message);
-//       }
-//     });
-
-//     return {
-//       success: true,
-//       message: "Signup completed successfully",
-//       data: { userid, usercode, joiningBonus: JOINING_BONUS },
-//     };
-
-//   } catch (err) {
-
-//     await conn.rollback();
-
-//     try {
-//       await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
-//     } catch (_) {}
-
-//     throw err;
-
-//   } finally {
-//     conn.release();
-//   }
-// };
-
-
-
 export const signupService = async ({ mobile, otp }) => {
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
@@ -1137,51 +895,37 @@ export const signupService = async ({ mobile, otp }) => {
       redis.del(`KYC_VERIFIED:${normalizedMobile}`),
     ]);
 
-    // ✅ FIX 1: setImmediate తీసేశాం — directly await చేస్తున్నాం
-    // ✅ FIX 2: MAIL_FROM లేకపోతే EMAIL_FROM fallback
-    // ✅ FIX 3: Full error stack log చేస్తున్నాం Render logs కోసం
-  
-    
-    // ✅ Email send chesina tarvata result capture cheyyandi
-let emailSent = false;
+    /* ─── Send Verification Email (background) ─── */
+    const emailSnapshot = email;       // ✅ capture before async boundary
+    const userIdSnapshot = userId;     // ✅ capture before async boundary
 
-try {
-  const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
+    setImmediate(async () => {
+      try {
+        const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
 
-  console.log("📧 Sending verification email to:", email);
-  console.log("🔍 BACKEND_URL:", BACKEND);
+        console.log("📧 Sending verification email to:", emailSnapshot);
+        console.log("🔍 BACKEND_URL:", BACKEND);
 
-  const emailToken = crypto.randomBytes(32).toString("hex");
+        const emailToken = crypto.randomBytes(32).toString("hex");
 
-  await redis.set(`EMAIL_VERIFY:${emailToken}`, userId, { ex: 86400 });
+        await redis.set(`EMAIL_VERIFY:${emailToken}`, userIdSnapshot, { ex: 86400 });
 
-  const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
-  console.log("🔗 Verify link:", verifyLink);
+        const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
+        console.log("🔗 Verify link:", verifyLink);
 
-  await sendVerificationEmail(email, verifyLink);
-  console.log("✅ Verification email sent to:", email);
+        await sendVerificationEmail(emailSnapshot, verifyLink);
+        console.log("✅ Verification email sent to:", emailSnapshot);
 
-  emailSent = true; // ✅ success
+      } catch (emailErr) {
+        console.error("❌ Email send failed:", emailErr.message);
+      }
+    });
 
-} catch (emailErr) {
-  console.error("❌ Email send failed:", emailErr.message);
-  console.error("❌ Email error stack:", emailErr.stack);
-  emailSent = false; // ❌ failed
-}
-
-return {
-  success: true,
-  message: "Signup completed successfully",
-  data: {
-    userid,
-    usercode,
-    joiningBonus: JOINING_BONUS,
-    emailSent,                                                        // ✅ true or false
-    emailMessage: emailSent
-      ? `Verification email sent to ${email}`                        // ✅ sent
-      : "Signup done but email failed — check Render logs",          // ❌ failed
-  },
-};
+    return {
+      success: true,
+      message: "Signup completed successfully",
+      data: { userid, usercode, joiningBonus: JOINING_BONUS },
+    };
 
   } catch (err) {
 
@@ -1197,3 +941,4 @@ return {
     conn.release();
   }
 };
+
