@@ -1140,33 +1140,48 @@ export const signupService = async ({ mobile, otp }) => {
     // ✅ FIX 1: setImmediate తీసేశాం — directly await చేస్తున్నాం
     // ✅ FIX 2: MAIL_FROM లేకపోతే EMAIL_FROM fallback
     // ✅ FIX 3: Full error stack log చేస్తున్నాం Render logs కోసం
-    try {
-      const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
+  
+    
+    // ✅ Email send chesina tarvata result capture cheyyandi
+let emailSent = false;
 
-      console.log("📧 Sending verification email to:", email);
-      console.log("🔍 BACKEND_URL:", BACKEND);
+try {
+  const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
 
-      const emailToken = crypto.randomBytes(32).toString("hex");
+  console.log("📧 Sending verification email to:", email);
+  console.log("🔍 BACKEND_URL:", BACKEND);
 
-      await redis.set(`EMAIL_VERIFY:${emailToken}`, userId, { ex: 86400 });
+  const emailToken = crypto.randomBytes(32).toString("hex");
 
-      const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
-      console.log("🔗 Verify link:", verifyLink);
+  await redis.set(`EMAIL_VERIFY:${emailToken}`, userId, { ex: 86400 });
 
-      await sendVerificationEmail(email, verifyLink);
-      console.log("✅ Verification email sent to:", email);
+  const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
+  console.log("🔗 Verify link:", verifyLink);
 
-    } catch (emailErr) {
-      // ✅ Signup fail కాదు — కానీ exact error Render logs లో కనిపిస్తుంది
-      console.error("❌ Email send failed:", emailErr.message);
-      console.error("❌ Email error stack:", emailErr.stack);
-    }
+  await sendVerificationEmail(email, verifyLink);
+  console.log("✅ Verification email sent to:", email);
 
-    return {
-      success: true,
-      message: "Signup completed successfully",
-      data: { userid, usercode, joiningBonus: JOINING_BONUS },
-    };
+  emailSent = true; // ✅ success
+
+} catch (emailErr) {
+  console.error("❌ Email send failed:", emailErr.message);
+  console.error("❌ Email error stack:", emailErr.stack);
+  emailSent = false; // ❌ failed
+}
+
+return {
+  success: true,
+  message: "Signup completed successfully",
+  data: {
+    userid,
+    usercode,
+    joiningBonus: JOINING_BONUS,
+    emailSent,                                                        // ✅ true or false
+    emailMessage: emailSent
+      ? `Verification email sent to ${email}`                        // ✅ sent
+      : "Signup done but email failed — check Render logs",          // ❌ failed
+  },
+};
 
   } catch (err) {
 
