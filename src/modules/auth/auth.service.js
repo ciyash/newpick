@@ -942,6 +942,8 @@ export const verifyNewContactService = async (userId, otp) => {
 //   }
 // };
 
+
+
 export const signupService = async ({ mobile, otp }) => {
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
@@ -1135,9 +1137,9 @@ export const signupService = async ({ mobile, otp }) => {
       redis.del(`KYC_VERIFIED:${normalizedMobile}`),
     ]);
 
-    // ✅ UPDATED: Send email AFTER commit, OUTSIDE transaction
-    // ✅ Awaited properly — no more setImmediate fire-and-forget
-    // ✅ Error is logged but does NOT fail the signup response
+    // ✅ FIX 1: setImmediate తీసేశాం — directly await చేస్తున్నాం
+    // ✅ FIX 2: MAIL_FROM లేకపోతే EMAIL_FROM fallback
+    // ✅ FIX 3: Full error stack log చేస్తున్నాం Render logs కోసం
     try {
       const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
 
@@ -1155,7 +1157,7 @@ export const signupService = async ({ mobile, otp }) => {
       console.log("✅ Verification email sent to:", email);
 
     } catch (emailErr) {
-      // ✅ Full error stack logged so you can see exact failure in Render logs
+      // ✅ Signup fail కాదు — కానీ exact error Render logs లో కనిపిస్తుంది
       console.error("❌ Email send failed:", emailErr.message);
       console.error("❌ Email error stack:", emailErr.stack);
     }

@@ -19,15 +19,17 @@ transporter.verify((error, success) => {
   }
 });
 
+
 export const sendMail = async (options) => {
   try {
     const info = await transporter.sendMail({
-      from: process.env.MAIL_FROM,
+      // ✅ MAIL_FROM లేకపోతే EMAIL_FROM fallback
+      from: process.env.MAIL_FROM || process.env.EMAIL_FROM,
       to: options.to,
       subject: options.subject,
       html: options.html,
-      text: options.text,           // ✅ plain text support
-      attachments: options.attachments  // ✅ PDF attachments support
+      text: options.text,
+      attachments: options.attachments
     });
 
     console.log("✅ Email sent:", info.messageId, "→", options.to);
@@ -35,6 +37,6 @@ export const sendMail = async (options) => {
 
   } catch (err) {
     console.error("❌ sendMail failed:", err.message);
-    throw err;  // caller కి error propagate చేస్తుంది
+    throw err;
   }
-}; 
+};
