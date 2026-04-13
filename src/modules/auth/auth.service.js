@@ -211,9 +211,9 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 
   // 3 email_verify check
 
-   if (user.email_verify !== 1) {
-    throw new Error("Please verify your email before login");
-  }
+  //  if (user.email_verify !== 1) {
+  //   throw new Error("Please verify your email before login");
+  // }
   /* ─── 4 Generate OTP ─── */
   let otpToSend;
 
