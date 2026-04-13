@@ -8,6 +8,7 @@ import {
   getScoreBreakdown,
   joinContest,
   getContestWinnings,
+  compareTeam,
 } from "./contest.controller.js";
 
 const router = express.Router();
@@ -20,6 +21,8 @@ router.get("/my-contests/:match_id",              getMyContests);
 
 // ── Leaderboard + Winnings (two tabs in the UI) ───────────────────────────────
 router.get("/leaderboard/:contest_id",            getLeaderboard);    // Leaderboard tab
+
+router.post("/leaderboard/compare/:contest_id",    compareTeam);
 router.get("/winnings/:contest_id",               getContestWinnings); // Winnings tab
 
 // ── Rank / Score breakdown ────────────────────────────────────────────────────

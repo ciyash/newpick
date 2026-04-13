@@ -4,7 +4,7 @@ import { calculateTeamPoints }     from "../scoring/scoring.engine.js";
 import { fetchPlayerStats }        from "../scoring/scoring.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CONSTANTS
+// CONSTANTS  
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BONUS_MAX_PCT = 0.05; // max 5% of entry fee from bonus wallet
@@ -653,6 +653,195 @@ const [[match]] = await db.query(
     };
   });
 };
+
+
+// ─────────────────────────────────────────────────────────────
+//  compareTeamService.js
+//  GET /leaderboard/:contest_id/compare?my_team_id=X&opp_team_id=Y
+// ─────────────────────────────────────────────────────────────
+
+/* ─── helper: fetch players + points for one team ─── */
+
+const getTeamPlayers = async (userTeamId, matchId) => {
+  const [rows] = await db.query(
+    `SELECT
+       utp.player_id,
+       utp.is_captain,
+       utp.is_vice_captain,
+       p.name            AS player_name,
+       p.playerimage     AS player_image,   -- ✅ p.image → p.playerimage
+       p.player_type     AS player_role,    -- ✅ p.role  → p.player_type
+       p.playercredits   AS player_credits,
+       t.short_name      AS team_short,
+       COALESCE(pms.fantasy_points, 0) AS base_points
+     FROM user_team_players utp
+     JOIN players p  ON p.id = utp.player_id
+     LEFT JOIN teams t   ON t.id = p.team_id
+     LEFT JOIN player_match_stats pms
+           ON pms.player_id = utp.player_id
+          AND pms.match_id  = ?
+     WHERE utp.user_team_id = ?`,
+    [matchId, userTeamId]
+  );
+
+  return rows.map(r => {
+    const multiplier = r.is_captain ? 2 : r.is_vice_captain ? 1.5 : 1;
+    return {
+      player_id:        r.player_id,
+      player_name:      r.player_name,
+      player_image:     r.player_image    || null,
+      player_role:      r.player_role     || null,
+      player_credits:   r.player_credits  || null,
+      team_short:       r.team_short      || null,
+      is_captain:       !!r.is_captain,
+      is_vice_captain:  !!r.is_vice_captain,
+      base_points:      parseFloat(r.base_points),
+      multiplier,
+      effective_points: parseFloat((r.base_points * multiplier).toFixed(2)),
+    };
+  });
+};
+
+/* ─── main service ─── */
+export const compareTeamService = async (
+  contestId,
+  myTeamId,
+  oppTeamId,
+  userId
+) => {
+  // 1. Verify contest + match
+  const [[contest]] = await db.query(
+    `SELECT c.id, c.match_id, c.prize_distribution,
+            c.entry_fee, c.total_winners, c.refund_start_rank
+     FROM contest c
+     WHERE c.id = ?`,
+    [contestId]
+  );
+  if (!contest) return { success: false, message: "Contest not found" };
+
+  // 2. Verify both teams belong to this contest
+  const [teamRows] = await db.query(
+    `SELECT ce.user_team_id, ce.user_id, ce.urank, ce.winning_amount,
+            ut.team_name, u.name, u.nickname, u.image
+     FROM contest_entries ce
+     JOIN user_teams ut ON ut.id = ce.user_team_id
+     JOIN users     u  ON u.id  = ce.user_id
+     WHERE ce.contest_id = ?
+       AND ce.user_team_id IN (?)`,
+    [contestId, [myTeamId, oppTeamId]]
+  );
+
+  const myMeta  = teamRows.find(r => r.user_team_id === parseInt(myTeamId));
+  const oppMeta = teamRows.find(r => r.user_team_id === parseInt(oppTeamId));
+
+  if (!myMeta || !oppMeta)
+    return { success: false, message: "One or both teams not found in this contest" };
+
+  // 3. Fetch players for both teams in parallel
+  const [myPlayers, oppPlayers] = await Promise.all([
+    getTeamPlayers(myTeamId,  contest.match_id),
+    getTeamPlayers(oppTeamId, contest.match_id),
+  ]);
+
+  // 4. Build player-id sets for diff
+  const myIds  = new Set(myPlayers.map(p => p.player_id));
+  const oppIds = new Set(oppPlayers.map(p => p.player_id));
+
+  // 5. Categorise
+  const myOnlyPlayers  = myPlayers.filter(p => !oppIds.has(p.player_id));
+  const oppOnlyPlayers = oppPlayers.filter(p => !myIds.has(p.player_id));
+
+  const commonPlayerIds = [...myIds].filter(id => oppIds.has(id));
+   
+  // Common players — may have different captain/vc assignments
+  const commonPlayers = commonPlayerIds.map(pid => {
+    const mine  = myPlayers.find(p => p.player_id === pid);
+    const theirs = oppPlayers.find(p => p.player_id === pid);
+    return {
+      player_id:        pid,
+      player_name:      mine.player_name,
+      player_image:     mine.player_image,
+      player_role:      mine.player_role,
+      team_short:       mine.team_short,
+      base_points:      mine.base_points,
+      // my side
+      my_is_captain:      mine.is_captain,
+      my_is_vice_captain: mine.is_vice_captain,
+      my_multiplier:      mine.multiplier,
+      my_effective_points: mine.effective_points,
+      // opp side
+      opp_is_captain:      theirs.is_captain,
+      opp_is_vice_captain: theirs.is_vice_captain,
+      opp_multiplier:      theirs.multiplier,
+      opp_effective_points: theirs.effective_points,
+      // caps differ?
+      caps_differ: mine.multiplier !== theirs.multiplier,
+    };
+  });
+
+  // Players with same captain/vc role (same caps)
+  const commonSameCaps   = commonPlayers.filter(p => !p.caps_differ);
+  // Players with different captain/vc role
+  const commonDiffCaps   = commonPlayers.filter(p =>  p.caps_differ);
+
+  // 6. Totals
+  const myTotal  = myPlayers.reduce((s, p) => s + p.effective_points, 0);
+  const oppTotal = oppPlayers.reduce((s, p) => s + p.effective_points, 0);
+
+  const myDiffTotal   = myOnlyPlayers.reduce((s, p) => s + p.effective_points, 0);
+  const oppDiffTotal  = oppOnlyPlayers.reduce((s, p) => s + p.effective_points, 0);
+
+  const myDiffCapsTotal  = commonDiffCaps.reduce((s, p) => s + p.my_effective_points,  0);
+  const oppDiffCapsTotal = commonDiffCaps.reduce((s, p) => s + p.opp_effective_points, 0);
+
+  const commonSameTotal = commonSameCaps.reduce((s, p) => s + p.my_effective_points, 0);
+
+  // 7. Build response
+  return {
+    success: true,
+    my_team: {
+      user_team_id: myMeta.user_team_id,
+      team_name:    myMeta.team_name,
+      username:     myMeta.nickname || myMeta.name,
+      profile_image: myMeta.image || null,
+      rank:         myMeta.urank,
+      total_points: parseFloat(myTotal.toFixed(2)),
+    },
+    opp_team: {
+      user_team_id: oppMeta.user_team_id,
+      team_name:    oppMeta.team_name,
+      username:     oppMeta.nickname || oppMeta.name,
+      profile_image: oppMeta.image || null,
+      rank:         oppMeta.urank,
+      total_points: parseFloat(oppTotal.toFixed(2)),
+    },
+    point_diff: parseFloat((oppTotal - myTotal).toFixed(2)), // +ve = opp winning
+
+    // ── Section 1: Different Players ──
+    different_players: {
+      my_players:       myOnlyPlayers,
+      opp_players:      oppOnlyPlayers,
+      my_diff_total:    parseFloat(myDiffTotal.toFixed(2)),
+      opp_diff_total:   parseFloat(oppDiffTotal.toFixed(2)),
+      diff_point_gap:   parseFloat((oppDiffTotal - myDiffTotal).toFixed(2)),
+    },
+
+    // ── Section 2: Common Players with Different Caps ──
+    common_diff_caps: {
+      players:         commonDiffCaps,
+      my_caps_total:   parseFloat(myDiffCapsTotal.toFixed(2)),
+      opp_caps_total:  parseFloat(oppDiffCapsTotal.toFixed(2)),
+      diff_point_gap:  parseFloat((myDiffCapsTotal - oppDiffCapsTotal).toFixed(2)),
+    },
+
+    // ── Section 3: Common Players (same caps) ──
+    common_same_caps: {
+      players:      commonSameCaps,
+      total_points: parseFloat(commonSameTotal.toFixed(2)),
+    },
+  };
+};
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LEADERBOARD

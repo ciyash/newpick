@@ -7,6 +7,7 @@ import {
   getMyRankService,
   getScoreBreakdownService,
   getContestWinningsService,
+  compareTeamService,
 } from "./contest.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -107,6 +108,37 @@ export const getMyContests = async (req, res) => {
 }
 };
 
+
+
+// Controller
+export const compareTeam = async (req, res) => {
+  try {
+    const { contest_id }               = req.params;
+    const { my_team_id, opp_team_id }  = req.body;   // ✅ req.body
+    const userId                       = req.user?.id;
+
+    if (!contest_id || !my_team_id || !opp_team_id)
+      return res.status(400).json({
+        success: false,
+        message: "contest_id, my_team_id and opp_team_id are required",
+      });
+
+    const result = await compareTeamService(
+      contest_id,
+      parseInt(my_team_id),
+      parseInt(opp_team_id),
+      userId
+    );
+
+    if (!result.success)
+      return res.status(404).json(result);
+
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[compareTeam]", err.message);
+    return res.status(500).json({ success: false, message:err.message });
+  }
+};
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/contests/leaderboard/:contest_id?page=1&limit=50
 // Full leaderboard + my_entry pinned card
