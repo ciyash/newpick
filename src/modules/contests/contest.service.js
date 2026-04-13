@@ -633,8 +633,6 @@ const [[match]] = await db.query(
       home_team_short_name:    match.home_team_short_name    || null,
       away_team_name:          match.away_team_name          || null,
       away_team_short_name:    match.away_team_short_name    || null,
-
-    entry_fee:               Number(c.entry_fee)           || 0,
       entry_fee:               Number(c.entry_fee)               || 0,
       prize_pool:              Number(c.prize_pool)              || 0,
       net_pool_prize:          Number(c.net_pool_prize)          || 0,
