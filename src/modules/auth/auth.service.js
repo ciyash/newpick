@@ -281,8 +281,8 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
 
 
   /* ─── Email Verification Check ─── */
-  if (user.email_verify !== 1)
-    throw new Error("Please verify your email before login");
+  // if (user.email_verify !== 1)
+  //   throw new Error("Please verify your email before login");
 
 
   /* ─── Age Verification Check ─── */
