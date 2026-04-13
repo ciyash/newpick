@@ -37,4 +37,4 @@ router.get("/playing-xi/:match_id", getPlayingXI);
 
 router.get("/team-comparison/:team_id", getTeamComparison);
 
-export default router;           
+export default router;              

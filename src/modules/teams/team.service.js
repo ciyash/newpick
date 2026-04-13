@@ -1006,6 +1006,7 @@ export const getPlayingXIService = async (matchId) => {
        mp.is_pre_squad,
        p.id AS player_id,
        p.name,
+       p.points,
        p.position,
        p.playercredits,
        p.playerimage,
