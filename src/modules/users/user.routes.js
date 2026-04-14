@@ -1,6 +1,10 @@
 import express from "express";
 import {
-  getUserProfile, reduceMonthlyLimit, createFeedback, getMyFeedbacks, pauseAccount,
+  getUserProfile,
+  reduceMonthlyLimit,
+  createFeedback, 
+  getMyFeedbacks,
+  pauseAccount,
   deleteAccount
 } from "./user.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
@@ -45,6 +49,4 @@ app.use("/bank",authenticate,checkAccountActive, bankRoutes);
 // app.use("/test",testRoutes)
 app.use("/notification", authenticate, checkAccountActive, notificationRoutes);
 
-
-
-export default app;      
+export default app;        
