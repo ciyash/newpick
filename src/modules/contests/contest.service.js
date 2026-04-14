@@ -10,26 +10,22 @@ import { fetchPlayerStats }        from "../scoring/scoring.service.js";
 const BONUS_MAX_PCT = 0.05; // max 5% of entry fee from bonus wallet
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPER — Prize for a given rank (Pick2Win 3-zone model)
-//
-// Zone 1 — Bonus   : rank 1 → (refundStart - 1)   → amount from prize_distribution tier
-// Zone 2 — Refund  : rank refundStart → totalWinners → entry_fee exactly
-// Zone 3 — No prize: rank > totalWinners              → 0
-//
-// prize_distribution stores ONLY the bonus-zone tiers:
-//   [{ rank_from, rank_to, amount }, ...]
+// HELPER — Prize for a given rank
+// Zone 1 — Bonus   : rank 1 → (refundStartRank - 1)  → prize_distribution tier
+// Zone 2 — Refund  : rank refundStartRank → refundWinners → entry_fee
+// Zone 3 — No prize: rank > refundWinners → 0
 // ─────────────────────────────────────────────────────────────────────────────
 
-const getPrizeForRank = (rank, prizeDistribution, entryFee, totalWinners, refundStartRank) => {
+export const getPrizeForRank = (rank, prizeDistribution, entryFee, refundWinners, refundStartRank) => {
   if (!rank || rank <= 0) return 0;
 
   // Zone 3 — no prize
-  if (rank > totalWinners) return 0;
+  if (rank > refundWinners) return 0;
 
   // Zone 2 — refund block
   if (rank >= refundStartRank) return Number(entryFee) || 0;
 
-  // Zone 1 — bonus block: look up tier
+  // Zone 1 — bonus block
   if (!prizeDistribution) return 0;
 
   let tiers;
@@ -41,12 +37,16 @@ const getPrizeForRank = (rank, prizeDistribution, entryFee, totalWinners, refund
     return 0;
   }
 
-  const tier = tiers.find(t => rank >= t.rank_from && rank <= t.rank_to);
+  const tier = tiers.find(t => {
+    if (t.rank !== undefined) return t.rank === rank;           // { rank: 1, amount: 4450 }
+    return rank >= t.rank_from && rank <= t.rank_to;           // { rank_from: 11, rank_to: 20 }
+  });
+
   return tier ? Number(tier.amount) || 0 : 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPER — Team total fantasy points from player_match_stats
+// HELPER — Team total fantasy points
 // ─────────────────────────────────────────────────────────────────────────────
 
 const calcTeamPoints = async (userTeamId, matchId) => {
@@ -61,6 +61,7 @@ const calcTeamPoints = async (userTeamId, matchId) => {
   );
   return parseFloat(rows[0]?.total_points || 0);
 };
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET ALL CONTESTS (admin / debug)
@@ -847,7 +848,6 @@ export const compareTeamService = async (
 // LEADERBOARD
 // ─────────────────────────────────────────────────────────────────────────────
 
-
 export const getLeaderboardService = async (contestId, userId, page = 1, limit = 50) => {
   const offset = (page - 1) * limit;
 
@@ -858,8 +858,13 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
        c.first_prize, c.prize_distribution,
        c.current_entries, c.max_entries, c.min_entries,
        c.entry_fee, c.status, c.is_guaranteed,
-       c.contest_type, c.total_winners,
-       c.winner_percentage, c.refund_start_rank, c.bonus_ranks,
+       c.contest_type,
+       c.winner_percentage,
+       c.bonus_ranks,
+       c.refund_start_rank,
+       c.refund_winners,
+       c.refund_total,
+       c.netpool_amount,
        m.status       AS match_status,
        m.seriesname,
        m.hometeamname,
@@ -878,19 +883,15 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   // UPCOMING అయితే leaderboard లేదు
   if (matchStatus === "UPCOMING") {
     return {
-      success: true,
-      contest: {
-        id:                contest.id,
-        match_status:      matchStatus,
-        status:            contest.status || null,
-      },
+      success:     true,
+      contest:     { id: contest.id, match_status: matchStatus, status: contest.status || null },
       leaderboard: [],
       my_entry:    null,
       message:     "Match has not started yet",
     };
   }
 
-  // Step 2 — Points తో sort చేసి తీసుకో
+  // Step 2 — Entries sorted by points with DENSE_RANK for ties
   const [entries] = await db.query(
     `SELECT
        ce.id,
@@ -911,14 +912,25 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
            AND pms.match_id  = ?
           WHERE utp.user_team_id = ce.user_team_id
          ), 0
-       ) AS computed_points
+       ) AS computed_points,
+       DENSE_RANK() OVER (
+         ORDER BY COALESCE(
+           (SELECT SUM(pms2.fantasy_points)
+            FROM user_team_players utp2
+            JOIN player_match_stats pms2
+              ON pms2.player_id = utp2.player_id
+             AND pms2.match_id  = ?
+            WHERE utp2.user_team_id = ce.user_team_id
+           ), 0
+         ) DESC
+       ) AS computed_rank
      FROM contest_entries ce
      JOIN users      u  ON u.id  = ce.user_id
      LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
      WHERE ce.contest_id = ?
      ORDER BY computed_points DESC
      LIMIT ? OFFSET ?`,
-    [contest.match_id, contestId, limit, offset]
+    [contest.match_id, contest.match_id, contestId, limit, offset]
   );
 
   // Step 3 — Total count
@@ -927,7 +939,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     [contestId]
   );
 
-  // Step 4 — Batch team points (my_entry కోసం అవసరం)
+  // Step 4 — Batch team points map
   const teamIds = entries.map(e => e.user_team_id).filter(Boolean);
   let pointsMap = {};
 
@@ -950,17 +962,18 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   }
 
   // Step 5 — Build leaderboard rows
-  const leaderboard = entries.map((entry, index) => {
+  const leaderboard = entries.map((entry) => {
     const points = parseFloat(entry.computed_points) || 0;
-    const rank   = entry.urank ?? (offset + index + 1);
 
-    // LIVE లో winning_amount చూపించకు, RESULT లో చూపించు
+    // urank = finalized after result processing; computed_rank = live DENSE_RANK
+    const rank = entry.urank ?? entry.computed_rank;
+
     const prize = matchStatus === "RESULT"
       ? (entry.winning_amount || getPrizeForRank(
            rank,
            contest.prize_distribution,
            contest.entry_fee,
-           contest.total_winners,
+           contest.refund_winners,       // ✅ correct column
            contest.refund_start_rank
          ))
       : 0;
@@ -1010,7 +1023,6 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
         ? pointsMap[best.user_team_id]
         : await calcTeamPoints(best.user_team_id, contest.match_id);
 
-      // ✅ my_entry rank కూడా null కాకుండా leaderboard నుండి తీసుకో
       const myLeaderboardEntry = leaderboard.find(
         l => l.user_team_id === best.user_team_id
       );
@@ -1021,7 +1033,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
              myRank,
              contest.prize_distribution,
              contest.entry_fee,
-             contest.total_winners,
+             contest.refund_winners,     // ✅ correct column
              contest.refund_start_rank
            ))
         : 0;
@@ -1031,7 +1043,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
         team_name:      best.team_name || null,
         username:       best.nickname  || best.name || `User${userId}`,
         profile_image:  best.image     || null,
-        rank:           myRank,        // ✅ null కాదు
+        rank:           myRank,
         points:         myPoints,
         winning_amount: myPrize,
         is_winner:      myPrize > 0,
@@ -1062,7 +1074,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       total_spots:       contest.max_entries               || 0,
       min_entries:       contest.min_entries               || 0,
       is_guaranteed:     contest.is_guaranteed === 1,
-      total_winners:     contest.total_winners             || 0,
+      total_winners:     contest.refund_winners            || 0,   // ✅
       refund_start_rank: contest.refund_start_rank         || 0,
       bonus_ranks:       contest.bonus_ranks               || 0,
       winner_percentage: Number(contest.winner_percentage) || 0,
@@ -1079,12 +1091,12 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
 
     refund_zone: {
       rank_from: contest.refund_start_rank || 0,
-      rank_to:   contest.total_winners     || 0,
+      rank_to:   contest.refund_winners    || 0,   // ✅
       prize:     Number(contest.entry_fee) || 0,
       label:     "Entry fee return",
     },
     no_prize_zone: {
-      rank_from: (contest.total_winners || 0) + 1,
+      rank_from: (contest.refund_winners || 0) + 1,   // ✅
       rank_to:   contest.max_entries    || 0,
       prize:     0,
       label:     "No prize",
@@ -1102,6 +1114,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     },
   };
 };
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MY RANK (specific user + specific team in a contest)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1111,7 +1124,7 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
     `SELECT
        id, match_id, prize_pool, first_prize,
        prize_distribution, current_entries, entry_fee,
-       status, total_winners, refund_start_rank
+       status, refund_winners, refund_start_rank
      FROM contest
      WHERE id = ?`,
     [contestId]
@@ -1135,14 +1148,14 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
   if (!entry) return { success: false, message: "Team not found in this contest" };
 
   const points = await calcTeamPoints(entry.user_team_id, contest.match_id);
-  const prize  = entry.winning_amount
-    || getPrizeForRank(
-         entry.urank,
-         contest.prize_distribution,
-         contest.entry_fee,
-         contest.total_winners,
-         contest.refund_start_rank
-       );
+
+  const prize = entry.winning_amount || getPrizeForRank(
+    entry.urank,
+    contest.prize_distribution,
+    contest.entry_fee,
+    contest.refund_winners,       // ✅
+    contest.refund_start_rank
+  );
 
   return {
     success:        true,
