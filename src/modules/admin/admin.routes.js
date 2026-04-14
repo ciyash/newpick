@@ -85,5 +85,10 @@ router.post("/fetchusersbyaccount",   adminAuth(), c.fetchUsersByAccountStatus);
 router.use("/sportmonks", adminAuth(), sportmonksRoutes);
 
 router.use("/test",testRoutes);
+//=================================================================================
+router.get("/match-live/:match_id",   c.setMatchLive);
+
+// Match RESULT process చేయి (ranks + winnings + wallet credit)
+router.get("/match-result/:match_id", c.processMatchResult);
 
 export default router;     

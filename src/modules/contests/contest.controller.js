@@ -6,7 +6,6 @@ import {
   getLeaderboardService,
   getMyRankService,
   getScoreBreakdownService,
-  getContestWinningsService,
   compareTeamService,
 } from "./contest.service.js";
 
@@ -225,20 +224,3 @@ export const getScoreBreakdown = async (req, res) => {
 // Prize pool breakdown — powers the "Winnings" tab
 // Returns bonus tiers + refund zone + no-prize zone for the frontend
 // ─────────────────────────────────────────────────────────────────────────────
-export const getContestWinnings = async (req, res) => {
-  try {
-    const { contest_id } = req.params;
-
-    if (!contest_id)
-      return res.status(400).json({ success: false, message: "contest_id is required" });
-
-    const result = await getContestWinningsService(contest_id);
-    return res.status(200).json(result);
-  } catch (err) {
-    console.error("[getContestWinnings]", err.message);
-    return res.status(err.statusCode || 500).json({
-      success: false,
-      message: err.statusCode ? err.message : "Internal server error",
-    });
-  }
-};

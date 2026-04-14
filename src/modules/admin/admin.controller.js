@@ -592,3 +592,29 @@ export const getWithdrawalDetail = async (req, res) => {
   }
 };
 
+
+//========================================================================================
+
+//chandra wrote functions
+
+
+export const setMatchLive = async (req, res) => {
+  try {
+    const { match_id } = req.params;
+    const result = await s.setMatchLiveService(match_id);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+// POST /admin/match/:match_id/result
+export const processMatchResult = async (req, res) => {
+  try {
+    const { match_id } = req.params;
+    const result = await s.processMatchResultService(match_id);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};

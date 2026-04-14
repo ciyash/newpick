@@ -847,6 +847,7 @@ export const compareTeamService = async (
 // LEADERBOARD
 // ─────────────────────────────────────────────────────────────────────────────
 
+
 export const getLeaderboardService = async (contestId, userId, page = 1, limit = 50) => {
   const offset = (page - 1) * limit;
 
@@ -855,7 +856,8 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     `SELECT
        c.id, c.match_id, c.prize_pool, c.net_pool_prize,
        c.first_prize, c.prize_distribution,
-       c.current_entries, c.entry_fee, c.status,
+       c.current_entries, c.max_entries, c.min_entries,
+       c.entry_fee, c.status, c.is_guaranteed,
        c.contest_type, c.total_winners,
        c.winner_percentage, c.refund_start_rank, c.bonus_ranks,
        m.status       AS match_status,
@@ -871,7 +873,24 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   );
   if (!contest) return { success: false, message: "Contest not found" };
 
-  // Step 2 — Paginated leaderboard entries
+  const matchStatus = contest.match_status?.toUpperCase();
+
+  // UPCOMING అయితే leaderboard లేదు
+  if (matchStatus === "UPCOMING") {
+    return {
+      success: true,
+      contest: {
+        id:                contest.id,
+        match_status:      matchStatus,
+        status:            contest.status || null,
+      },
+      leaderboard: [],
+      my_entry:    null,
+      message:     "Match has not started yet",
+    };
+  }
+
+  // Step 2 — Points తో sort చేసి తీసుకో
   const [entries] = await db.query(
     `SELECT
        ce.id,
@@ -883,14 +902,23 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
        u.name,
        u.nickname,
        u.image,
-       ut.team_name
+       ut.team_name,
+       COALESCE(
+         (SELECT SUM(pms.fantasy_points)
+          FROM user_team_players utp
+          JOIN player_match_stats pms
+            ON pms.player_id = utp.player_id
+           AND pms.match_id  = ?
+          WHERE utp.user_team_id = ce.user_team_id
+         ), 0
+       ) AS computed_points
      FROM contest_entries ce
      JOIN users      u  ON u.id  = ce.user_id
      LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
      WHERE ce.contest_id = ?
-     ORDER BY ce.urank ASC
+     ORDER BY computed_points DESC
      LIMIT ? OFFSET ?`,
-    [contestId, limit, offset]
+    [contest.match_id, contestId, limit, offset]
   );
 
   // Step 3 — Total count
@@ -899,9 +927,9 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     [contestId]
   );
 
-  // Step 4 — Batch team points (fixes N+1)
-  const teamIds   = entries.map(e => e.user_team_id).filter(Boolean);
-  let pointsMap   = {};
+  // Step 4 — Batch team points (my_entry కోసం అవసరం)
+  const teamIds = entries.map(e => e.user_team_id).filter(Boolean);
+  let pointsMap = {};
 
   if (teamIds.length > 0) {
     const [pointsRows] = await db.query(
@@ -922,22 +950,26 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   }
 
   // Step 5 — Build leaderboard rows
-  const leaderboard = entries.map(entry => {
-    const points = pointsMap[entry.user_team_id] || 0;
-    const prize  = entry.winning_amount
-      || getPrizeForRank(
-           entry.urank,
+  const leaderboard = entries.map((entry, index) => {
+    const points = parseFloat(entry.computed_points) || 0;
+    const rank   = entry.urank ?? (offset + index + 1);
+
+    // LIVE లో winning_amount చూపించకు, RESULT లో చూపించు
+    const prize = matchStatus === "RESULT"
+      ? (entry.winning_amount || getPrizeForRank(
+           rank,
            contest.prize_distribution,
            contest.entry_fee,
            contest.total_winners,
            contest.refund_start_rank
-         );
+         ))
+      : 0;
 
     return {
-      rank:           entry.urank,
+      rank,
       user_id:        entry.user_id,
-      username:       entry.nickname || entry.name || `User${entry.user_id}`,
-      profile_image:  entry.image    || null,
+      username:       entry.nickname  || entry.name || `User${entry.user_id}`,
+      profile_image:  entry.image     || null,
       team_name:      entry.team_name || null,
       user_team_id:   entry.user_team_id,
       points,
@@ -947,7 +979,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     };
   });
 
-  // Step 6 — My best entry (pinned card at top of leaderboard)
+  // Step 6 — My best entry
   let my_entry = null;
 
   if (userId) {
@@ -961,14 +993,13 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
          u.nickname,
          u.image
        FROM contest_entries ce
-       LEFT JOIN user_teams ut ON ut.id  = ce.user_team_id
-       LEFT JOIN users      u  ON u.id   = ce.user_id
+       LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+       LEFT JOIN users      u  ON u.id  = ce.user_id
        WHERE ce.contest_id = ? AND ce.user_id = ?`,
       [contestId, userId]
     );
 
     if (myEntries.length > 0) {
-      // Pick team with highest fantasy points
       const best = myEntries.reduce((prev, curr) => {
         const prevPts = pointsMap[prev.user_team_id] || 0;
         const currPts = pointsMap[curr.user_team_id] || 0;
@@ -979,21 +1010,28 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
         ? pointsMap[best.user_team_id]
         : await calcTeamPoints(best.user_team_id, contest.match_id);
 
-      const myPrize = best.winning_amount
-        || getPrizeForRank(
-             best.urank,
+      // ✅ my_entry rank కూడా null కాకుండా leaderboard నుండి తీసుకో
+      const myLeaderboardEntry = leaderboard.find(
+        l => l.user_team_id === best.user_team_id
+      );
+      const myRank = best.urank ?? myLeaderboardEntry?.rank ?? null;
+
+      const myPrize = matchStatus === "RESULT"
+        ? (best.winning_amount || getPrizeForRank(
+             myRank,
              contest.prize_distribution,
              contest.entry_fee,
              contest.total_winners,
              contest.refund_start_rank
-           );
+           ))
+        : 0;
 
       my_entry = {
         user_team_id:   best.user_team_id,
-        team_name:      best.team_name   || null,
-        username:       best.nickname    || best.name || `User${userId}`,
-        profile_image:  best.image       || null,
-        rank:           best.urank,
+        team_name:      best.team_name || null,
+        username:       best.nickname  || best.name || `User${userId}`,
+        profile_image:  best.image     || null,
+        rank:           myRank,        // ✅ null కాదు
         points:         myPoints,
         winning_amount: myPrize,
         is_winner:      myPrize > 0,
@@ -1001,7 +1039,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     }
   }
 
-  // Step 7 — Prize tiers for Winnings tab
+  // Step 7 — Prize tiers
   let prizeTiers = [];
   try {
     prizeTiers = typeof contest.prize_distribution === "string"
@@ -1013,29 +1051,48 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
 
   return {
     success: true,
+
     contest: {
-      id:               contest.id,
-      prize_pool:       Number(contest.prize_pool)      || 0,
-      net_pool_prize:   Number(contest.net_pool_prize)  || 0,
-      first_prize:      Number(contest.first_prize)     || 0,
-      entry_fee:        Number(contest.entry_fee)       || 0,
-      total_entries:    contest.current_entries         || 0,
-      total_winners:    contest.total_winners           || 0,
-      refund_start_rank:contest.refund_start_rank       || 0,
-      bonus_ranks:      contest.bonus_ranks             || 0,
-      winner_percentage:Number(contest.winner_percentage)|| 0,
-      contest_type:     contest.contest_type            || null,
-      status:           contest.status                  || null,
-      match_status:     contest.match_status            || null,
-      series_name:      contest.seriesname              || null,
-      home_team:        contest.hometeamname            || null,
-      away_team:        contest.awayteamname            || null,
-      match_date:       contest.matchdate               || null,
-      start_time:       contest.start_time              || null,
-      prize_tiers:      prizeTiers,
+      id:                contest.id,
+      prize_pool:        Number(contest.prize_pool)        || 0,
+      net_pool_prize:    Number(contest.net_pool_prize)    || 0,
+      first_prize:       Number(contest.first_prize)       || 0,
+      entry_fee:         Number(contest.entry_fee)         || 0,
+      total_entries:     contest.current_entries           || 0,
+      total_spots:       contest.max_entries               || 0,
+      min_entries:       contest.min_entries               || 0,
+      is_guaranteed:     contest.is_guaranteed === 1,
+      total_winners:     contest.total_winners             || 0,
+      refund_start_rank: contest.refund_start_rank         || 0,
+      bonus_ranks:       contest.bonus_ranks               || 0,
+      winner_percentage: Number(contest.winner_percentage) || 0,
+      contest_type:      contest.contest_type              || null,
+      status:            contest.status                    || null,
+      match_status:      matchStatus,
+      series_name:       contest.seriesname                || null,
+      home_team:         contest.hometeamname              || null,
+      away_team:         contest.awayteamname              || null,
+      match_date:        contest.matchdate                 || null,
+      start_time:        contest.start_time                || null,
+      prize_tiers:       prizeTiers,
     },
+
+    refund_zone: {
+      rank_from: contest.refund_start_rank || 0,
+      rank_to:   contest.total_winners     || 0,
+      prize:     Number(contest.entry_fee) || 0,
+      label:     "Entry fee return",
+    },
+    no_prize_zone: {
+      rank_from: (contest.total_winners || 0) + 1,
+      rank_to:   contest.max_entries    || 0,
+      prize:     0,
+      label:     "No prize",
+    },
+
     my_entry,
     leaderboard,
+
     pagination: {
       current_page:  page,
       per_page:      limit,
@@ -1045,7 +1102,6 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     },
   };
 };
-
 // ─────────────────────────────────────────────────────────────────────────────
 // MY RANK (specific user + specific team in a contest)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1159,69 +1215,3 @@ export const getScoreBreakdownService = async (contestId, userTeamId, matchId) =
   };
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// CONTEST WINNINGS — prize pool breakdown for the "Winnings" tab
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const getContestWinningsService = async (contestId) => {
-  const [[contest]] = await db.query(
-    `SELECT
-       c.id, c.prize_pool, c.net_pool_prize, c.first_prize,
-       c.prize_distribution, c.current_entries,
-       c.max_entries, c.entry_fee, c.status,
-       c.contest_type, c.total_winners,
-       c.winner_percentage, c.refund_start_rank, c.bonus_ranks,
-       c.is_guaranteed, c.min_entries
-     FROM contest c
-     JOIN matches m ON m.id = c.match_id
-     WHERE c.id = ?`,
-    [contestId]
-  );
-  if (!contest)
-    throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
-
-  let prizeTiers = [];
-  try {
-    prizeTiers = typeof contest.prize_distribution === "string"
-      ? JSON.parse(contest.prize_distribution)
-      : contest.prize_distribution || [];
-  } catch {
-    prizeTiers = [];
-  }
-
-  return {
-    success: true,
-    contest: {
-      id:                contest.id,
-      prize_pool:        Number(contest.prize_pool)        || 0,
-      net_pool_prize:    Number(contest.net_pool_prize)    || 0,
-      first_prize:       Number(contest.first_prize)       || 0,
-      entry_fee:         Number(contest.entry_fee)         || 0,
-      total_spots:       contest.max_entries               || 0,
-      current_entries:   contest.current_entries           || 0,
-      total_winners:     contest.total_winners             || 0,
-      refund_start_rank: contest.refund_start_rank         || 0,
-      bonus_ranks:       contest.bonus_ranks               || 0,
-      winner_percentage: Number(contest.winner_percentage) || 0,
-      contest_type:      contest.contest_type              || null,
-      status:            contest.status                    || null,
-      is_guaranteed:     contest.is_guaranteed === 1,
-      min_entries:       contest.min_entries               || 0,
-    },
-    // Bonus-zone tiers only — frontend adds refund + no-prize zones itself
-    prize_tiers: prizeTiers,
-    // Convenience fields so frontend can render all 3 zones without extra logic
-    refund_zone: {
-      rank_from:   (contest.refund_start_rank || 0),
-      rank_to:     contest.total_winners      || 0,
-      prize:       Number(contest.entry_fee)  || 0,
-      label:       "Entry fee return",
-    },
-    no_prize_zone: {
-      rank_from: (contest.total_winners || 0) + 1,
-      rank_to:   contest.max_entries          || 0,
-      prize:     0,
-      label:     "No prize",
-    },
-  };
-};
