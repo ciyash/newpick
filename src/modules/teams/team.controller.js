@@ -377,8 +377,6 @@ export const updateTeam = async (req, res) => {
   }
 };
 
-
-
 export const getMyTeamsXIStatus = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -391,7 +389,6 @@ export const getMyTeamsXIStatus = async (req, res) => {
     res.status(400).json({ success: false, message: error.message });
   }
 };
-
 
 export const getPlayingXI = async (req, res) => {
   try {
@@ -428,3 +425,4 @@ export const getTeamComparison = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+

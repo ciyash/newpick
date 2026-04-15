@@ -6,13 +6,13 @@ import generateUserCode from "../../utils/usercode.js";
 import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
 import { sendOtpEmail } from '../../utils/send.otp.mails.js';
 
-    
-/* ================= PAUSE PLANS ================= */ 
-  
-const PAUSE_PLANS = {  
-  "1d":  1,
-  "7d":  7,
-  "30d": 30,   
+
+/* ================= PAUSE PLANS ================= */
+
+const PAUSE_PLANS = {
+  "1d": 1,
+  "7d": 7,
+  "30d": 30,
 };
 
 /* ================= HELPER — GET LAST BALANCE ================= */
@@ -40,73 +40,12 @@ const getLastBalance = async (conn, userId) => {
   );
 
   return {
-    userOpening:    Number(userLast?.userclosingbalance || 0),
+    userOpening: Number(userLast?.userclosingbalance || 0),
     companyOpening: Number(companyLast?.closing_balance || 0)
   };
 };
 
 /* ================= REQUEST SIGNUP OTP ================= */
-
-// export const requestSignupOtpService = async (data) => {
-//   const { name, email, mobile, region, address, dob, nickname, category, referralid } = data;
-
-//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-//   /* ─── 1 Age Check ─── */
-//   const birthDate = new Date(dob);
-//   const age       = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
-//   if (age < 18) throw new Error("You must be at least 18 years old");
-
-//   /* ─── 2 Email & Mobile Check — parallel for speed ─── */
-//   const [
-//     [[emailUser]],
-//     [[mobileUser]]
-//   ] = await Promise.all([
-//     db.query(`SELECT id, account_status FROM users WHERE email = ?`,  [email]),
-//     db.query(`SELECT id, account_status FROM users WHERE mobile = ?`, [normalizedMobile])
-//   ]);
-
-//   if (emailUser) {
-//     throw new Error(
-//       emailUser.account_status === "deleted"
-//         ? "This email was previously deleted. Contact support."
-//         : "Email already registered"
-//     );
-//   }
-
-//   if (mobileUser) {
-//     throw new Error(
-//       mobileUser.account_status === "deleted"
-//         ? "This mobile was previously deleted. Contact support."
-//         : "Mobile already registered"
-//     );
-//   }
-
-//   /* ─── 3 Generate & Store OTP — parallel for speed ─── */
-//   const otp = crypto.randomInt(100000, 999999).toString();
-
-//   await Promise.all([
-//     redis.set(
-//       `SIGNUP:${normalizedMobile}`,
-//       JSON.stringify({
-//         name, email, nickname,
-//         mobile: normalizedMobile,
-//         region, address, dob, category,
-//         referralid: referralid || "AAAAA1111"
-//       }),
-//       { ex: 300 }
-//     ),
-//     redis.set(`SIGNUP_OTP:${normalizedMobile}`, otp, { ex: 300 })
-//   ]);
-
-
-//   return {
-//     success: true,
-//     message: "OTP sent successfully",
-//     ...(process.env.NODE_ENV !== "production" && { otp })
-//   };
-// };
-
 
 export const requestSignupOtpService = async (data) => {
   const { name, email, mobile, region, address, dob, nickname, category, referralid } = data;
@@ -115,7 +54,7 @@ export const requestSignupOtpService = async (data) => {
 
   /* ─── 1 Age Check ─── */
   const birthDate = new Date(dob);
-  const age       = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
+  const age = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
   if (age < 18) throw new Error("You must be at least 18 years old");
 
   /* ─── 2 Email & Mobile Check — parallel for speed ─── */
@@ -123,7 +62,7 @@ export const requestSignupOtpService = async (data) => {
     [[emailUser]],
     [[mobileUser]]
   ] = await Promise.all([
-    db.query(`SELECT id, account_status FROM users WHERE email = ?`,  [email]),
+    db.query(`SELECT id, account_status FROM users WHERE email = ?`, [email]),
     db.query(`SELECT id, account_status FROM users WHERE mobile = ?`, [normalizedMobile])
   ]);
 
@@ -182,9 +121,9 @@ export const requestSignupOtpService = async (data) => {
 
 /* ================= VERIFY SIGNUP OTP ================= */
 
-const JOINING_BONUS          = 5;
-const REFERRAL_SIGNUP_BONUS  = 3;
-const MAX_USERCODE_RETRIES   = 10;
+const JOINING_BONUS = 5;
+const REFERRAL_SIGNUP_BONUS = 3;
+const MAX_USERCODE_RETRIES = 10;
 
 
 /* ================= SEND LOGIN OTP ================= */
@@ -239,9 +178,9 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 
 
   return {
-     success: true,
+    success: true,
     message: "OTP sent successfully",
-    ...(process.env.NODE_ENV !== "production" && {otp: otpToSend})
+    ...(process.env.NODE_ENV !== "production" && { otp: otpToSend })
 
   };
 };
@@ -320,11 +259,11 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
 
   /* ─── Return User ─── */
   return {
-    id:       user.id,
+    id: user.id,
     usercode: user.usercode,
-    email:    user.email,
-    mobile:   user.mobile,
-    name:     user.name
+    email: user.email,
+    mobile: user.mobile,
+    name: user.name
   };
 };
 
@@ -440,7 +379,7 @@ export const updateProfileService = async (userId, data) => {
   if (!Object.keys(sanitized).length) throw new Error("No valid fields to update");
 
   const setClauses = Object.keys(sanitized).map(k => `${k} = ?`).join(", ");
-  const values     = [...Object.values(sanitized), userId];
+  const values = [...Object.values(sanitized), userId];
 
   const [result] = await db.query(
     `UPDATE users SET ${setClauses} WHERE id = ?`, values
@@ -452,11 +391,9 @@ export const updateProfileService = async (userId, data) => {
 
   return { success: true, message: "Profile updated successfully" };
 };
- 
-/* ================= REFERRAL CONTEST BONUS ================= */
-
 
 /* ================= REFERRAL CONTEST BONUS ================= */
+
 
 export const applyReferralContestBonus = async (userId, contestId, ip, device) => {
 
@@ -491,7 +428,7 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device) =
       await getLastBalance(conn, userId);
 
     const newUserClose = Number((newUserOpen + 3).toFixed(2));
-    const coClose1     = Number((coOpen1 - 3).toFixed(2));
+    const coClose1 = Number((coOpen1 - 3).toFixed(2));
 
     await conn.query(
       `UPDATE wallets SET earnwallet = earnwallet + 3 WHERE user_id = ?`,
@@ -510,22 +447,22 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device) =
       [
         userId,
         newUserOpen, newUserClose,
-        coOpen1,     coClose1,
-        ip || null,  device || null
+        coOpen1, coClose1,
+        ip || null, device || null
       ]
     );
 
     // ════════════════════════════════════════════════════════════
     // REFERRER (user1) ki +5 (first time) or +3 (rest)
     // ════════════════════════════════════════════════════════════
-    const referrerId    = ref.referrer_id;
+    const referrerId = ref.referrer_id;
     const referrerBonus = ref.first_bonus_given === 0 ? 5 : 3;
 
     const { userOpening: referrerOpen, companyOpening: coOpen2 } =
       await getLastBalance(conn, referrerId);
 
     const referrerClose = Number((referrerOpen + referrerBonus).toFixed(2));
-    const coClose2      = Number((coOpen2 - referrerBonus).toFixed(2));
+    const coClose2 = Number((coOpen2 - referrerBonus).toFixed(2));
 
     await conn.query(
       `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
@@ -547,10 +484,10 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device) =
        VALUES (?, 'winning', 'credit', 'Referral reward',
           ?, ?, ?, ?, ?, ?, ?)`,
       [
-        referrerId,   referrerBonus,
+        referrerId, referrerBonus,
         referrerOpen, referrerClose,
-        coOpen2,      coClose2,
-        ip || null,   device || null
+        coOpen2, coClose2,
+        ip || null, device || null
       ]
     );
 
@@ -568,7 +505,7 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device) =
     await conn.rollback();
     throw err;
   } finally {
-    try { await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`); } catch (_) {}
+    try { await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`); } catch (_) { }
     conn.release();
   }
 };
@@ -603,7 +540,7 @@ export const verifyEmailLinkService = async (token) => {
     success: true,
     message: "Email verified successfully"
   };
-}; 
+};
 
 //* ================= CONTACT CHANGE (EMAIL/MOBILE) ================= */
 
@@ -649,7 +586,7 @@ export const requestContactChangeService = async (userId, type, newValue) => {
     success: true,
     message: `OTP sent to your registered ${type}`
   };
-}; 
+};
 
 export const verifyOldContactService = async (userId, otp) => {
 
@@ -773,16 +710,16 @@ export const signupService = async ({ mobile, otp }) => {
     throw new Error("Invalid signup session data");
   }
 
-  const name               = String(signupData.name      || "").trim().slice(0, 100);
-  const email              = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
-  const region             = String(signupData.region     || "").trim().slice(0, 100);
-  const nickname           = signupData.nickname   ? String(signupData.nickname).trim().slice(0, 50)  : null;
-  const address            = signupData.address    ? String(signupData.address).trim().slice(0, 300)  : null;
-  const dob                = signupData.dob        ? String(signupData.dob).trim()                    : null;
-  const referralid         = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20): null;
+  const name = String(signupData.name || "").trim().slice(0, 100);
+  const email = String(signupData.email || "").trim().toLowerCase().slice(0, 200);
+  const region = String(signupData.region || "").trim().slice(0, 100);
+  const nickname = signupData.nickname ? String(signupData.nickname).trim().slice(0, 50) : null;
+  const address = signupData.address ? String(signupData.address).trim().slice(0, 300) : null;
+  const dob = signupData.dob ? String(signupData.dob).trim() : null;
+  const referralid = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20) : null;
   const categoryNormalized = String(signupData.category || "").toLowerCase().trim();
 
-  if (!name)  throw new Error("Invalid signup session: missing name");
+  if (!name) throw new Error("Invalid signup session: missing name");
   if (!email) throw new Error("Invalid signup session: missing email");
 
   /* ─── 3️⃣ Transaction ─── */
@@ -866,15 +803,15 @@ export const signupService = async ({ mobile, otp }) => {
        FOR UPDATE`
     );
     let companyBalance = Number(companyLast?.closing_balance || 0);
-    let userBalance    = 0;
+    let userBalance = 0;
 
     /* ─── 🔟 Joining Bonus ─── */
     {
-      const uOpen  = userBalance;
-      const uClose = Number((userBalance    + JOINING_BONUS).toFixed(2));
-      userBalance  = uClose;
+      const uOpen = userBalance;
+      const uClose = Number((userBalance + JOINING_BONUS).toFixed(2));
+      userBalance = uClose;
 
-      const coOpen  = companyBalance;
+      const coOpen = companyBalance;
       const coClose = Number((companyBalance - JOINING_BONUS).toFixed(2));
       companyBalance = coClose;
 
@@ -893,51 +830,14 @@ export const signupService = async ({ mobile, otp }) => {
       );
     }
 
-    /* ─── 1️⃣1️⃣ Referral Bonus ─── */
-    if (referralid) {
 
-      const [[referrer]] = await conn.query(
-        "SELECT id FROM users WHERE usercode = ? FOR UPDATE",
-        [referralid]
-      );
-
-      if (referrer && referrer.id !== userId) {
-
-        await conn.query(
-          `INSERT IGNORE INTO referral_rewards (referrer_id, referred_id) VALUES (?, ?)`,
-          [referrer.id, userId]
-        );
-
-        const uOpen  = userBalance;
-        const uClose = Number((userBalance    + REFERRAL_SIGNUP_BONUS).toFixed(2));
-        userBalance  = uClose;
-
-        const coOpen  = companyBalance;
-        const coClose = Number((companyBalance - REFERRAL_SIGNUP_BONUS).toFixed(2));
-        companyBalance = coClose;
-
-        await conn.query(
-          `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
-          [REFERRAL_SIGNUP_BONUS, userId]
-        );
-
-        await conn.query(
-          `INSERT INTO wallet_transactions
-           (user_id, wallettype, transtype, remark,
-            amount, useropeningbalance, userclosingbalance,
-            opening_balance, closing_balance)
-           VALUES (?, 'bonus', 'credit', 'Referral signup bonus', ?, ?, ?, ?, ?)`,
-          [userId, REFERRAL_SIGNUP_BONUS, uOpen, uClose, coOpen, coClose]
-        );
-      }
-    }
 
     await conn.commit();
 
     /* ─── Release Lock ─── */
     try {
       await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
-    } catch (_) {}
+    } catch (_) { }
 
     /* ─── Cleanup Redis ─── */
     await Promise.all([
@@ -984,7 +884,7 @@ export const signupService = async ({ mobile, otp }) => {
 
     try {
       await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
-    } catch (_) {}
+    } catch (_) { }
 
     throw err;
 
