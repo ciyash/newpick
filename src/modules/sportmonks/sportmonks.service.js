@@ -981,7 +981,7 @@ export const syncPlayerPointsService = async (matchId) => {
     [pids]
   );
   const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
-
+//  const playerMap = new Map(playerRows.map((r) => [String(r.provider_player_id), r.id]));
   const POINTS = {
     goal: 6, assist: 3, yellow_card: -1, red_card: -3,
     own_goal: -2, penalty_missed: -2
