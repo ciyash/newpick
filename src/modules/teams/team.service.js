@@ -826,35 +826,55 @@ export const updateTeamService = async (
     }
 
     /* ================================
-       3️⃣ CAPTAIN / VC VALIDATION
+       3️⃣ FETCH EXISTING CAPTAIN/VC
+         (DELETE ki MUNDU fetch cheyyi)
     ================================= */
-    if (
-      !uniquePlayers.includes(captainId) ||
-      !uniquePlayers.includes(viceCaptainId)
-    ) {
+    let finalCaptainId = captainId;
+    let finalViceCaptainId = viceCaptainId;
+
+    if (!captainId || !viceCaptainId) {
+      const [existingCaptains] = await conn.query(
+        `SELECT player_id, is_captain, is_vice_captain
+         FROM user_team_players
+         WHERE user_team_id = ? AND (is_captain = 1 OR is_vice_captain = 1)`,
+        [teamId]
+      );
+
+      for (const row of existingCaptains) {
+        if (row.is_captain === 1) finalCaptainId = row.player_id;
+        if (row.is_vice_captain === 1) finalViceCaptainId = row.player_id;
+      }
+    }
+
+    /* ================================
+       4️⃣ CAPTAIN / VC VALIDATION
+    ================================= */
+    if (!uniquePlayers.includes(finalCaptainId) || !uniquePlayers.includes(finalViceCaptainId)) {
       throw new Error("Captain/VC must be in selected players");
     }
-    if (captainId === viceCaptainId) {
+    if (finalCaptainId === finalViceCaptainId) {
       throw new Error("Captain and Vice Captain cannot be same");
     }
 
     /* ================================
-       4️⃣ PLAYERS BELONG TO MATCH CHECK
+       5️⃣ PLAYERS EXIST CHECK
+         (match_players join ledu — not needed for update)
     ================================= */
     const placeholders = uniquePlayers.map(() => "?").join(", ");
+
     const [validPlayers] = await conn.query(
-      `SELECT DISTINCT p.id, p.position AS role FROM players p
-       JOIN match_players mp ON mp.player_id = p.id
-       WHERE mp.match_id = ? AND p.id IN (${placeholders})`,
-      [team.match_id, ...uniquePlayers]
+      `SELECT DISTINCT id, position AS role
+       FROM players
+       WHERE id IN (${placeholders})`,
+      [...uniquePlayers]
     );
 
     if (validPlayers.length !== 11) {
-      throw new Error("Some players do not belong to this match");
+      throw new Error("Some players do not exist");
     }
 
     /* ================================
-       4️⃣b ROLE COUNT VALIDATION
+       5️⃣b ROLE COUNT VALIDATION
     ================================= */
     const roleCounts = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
 
@@ -866,28 +886,20 @@ export const updateTeamService = async (
       roleCounts[normalized]++;
     }
 
-    if (roleCounts.GK !== 1) {
-      throw new Error("Team must have exactly 1 Goalkeeper");
-    }
-    if (roleCounts.DEF < 3 || roleCounts.DEF > 6) {
-      throw new Error("Team must have 3 to 6 Defenders");
-    }
-    if (roleCounts.MID < 2 || roleCounts.MID > 5) {
-      throw new Error("Team must have 2 to 5 Midfielders");
-    }
-    if (roleCounts.FWD < 1 || roleCounts.FWD > 3) {
-      throw new Error("Team must have 1 to 3 Forwards");
-    }
+    if (roleCounts.GK !== 1) throw new Error("Team must have exactly 1 Goalkeeper");
+    if (roleCounts.DEF < 3 || roleCounts.DEF > 6) throw new Error("Team must have 3 to 6 Defenders");
+    if (roleCounts.MID < 2 || roleCounts.MID > 5) throw new Error("Team must have 2 to 5 Midfielders");
+    if (roleCounts.FWD < 1 || roleCounts.FWD > 3) throw new Error("Team must have 1 to 3 Forwards");
 
     /* ================================
-       5️⃣ BUILD PLAYER ROLE MAP
+       6️⃣ BUILD PLAYER ROLE MAP
     ================================= */
     const playerRoleMap = Object.fromEntries(
       validPlayers.map(({ id, role }) => [id, role])
     );
 
     /* ================================
-       6️⃣ UPDATE TEAM NAME
+       7️⃣ UPDATE TEAM NAME
     ================================= */
     if (teamName) {
       await conn.query(
@@ -897,7 +909,7 @@ export const updateTeamService = async (
     }
 
     /* ================================
-       7️⃣ DELETE OLD PLAYERS
+       8️⃣ DELETE OLD PLAYERS
     ================================= */
     await conn.query(
       `DELETE FROM user_team_players WHERE user_team_id = ?`,
@@ -905,14 +917,14 @@ export const updateTeamService = async (
     );
 
     /* ================================
-       8️⃣ BULK INSERT NEW PLAYERS
+       9️⃣ BULK INSERT NEW PLAYERS
     ================================= */
     const values = uniquePlayers.map((pid) => [
       teamId,
       pid,
       playerRoleMap[pid] ?? null,
-      pid === captainId ? 1 : 0,
-      pid === viceCaptainId ? 1 : 0,
+      pid === finalCaptainId ? 1 : 0,
+      pid === finalViceCaptainId ? 1 : 0,
     ]);
 
     await conn.query(
@@ -923,7 +935,7 @@ export const updateTeamService = async (
     );
 
     /* ================================
-       9️⃣ UPDATE PLAYER PERCENTAGES
+       🔟 UPDATE PLAYER PERCENTAGES
     ================================= */
     const [[{ totalTeams }]] = await conn.query(
       `SELECT COUNT(*) as totalTeams FROM user_teams WHERE match_id = ?`,
