@@ -770,7 +770,6 @@ export const getMyTeamsWithPlayersServiceold = async (
 };
 
 
-
 export const updateTeamService = async (
   userId,
   teamId,
@@ -796,20 +795,25 @@ export const updateTeamService = async (
     }
 
     // 3️⃣ Captain / VC validation
-    if (!uniquePlayers.includes(captainId) || !uniquePlayers.includes(viceCaptainId)) {
+    if (
+      !uniquePlayers.includes(captainId) ||
+      !uniquePlayers.includes(viceCaptainId)
+    ) {
       throw new Error("Captain/VC must be in selected players");
     }
     if (captainId === viceCaptainId) {
       throw new Error("Captain and Vice Captain cannot be same");
     }
 
-    // 4️⃣ Players belong to this match check
+    // 4️⃣ ✅ FIXED: Use placeholders instead of IN (?)
+    const placeholders = uniquePlayers.map(() => "?").join(", ");
     const [validPlayers] = await conn.query(
-      `SELECT p.id FROM players p
+      `SELECT DISTINCT p.id FROM players p
        JOIN match_players mp ON mp.player_id = p.id
-       WHERE mp.match_id = ? AND p.id IN (?)`,
-      [team.match_id, uniquePlayers]
+       WHERE mp.match_id = ? AND p.id IN (${placeholders})`,
+      [team.match_id, ...uniquePlayers]  // spread array instead of passing as array
     );
+
     if (validPlayers.length !== 11) {
       throw new Error("Some players do not belong to this match");
     }
@@ -828,11 +832,11 @@ export const updateTeamService = async (
       [teamId]
     );
 
-    // 7️⃣ Bulk insert — single query ✅
+    // 7️⃣ Bulk insert
     const values = uniquePlayers.map((pid) => [
       teamId,
       pid,
-      pid === captainId     ? 1 : 0,
+      pid === captainId ? 1 : 0,
       pid === viceCaptainId ? 1 : 0,
     ]);
 
@@ -853,6 +857,7 @@ export const updateTeamService = async (
     if (conn) conn.release();
   }
 };
+
 
 export const getMyTeamsXIStatusService = async (userId, matchId, homeTeamId) => {
 

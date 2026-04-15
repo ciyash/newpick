@@ -1050,4 +1050,3 @@ export const getAllFixturesBetween = async (fromDate, toDate) => {
   return allFixtures;
 };
   
-   
