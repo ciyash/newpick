@@ -196,7 +196,7 @@ export const handleReferralBonus = async (conn, userId) => {
 
   // first successful referral = 5, remaining = 3
   const REFERRER_BONUS = totalReferrals === 0 ? 5 : 3;
-  const REFERRED_BONUS = 3; // new user always gets 5
+  const REFERRED_BONUS = 5; // new user always gets 5
 
   /* ── 4. Company balance ── */
   const [[companyLast]] = await conn.query(
@@ -377,11 +377,9 @@ export const joinContestService = async (userId, contestId) => {
       `UPDATE contests SET total_joined = total_joined + 1 WHERE id = ?`,
       [contestId]
     );
-  
-/* ── 11. Referral bonus (first PAID contest join only) ── */
-     if (entryFee > 0) {
-     await handleReferralBonus(conn, userId);
-     }
+
+    /* ── 11. Referral bonus (first contest join only) ── */
+    await handleReferralBonus(conn, userId);
 
     await conn.commit();
 
