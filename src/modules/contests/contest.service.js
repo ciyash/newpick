@@ -164,237 +164,319 @@ export const getContestsService = async (matchId, userId) => {
 
 
 
-/* ─────────────────────────────────────────
-   REFERRAL BONUS — first contest join only
-   first referral → 5 points
-   remaining referrals → 3 points
-───────────────────────────────────────── */
-export const handleReferralBonus = async (conn, userId) => {
+const handleReferralBonus = async (conn, userId) => {
 
-  /* ── 1. Already bonus వచ్చిందా? ── */
-  const [[already]] = await conn.query(
-    `SELECT id FROM referral_rewards WHERE referred_id = ? AND bonus_given = 1`,
+  /* ─── 1️⃣ First contest join check ─── */
+  const [[{ contestCount }]] = await conn.query(
+    `SELECT COUNT(*) AS contestCount FROM contest_entries WHERE user_id = ?`,
     [userId]
   );
-  if (already) return;
 
-  /* ── 2. Referral record ఉందా? ── */
-  const [[referral]] = await conn.query(
-    `SELECT referrer_id FROM referral_rewards WHERE referred_id = ? AND bonus_given = 0`,
+  // First join kaadu — bonus ledu
+  if (contestCount !== 0) return;
+
+  /* ─── 2️⃣ Referral record check ─── */
+  const [[ref]] = await conn.query(
+    `SELECT * FROM referral_rewards WHERE referred_id = ? FOR UPDATE`,
     [userId]
   );
-  if (!referral) return;
 
-  const referrerId = referral.referrer_id;
+  // Referral record ledu — bonus ledu
+  if (!ref) return;
 
-  /* ── 3. Referrer ఇప్పటివరకు ఎంత మందిని refer చేశాడు? ── */
-  const [[{ totalReferrals }]] = await conn.query(
-    `SELECT COUNT(*) as totalReferrals FROM referral_rewards 
-     WHERE referrer_id = ? AND bonus_given = 1`,
-    [referrerId]
-  );
+  /* ─── 3️⃣ Already bonus given check ─── */
+  if (ref.join_bonus_given === 1) return;
 
-  // first successful referral = 5, remaining = 3
-  const REFERRER_BONUS = totalReferrals === 0 ? 5 : 3;
-  const REFERRED_BONUS = 5; // new user always gets 5
-
-  /* ── 4. Company balance ── */
-  const [[companyLast]] = await conn.query(
+  /* ─── 4️⃣ Company balance fetch ─── */
+  const [[coRow]] = await conn.query(
     `SELECT closing_balance FROM wallet_transactions
-     WHERE closing_balance != 0 ORDER BY id DESC LIMIT 1 FOR UPDATE`
+     WHERE closing_balance != 0
+     ORDER BY id DESC LIMIT 1`
   );
-  let companyBalance = Number(companyLast?.closing_balance || 0);
+  let companyBalance = Number(coRow?.closing_balance || 0);
 
-  /* ── 5. New user (referred) కి bonus ── */
-  const [[userWallet]] = await conn.query(
-    `SELECT bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
+  /* ─── 5️⃣ NEW USER ki +3 earnwallet ─── */
+  const [[newUserWallet]] = await conn.query(
+    `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
     [userId]
   );
-  const userOpen  = Number(userWallet.bonusamount);
-  const userClose = Number((userOpen + REFERRED_BONUS).toFixed(2));
+
+  const newUserOpen  = Number(newUserWallet?.earnwallet || 0);
+  const newUserClose = Number((newUserOpen + 3).toFixed(2));
+  const coOpen1      = companyBalance;
+  const coClose1     = Number((companyBalance - 3).toFixed(2));
+  companyBalance     = coClose1;
 
   await conn.query(
-    `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
-    [REFERRED_BONUS, userId]
+    `UPDATE wallets SET earnwallet = earnwallet + 3 WHERE user_id = ?`,
+    [userId]
   );
-
-  const coOpen1  = companyBalance;
-  const coClose1 = Number((companyBalance - REFERRED_BONUS).toFixed(2));
-  companyBalance = coClose1;
 
   await conn.query(
     `INSERT INTO wallet_transactions
-     (user_id, wallettype, transtype, remark,
-      amount, useropeningbalance, userclosingbalance,
-      opening_balance, closing_balance)
-     VALUES (?, 'bonus', 'credit', 'Referral joining bonus', ?, ?, ?, ?, ?)`,
-    [userId, REFERRED_BONUS, userOpen, userClose, coOpen1, coClose1]
+       (user_id, wallettype, transtype, remark,
+        amount, useropeningbalance, userclosingbalance,
+        opening_balance, closing_balance)
+     VALUES (?, 'winning', 'credit', 'Referral join bonus',
+       3, ?, ?, ?, ?)`,
+    [userId, newUserOpen, newUserClose, coOpen1, coClose1]
   );
 
-  /* ── 6. Referrer కి bonus ── */
+  /* ─── 6️⃣ REFERRER ki +5 (first) or +3 (rest) ─── */
+  const referrerId    = ref.referrer_id;
+  const referrerBonus = ref.first_bonus_given === 0 ? 5 : 3;
+
   const [[referrerWallet]] = await conn.query(
-    `SELECT bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
+    `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
     [referrerId]
   );
-  const refOpen  = Number(referrerWallet.bonusamount);
-  const refClose = Number((refOpen + REFERRER_BONUS).toFixed(2));
+
+  const referrerOpen  = Number(referrerWallet?.earnwallet || 0);
+  const referrerClose = Number((referrerOpen + referrerBonus).toFixed(2));
+  const coOpen2       = companyBalance;
+  const coClose2      = Number((companyBalance - referrerBonus).toFixed(2));
 
   await conn.query(
-    `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
-    [REFERRER_BONUS, referrerId]
+    `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+    [referrerBonus, referrerId]
   );
 
-  const coOpen2  = companyBalance;
-  const coClose2 = Number((companyBalance - REFERRER_BONUS).toFixed(2));
+  await conn.query(
+    `UPDATE users SET referral_bonus = referral_bonus + ? WHERE id = ?`,
+    [referrerBonus, referrerId]
+  );
 
   await conn.query(
     `INSERT INTO wallet_transactions
-     (user_id, wallettype, transtype, remark,
-      amount, useropeningbalance, userclosingbalance,
-      opening_balance, closing_balance)
-     VALUES (?, 'bonus', 'credit', 'Referral bonus - friend joined contest', ?, ?, ?, ?, ?)`,
-    [referrerId, REFERRER_BONUS, refOpen, refClose, coOpen2, coClose2]
+       (user_id, wallettype, transtype, remark,
+        amount, useropeningbalance, userclosingbalance,
+        opening_balance, closing_balance)
+     VALUES (?, 'winning', 'credit', 'Referral reward',
+       ?, ?, ?, ?, ?)`,
+    [referrerId, referrerBonus, referrerOpen, referrerClose, coOpen2, coClose2]
   );
 
-  /* ── 7. Mark bonus as given ── */
+  /* ─── 7️⃣ Mark bonus as given ─── */
   await conn.query(
-    `UPDATE referral_rewards SET bonus_given = 1 WHERE referred_id = ?`,
-    [userId]
+    `UPDATE referral_rewards
+     SET join_bonus_given = 1,
+         first_bonus_given = 1
+     WHERE id = ?`,
+    [ref.id]
   );
-};
+};  
 
+// ─────────────────────────────────────────────────────────────────────────────
+// JOIN CONTEST
+//
+// Wallet deduction priority:
+//   1. Deposit wallet   (real money — first preference)
+//   2. Earn wallet      (winnings)
+//   3. Bonus wallet     (max 5% of total entry)
+// ─────────────────────────────────────────────────────────────────────────────
 
-/* ─────────────────────────────────────────
-   CONTEST JOIN — 5% from bonus wallet,
-   rest from deposit wallet
-───────────────────────────────────────── */
-export const joinContestService = async (userId, contestId) => {
-  let conn;
+export const joinContestService = async (userId, amount, meta = {}) => {
+  const conn = await db.getConnection();
+
   try {
-    conn = await db.getConnection();
     await conn.beginTransaction();
 
-    /* ── 1. Contest exists & open? ── */
+      /* ─── REFERRAL BONUS (first contest join మాత్రమే) ─── */
+    await handleReferralBonus(conn, userId);
+
+
+    const { contestId, userTeamId } = meta;
+    if (!contestId || !userTeamId) throw new Error("contestId and userTeamId are required");
+
+    const teamIds = Array.isArray(userTeamId) ? userTeamId : [userTeamId];
+
+    // ── Duplicate team check ──────────────────────────────────────────────
+    for (const teamId of teamIds) {
+      const [[already]] = await conn.query(
+        `SELECT id FROM contest_entries
+         WHERE contest_id = ? AND user_id = ? AND user_team_id = ?`,
+        [contestId, userId, teamId]
+      );
+      if (already) throw new Error(`Team ${teamId} is already joined in this contest`);
+    }
+
+    // ── Free contest: subscriber check ────────────────────────────────────
+    const [[contestCheck]] = await conn.query(
+      `SELECT entry_fee FROM contest WHERE id = ?`,
+      [contestId]
+    );
+    if (!contestCheck) throw new Error("Contest not found");
+
+    const isFree = parseFloat(contestCheck.entry_fee) === 0;
+
+    if (isFree) {
+      const [[user]] = await conn.query(
+        `SELECT subscribe FROM users WHERE id = ?`,
+        [userId]
+      );
+      if (!user?.subscribe) {
+        const [[{ joinedCount }]] = await conn.query(
+          `SELECT COUNT(*) AS joinedCount FROM contest_entries
+           WHERE contest_id = ? AND user_id = ?`,
+          [contestId, userId]
+        );
+        if (joinedCount + teamIds.length > 1) {
+          throw new Error("Free contest allows only 1 team for non-subscribers");
+        }
+      }
+    }
+
+    // ── Contest + match lock ──────────────────────────────────────────────
     const [[contest]] = await conn.query(
-      `SELECT id, entry_fee, max_teams, total_joined, status
-       FROM contests WHERE id = ? FOR UPDATE`,
+      `SELECT
+         c.id, c.max_entries, c.current_entries, c.status,
+         m.status    AS match_status,
+         m.matchdate,
+         m.start_time
+       FROM contest c
+       JOIN matches m ON m.id = c.match_id
+       WHERE c.id = ?
+       FOR UPDATE`,
       [contestId]
     );
     if (!contest) throw new Error("Contest not found");
-    if (contest.status !== "upcoming") throw new Error("Contest is not open for joining");
-    if (contest.total_joined >= contest.max_teams) throw new Error("Contest is full");
 
-    const entryFee = Number(contest.entry_fee);
+    if (contest.match_status !== "UPCOMING")
+      throw new Error("Match has already started or is completed");
 
-    /* ── 2. Already joined? ── */
-    const [[alreadyJoined]] = await conn.query(
-      `SELECT id FROM contest_participants WHERE user_id = ? AND contest_id = ?`,
-      [userId, contestId]
+    const now        = new Date();
+    const matchStart = new Date(
+      `${contest.matchdate.toISOString().split("T")[0]} ${contest.start_time}`
     );
-    if (alreadyJoined) throw new Error("Already joined this contest");
+    if (now >= matchStart) throw new Error("Match has already started");
 
-    /* ── 3. Wallet fetch ── */
+    if (contest.status !== "UPCOMING") throw new Error("Contest is not available for joining");
+
+    const totalTeamsToJoin = teamIds.length;
+
+    if (contest.current_entries >= contest.max_entries)
+      throw new Error("Contest is full");
+    if (contest.current_entries + totalTeamsToJoin > contest.max_entries)
+      throw new Error("Not enough spots left in this contest");
+
+    // ── Entry amount ──────────────────────────────────────────────────────
+    const entryAmount = parseFloat(amount);
+    if (isNaN(entryAmount) || entryAmount < 0) throw new Error("Invalid entry amount");
+
+    const totalEntry = entryAmount * totalTeamsToJoin;
+
+    // ── Free contest path ─────────────────────────────────────────────────
+    if (entryAmount === 0) {
+      for (const teamId of teamIds) {
+        await conn.query(
+          `INSERT INTO contest_entries
+             (contest_id, user_id, user_team_id, entry_fee, status)
+           VALUES (?, ?, ?, 0, 'joined')`,
+          [contestId, userId, teamId]
+        );
+      }
+      await conn.query(
+        `UPDATE contest SET current_entries = current_entries + ? WHERE id = ?`,
+        [totalTeamsToJoin, contestId]
+      );
+      await conn.commit();
+      return { success: true, message: "Joined free contest successfully" };
+    }
+
+    // ── Wallet lock ───────────────────────────────────────────────────────
     const [[wallet]] = await conn.query(
-      `SELECT depositwallet, bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
+      `SELECT depositwallet, earnwallet, bonusamount, is_frozen
+       FROM wallets
+       WHERE user_id = ?
+       FOR UPDATE`,
       [userId]
     );
-    if (!wallet) throw new Error("Wallet not found");
+    if (!wallet)           throw new Error("Wallet not found");
+    if (wallet.is_frozen === 1) throw new Error("Wallet is frozen");
 
-    const depositBal = Number(wallet.depositwallet);
-    const bonusBal   = Number(wallet.bonusamount);
+    // ── Deduction priority: deposit → earn → bonus (max 5%) ──────────────
+    let remaining = totalEntry;
 
-    /* ── 4. 5% from bonus, rest from deposit ── */
-    const bonusUsable = Number((entryFee * 0.05).toFixed(2));         // 5% of entry fee
-    const bonusDeduct = Math.min(bonusUsable, bonusBal);              // available bonus
-    const depositDeduct = Number((entryFee - bonusDeduct).toFixed(2)); // remaining from deposit
+    const depositUse = Math.min(Number(wallet.depositwallet || 0), remaining);
+    remaining = Number((remaining - depositUse).toFixed(2));
 
-    if (depositBal < depositDeduct) {
-      throw new Error("Insufficient balance");
-    }
+    const earnUse = Math.min(Number(wallet.earnwallet || 0), remaining);
+    remaining = Number((remaining - earnUse).toFixed(2));
 
-    /* ── 5. Deduct from wallets ── */
+    const maxBonus = Number((totalEntry * BONUS_MAX_PCT).toFixed(2));
+    const bonusUse = Math.min(Number(wallet.bonusamount || 0), maxBonus, remaining);
+    remaining = Number((remaining - bonusUse).toFixed(2));
+
+    if (remaining > 0) throw new Error("Insufficient wallet balance");
+
+    // ── Update wallet ─────────────────────────────────────────────────────
     await conn.query(
-      `UPDATE wallets 
+      `UPDATE wallets
        SET depositwallet = depositwallet - ?,
+           earnwallet    = earnwallet    - ?,
            bonusamount   = bonusamount   - ?
        WHERE user_id = ?`,
-      [depositDeduct, bonusDeduct, userId]
+      [depositUse, earnUse, bonusUse, userId]
     );
 
-    /* ── 6. Company balance ── */
-    const [[companyLast]] = await conn.query(
-      `SELECT closing_balance FROM wallet_transactions
-       WHERE closing_balance != 0 ORDER BY id DESC LIMIT 1 FOR UPDATE`
-    );
-    let companyBalance = Number(companyLast?.closing_balance || 0);
-
-    /* ── 7. Deposit wallet transaction ── */
-    if (depositDeduct > 0) {
-      const dOpen  = depositBal;
-      const dClose = Number((depositBal - depositDeduct).toFixed(2));
-      const coOpen = companyBalance;
-      const coClose = Number((companyBalance + depositDeduct).toFixed(2));
-      companyBalance = coClose;
-
+    // ── Wallet transaction ledger ─────────────────────────────────────────
+    const insertTxn = async (walletType, amountUsed) => {
+      if (amountUsed <= 0) return;
       await conn.query(
         `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark,
-          amount, useropeningbalance, userclosingbalance,
-          opening_balance, closing_balance)
-         VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?)`,
-        [userId, `Contest join fee (deposit) - Contest #${contestId}`,
-         depositDeduct, dOpen, dClose, coOpen, coClose]
+           (user_id, wallettype, transtype, amount, remark, reference_id)
+         VALUES (?, ?, 'debit', ?, 'Contest join', ?)`,
+        [userId, walletType, amountUsed, contestId]
+      );
+    };
+
+    await insertTxn("deposit", depositUse);
+    await insertTxn("winning", earnUse);
+    await insertTxn("bonus",   bonusUse);
+
+    // ── Insert contest entries ────────────────────────────────────────────
+    for (const teamId of teamIds) {
+      await conn.query(
+        `INSERT INTO contest_entries
+           (contest_id, user_id, user_team_id, entry_fee, status)
+         VALUES (?, ?, ?, ?, 'joined')`,
+        [contestId, userId, teamId, entryAmount]
       );
     }
 
-    /* ── 8. Bonus wallet transaction ── */
-    if (bonusDeduct > 0) {
-      const bOpen  = bonusBal;
-      const bClose = Number((bonusBal - bonusDeduct).toFixed(2));
-      const coOpen = companyBalance;
-      const coClose = Number((companyBalance + bonusDeduct).toFixed(2));
-      companyBalance = coClose;
+    // ── Update contest entry count ────────────────────────────────────────
+    const newCount = contest.current_entries + totalTeamsToJoin;
+    await conn.query(
+      `UPDATE contest SET current_entries = ? WHERE id = ?`,
+      [newCount, contestId]
+    );
 
+    // ── Auto-mark FULL ────────────────────────────────────────────────────
+    if (newCount >= contest.max_entries) {
       await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark,
-          amount, useropeningbalance, userclosingbalance,
-          opening_balance, closing_balance)
-         VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?, ?)`,
-        [userId, `Contest join fee (bonus) - Contest #${contestId}`,
-         bonusDeduct, bOpen, bClose, coOpen, coClose]
+        `UPDATE contest SET status = 'FULL' WHERE id = ?`,
+        [contestId]
       );
     }
-
-    /* ── 9. Insert participant ── */
-    await conn.query(
-      `INSERT INTO contest_participants (user_id, contest_id) VALUES (?, ?)`,
-      [userId, contestId]
-    );
-
-    /* ── 10. Increment total_joined ── */
-    await conn.query(
-      `UPDATE contests SET total_joined = total_joined + 1 WHERE id = ?`,
-      [contestId]
-    );
-
-    /* ── 11. Referral bonus (first contest join only) ── */
-    await handleReferralBonus(conn, userId);
 
     await conn.commit();
 
     return {
+      success: true,
       message: "Contest joined successfully",
-      entryFee,
-      bonusUsed: bonusDeduct,
-      depositUsed: depositDeduct,
+      deduction: {
+        totalEntry,
+        depositUsed: depositUse,
+        earnUsed:    earnUse,
+        bonusUsed:   bonusUse,
+      },
     };
 
   } catch (err) {
-    if (conn) await conn.rollback();
+    await conn.rollback();
     throw err;
   } finally {
-    if (conn) conn.release();
+    conn.release();
   }
 };
 
