@@ -817,6 +817,7 @@ export const syncPlayingXIService = async (matchId) => {
 ══════════════════════════════════════════ */
 
 
+
 // export const syncPlayerPointsService = async (matchId) => {
 //   const [[matchRow]] = await db.query(
 //     `SELECT id, provider_match_id, status FROM matches
@@ -825,7 +826,6 @@ export const syncPlayingXIService = async (matchId) => {
 //   );
 //   if (!matchRow) throw new Error("Match not found: " + matchId);
 
-//   // ✅ LIVE kuda allow cheyyi
 //   if (matchRow.status !== "RESULT" && matchRow.status !== "LIVE") {
 //     return { count: 0, reason: `Match not started yet (status: ${matchRow.status})` };
 //   }
@@ -884,6 +884,7 @@ export const syncPlayingXIService = async (matchId) => {
 //       (stats.yellow_cards * POINTS.yellow_card) +
 //       (stats.red_cards    * POINTS.red_card);
 
+//     // ✅ player_match_stats insert/update
 //     await db.query(
 //       `INSERT INTO player_match_stats
 //          (match_id, player_id, goals, assists, yellow_cards, red_cards, fantasy_points)
@@ -897,14 +898,30 @@ export const syncPlayingXIService = async (matchId) => {
 //       [matchRow.id, internalId, stats.goals, stats.assists, stats.yellow_cards, stats.red_cards, fantasy_points]
 //     );
 
+//     // ✅ players.points = all matches total sum
+//     await db.query(
+//       `UPDATE players
+//        SET points = (
+//          SELECT COALESCE(SUM(fantasy_points), 0)
+//          FROM player_match_stats
+//          WHERE player_id = ?
+//        )
+//        WHERE id = ?`,
+//       [internalId, internalId]
+//     );
+
 //     count++;
 //   }
 
-//   // ✅ Status log lo LIVE/RESULT differentiate cheyyadam
 //   console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${matchId}`);
 //   return { count, reason: null };
-// }; 
+// };
+  
 
+
+
+
+// utils/sportmonks.js
 
 export const syncPlayerPointsService = async (matchId) => {
   const [[matchRow]] = await db.query(
@@ -918,7 +935,7 @@ export const syncPlayerPointsService = async (matchId) => {
     return { count: 0, reason: `Match not started yet (status: ${matchRow.status})` };
   }
 
-  const data    = await apiGet(`/fixtures/${matchId}`, { include: "events" });
+  const data = await apiGet(`/fixtures/${matchId}`, { include: "events" });
   const fixture = data?.data;
   if (!fixture) return { count: 0, reason: "Fixture not found in API" };
 
@@ -927,26 +944,32 @@ export const syncPlayerPointsService = async (matchId) => {
 
   const statsMap = {};
   const init = (pid) => {
-    if (!statsMap[pid]) statsMap[pid] = { goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
+    if (!statsMap[pid]) statsMap[pid] = {
+      goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
+      own_goals: 0, penalties_missed: 0
+    };
   };
 
   for (const e of events) {
     const pid        = e.player_id         ? String(e.player_id)         : null;
     const relatedPid = e.related_player_id ? String(e.related_player_id) : null;
 
-    if (e.type_id === 14 && pid) {
+    if (e.type_id === 14 && pid) {          // Goal
       init(pid);
       statsMap[pid].goals++;
       if (relatedPid) { init(relatedPid); statsMap[relatedPid].assists++; }
-    } else if (e.type_id === 15 && pid) {
+    } else if (e.type_id === 15 && pid) {   // Own goal
       init(pid);
-      statsMap[pid].goals--;
-    } else if (e.type_id === 19 && pid) {
+      statsMap[pid].own_goals++;
+    } else if (e.type_id === 19 && pid) {   // Yellow card
       init(pid);
       statsMap[pid].yellow_cards++;
-    } else if (e.type_id === 20 && pid) {
+    } else if (e.type_id === 20 && pid) {   // Red card
       init(pid);
       statsMap[pid].red_cards++;
+    } else if (e.type_id === 45 && pid) {   // Penalty missed
+      init(pid);
+      statsMap[pid].penalties_missed++;
     }
   }
 
@@ -959,7 +982,11 @@ export const syncPlayerPointsService = async (matchId) => {
   );
   const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
 
-  const POINTS = { goal: 6, assist: 3, yellow_card: -1, red_card: -3 };
+  const POINTS = {
+    goal: 6, assist: 3, yellow_card: -1, red_card: -3,
+    own_goal: -2, penalty_missed: -2
+  };
+
   let count = 0;
 
   for (const [pid, stats] of Object.entries(statsMap)) {
@@ -967,26 +994,35 @@ export const syncPlayerPointsService = async (matchId) => {
     if (!internalId) continue;
 
     const fantasy_points =
-      (stats.goals        * POINTS.goal)       +
-      (stats.assists      * POINTS.assist)      +
-      (stats.yellow_cards * POINTS.yellow_card) +
-      (stats.red_cards    * POINTS.red_card);
+      (stats.goals            * POINTS.goal)            +
+      (stats.assists          * POINTS.assist)           +
+      (stats.yellow_cards     * POINTS.yellow_card)      +
+      (stats.red_cards        * POINTS.red_card)         +
+      (stats.own_goals        * POINTS.own_goal)         +
+      (stats.penalties_missed * POINTS.penalty_missed);
 
     // ✅ player_match_stats insert/update
     await db.query(
       `INSERT INTO player_match_stats
-         (match_id, player_id, goals, assists, yellow_cards, red_cards, fantasy_points)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+         (match_id, player_id, goals, assists, yellow_cards, red_cards,
+          own_goals, penalties_missed, fantasy_points)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
-         goals          = VALUES(goals),
-         assists        = VALUES(assists),
-         yellow_cards   = VALUES(yellow_cards),
-         red_cards      = VALUES(red_cards),
-         fantasy_points = VALUES(fantasy_points)`,
-      [matchRow.id, internalId, stats.goals, stats.assists, stats.yellow_cards, stats.red_cards, fantasy_points]
+         goals             = VALUES(goals),
+         assists           = VALUES(assists),
+         yellow_cards      = VALUES(yellow_cards),
+         red_cards         = VALUES(red_cards),
+         own_goals         = VALUES(own_goals),
+         penalties_missed  = VALUES(penalties_missed),
+         fantasy_points    = VALUES(fantasy_points)`,
+      [
+        matchRow.id, internalId,
+        stats.goals, stats.assists, stats.yellow_cards, stats.red_cards,
+        stats.own_goals, stats.penalties_missed, fantasy_points
+      ]
     );
 
-    // ✅ players.points = all matches total sum
+    // ✅ players.points update
     await db.query(
       `UPDATE players
        SET points = (
@@ -1004,11 +1040,6 @@ export const syncPlayerPointsService = async (matchId) => {
   console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${matchId}`);
   return { count, reason: null };
 };
-  
-
-
-// utils/sportmonks.js
-
 
 
 /* ─── Fetch Fixtures Between Two Dates ─── */
