@@ -1,6 +1,6 @@
 import db from "../../config/db.js";
 
-  
+
 export const createTeamService = async (
   userId,
   matchId,
@@ -23,9 +23,9 @@ export const createTeamService = async (
 
     if (!match) throw new Error("Match not found");
 
+    // Uncomment to enforce match timing:
     // const now         = new Date();
     // const matchStatus = match.status?.trim().toLowerCase();
-
     // if (matchStatus !== "upcoming" || now >= new Date(match.start_time)) {
     //   throw new Error("Team creation is closed for this match");
     // }
@@ -47,10 +47,37 @@ export const createTeamService = async (
     );
 
     /* ================================
+       1️⃣b ROLE COUNT VALIDATION
+    ================================= */
+    const roleCounts = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
+
+    for (const { role } of playersData) {
+      const normalized = role?.trim().toUpperCase();
+      if (!roleCounts.hasOwnProperty(normalized)) {
+        throw new Error(`Invalid player role: ${normalized}`);
+      }
+      roleCounts[normalized]++;
+    }
+
+    if (roleCounts.GK !== 1) {
+      throw new Error("Team must have exactly 1 Goalkeeper");
+    }
+    if (roleCounts.DEF < 3 || roleCounts.DEF > 6) {
+      throw new Error("Team must have 3 to 6 Defenders");
+    }
+    if (roleCounts.MID < 2 || roleCounts.MID > 5) {
+      throw new Error("Team must have 2 to 5 Midfielders");
+    }
+    if (roleCounts.FWD < 1 || roleCounts.FWD > 3) {
+      throw new Error("Team must have 1 to 3 Forwards");
+    }
+
+    /* ================================
        2️⃣ TEAM SIGNATURE
     ================================= */
     const sortedPlayers = [...players].sort((a, b) => a - b);
-    const teamSignature = sortedPlayers.join(",") + `|C${captainId}|VC${viceCaptainId}`;
+    const teamSignature =
+      sortedPlayers.join(",") + `|C${captainId}|VC${viceCaptainId}`;
 
     /* ================================
        3️⃣ MAX 20 TEAMS CHECK
@@ -142,7 +169,7 @@ export const createTeamService = async (
 
     return {
       success: true,
-      message:  "Team created successfully",
+      message: "Team created successfully",
       teamId,
       teamName,
     };
@@ -153,8 +180,7 @@ export const createTeamService = async (
   } finally {
     conn.release();
   }
-}; 
-
+};
 
 export const getMyTeamsMatchIdPlayersService = async (userId, matchId) => {
 
@@ -770,6 +796,7 @@ export const getMyTeamsWithPlayersServiceold = async (
 };
 
 
+
 export const updateTeamService = async (
   userId,
   teamId,
@@ -781,20 +808,26 @@ export const updateTeamService = async (
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    // 1️⃣ Team exists & belongs to user
+    /* ================================
+       1️⃣ TEAM EXISTS & BELONGS TO USER
+    ================================= */
     const [[team]] = await conn.query(
       `SELECT id, match_id FROM user_teams WHERE id = ? AND user_id = ?`,
       [teamId, userId]
     );
     if (!team) throw new Error("Team not found or not yours");
 
-    // 2️⃣ Duplicate players check
+    /* ================================
+       2️⃣ DUPLICATE PLAYERS CHECK
+    ================================= */
     const uniquePlayers = [...new Set(players)];
     if (uniquePlayers.length !== 11) {
       throw new Error("Team must have exactly 11 unique players");
     }
 
-    // 3️⃣ Captain / VC validation
+    /* ================================
+       3️⃣ CAPTAIN / VC VALIDATION
+    ================================= */
     if (
       !uniquePlayers.includes(captainId) ||
       !uniquePlayers.includes(viceCaptainId)
@@ -805,20 +838,57 @@ export const updateTeamService = async (
       throw new Error("Captain and Vice Captain cannot be same");
     }
 
-    // 4️⃣ ✅ FIXED: Use placeholders instead of IN (?)
+    /* ================================
+       4️⃣ PLAYERS BELONG TO MATCH CHECK
+    ================================= */
     const placeholders = uniquePlayers.map(() => "?").join(", ");
     const [validPlayers] = await conn.query(
-      `SELECT DISTINCT p.id FROM players p
+      `SELECT DISTINCT p.id, p.position AS role FROM players p
        JOIN match_players mp ON mp.player_id = p.id
        WHERE mp.match_id = ? AND p.id IN (${placeholders})`,
-      [team.match_id, ...uniquePlayers]  // spread array instead of passing as array
+      [team.match_id, ...uniquePlayers]
     );
 
     if (validPlayers.length !== 11) {
       throw new Error("Some players do not belong to this match");
     }
 
-    // 5️⃣ Update team name
+    /* ================================
+       4️⃣b ROLE COUNT VALIDATION
+    ================================= */
+    const roleCounts = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
+
+    for (const { role } of validPlayers) {
+      const normalized = role?.trim().toUpperCase();
+      if (!roleCounts.hasOwnProperty(normalized)) {
+        throw new Error(`Invalid player role: ${normalized}`);
+      }
+      roleCounts[normalized]++;
+    }
+
+    if (roleCounts.GK !== 1) {
+      throw new Error("Team must have exactly 1 Goalkeeper");
+    }
+    if (roleCounts.DEF < 3 || roleCounts.DEF > 6) {
+      throw new Error("Team must have 3 to 6 Defenders");
+    }
+    if (roleCounts.MID < 2 || roleCounts.MID > 5) {
+      throw new Error("Team must have 2 to 5 Midfielders");
+    }
+    if (roleCounts.FWD < 1 || roleCounts.FWD > 3) {
+      throw new Error("Team must have 1 to 3 Forwards");
+    }
+
+    /* ================================
+       5️⃣ BUILD PLAYER ROLE MAP
+    ================================= */
+    const playerRoleMap = Object.fromEntries(
+      validPlayers.map(({ id, role }) => [id, role])
+    );
+
+    /* ================================
+       6️⃣ UPDATE TEAM NAME
+    ================================= */
     if (teamName) {
       await conn.query(
         `UPDATE user_teams SET team_name = ? WHERE id = ?`,
@@ -826,26 +896,65 @@ export const updateTeamService = async (
       );
     }
 
-    // 6️⃣ Delete old players
+    /* ================================
+       7️⃣ DELETE OLD PLAYERS
+    ================================= */
     await conn.query(
       `DELETE FROM user_team_players WHERE user_team_id = ?`,
       [teamId]
     );
 
-    // 7️⃣ Bulk insert
+    /* ================================
+       8️⃣ BULK INSERT NEW PLAYERS
+    ================================= */
     const values = uniquePlayers.map((pid) => [
       teamId,
       pid,
+      playerRoleMap[pid] ?? null,
       pid === captainId ? 1 : 0,
       pid === viceCaptainId ? 1 : 0,
     ]);
 
     await conn.query(
       `INSERT INTO user_team_players
-       (user_team_id, player_id, is_captain, is_vice_captain)
+         (user_team_id, player_id, role, is_captain, is_vice_captain)
        VALUES ?`,
       [values]
     );
+
+    /* ================================
+       9️⃣ UPDATE PLAYER PERCENTAGES
+    ================================= */
+    const [[{ totalTeams }]] = await conn.query(
+      `SELECT COUNT(*) as totalTeams FROM user_teams WHERE match_id = ?`,
+      [team.match_id]
+    );
+
+    if (totalTeams > 0) {
+      await conn.query(
+        `UPDATE players p
+         SET
+           selectpercent = ROUND(
+             (SELECT COUNT(*) FROM user_team_players utp
+              JOIN user_teams ut ON ut.id = utp.user_team_id
+              WHERE utp.player_id = p.id AND ut.match_id = ?) / ? * 100, 2),
+           captainper = ROUND(
+             (SELECT COUNT(*) FROM user_team_players utp
+              JOIN user_teams ut ON ut.id = utp.user_team_id
+              WHERE utp.player_id = p.id AND ut.match_id = ? AND utp.is_captain = 1) / ? * 100, 2),
+           vcper = ROUND(
+             (SELECT COUNT(*) FROM user_team_players utp
+              JOIN user_teams ut ON ut.id = utp.user_team_id
+              WHERE utp.player_id = p.id AND ut.match_id = ? AND utp.is_vice_captain = 1) / ? * 100, 2)
+         WHERE p.id IN (${placeholders})`,
+        [
+          team.match_id, totalTeams,
+          team.match_id, totalTeams,
+          team.match_id, totalTeams,
+          ...uniquePlayers,
+        ]
+      );
+    }
 
     await conn.commit();
     return { message: "Team updated successfully" };
