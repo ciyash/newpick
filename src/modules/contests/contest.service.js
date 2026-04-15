@@ -377,9 +377,11 @@ export const joinContestService = async (userId, contestId) => {
       `UPDATE contests SET total_joined = total_joined + 1 WHERE id = ?`,
       [contestId]
     );
-
-    /* ── 11. Referral bonus (first contest join only) ── */
-    await handleReferralBonus(conn, userId);
+  
+/* ── 11. Referral bonus (first PAID contest join only) ── */
+     if (entryFee > 0) {
+     await handleReferralBonus(conn, userId);
+     }
 
     await conn.commit();
 
