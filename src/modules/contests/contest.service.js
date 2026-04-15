@@ -159,6 +159,113 @@ export const getContestsService = async (matchId, userId) => {
   });
 };
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+
+const handleReferralBonus = async (conn, userId) => {
+
+  /* ─── 1️⃣ First contest join check ─── */
+  const [[{ contestCount }]] = await conn.query(
+    `SELECT COUNT(*) AS contestCount FROM contest_entries WHERE user_id = ?`,
+    [userId]
+  );
+
+  // First join kaadu — bonus ledu
+  if (contestCount !== 0) return;
+
+  /* ─── 2️⃣ Referral record check ─── */
+  const [[ref]] = await conn.query(
+    `SELECT * FROM referral_rewards WHERE referred_id = ? FOR UPDATE`,
+    [userId]
+  );
+
+  // Referral record ledu — bonus ledu
+  if (!ref) return;
+
+  /* ─── 3️⃣ Already bonus given check ─── */
+  if (ref.join_bonus_given === 1) return;
+
+  /* ─── 4️⃣ Company balance fetch ─── */
+  const [[coRow]] = await conn.query(
+    `SELECT closing_balance FROM wallet_transactions
+     WHERE closing_balance != 0
+     ORDER BY id DESC LIMIT 1`
+  );
+  let companyBalance = Number(coRow?.closing_balance || 0);
+
+  /* ─── 5️⃣ NEW USER ki +3 earnwallet ─── */
+  const [[newUserWallet]] = await conn.query(
+    `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
+    [userId]
+  );
+
+  const newUserOpen  = Number(newUserWallet?.earnwallet || 0);
+  const newUserClose = Number((newUserOpen + 3).toFixed(2));
+  const coOpen1      = companyBalance;
+  const coClose1     = Number((companyBalance - 3).toFixed(2));
+  companyBalance     = coClose1;
+
+  await conn.query(
+    `UPDATE wallets SET earnwallet = earnwallet + 3 WHERE user_id = ?`,
+    [userId]
+  );
+
+  await conn.query(
+    `INSERT INTO wallet_transactions
+       (user_id, wallettype, transtype, remark,
+        amount, useropeningbalance, userclosingbalance,
+        opening_balance, closing_balance)
+     VALUES (?, 'winning', 'credit', 'Referral join bonus',
+       3, ?, ?, ?, ?)`,
+    [userId, newUserOpen, newUserClose, coOpen1, coClose1]
+  );
+
+  /* ─── 6️⃣ REFERRER ki +5 (first) or +3 (rest) ─── */
+  const referrerId    = ref.referrer_id;
+  const referrerBonus = ref.first_bonus_given === 0 ? 5 : 3;
+
+  const [[referrerWallet]] = await conn.query(
+    `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
+    [referrerId]
+  );
+
+  const referrerOpen  = Number(referrerWallet?.earnwallet || 0);
+  const referrerClose = Number((referrerOpen + referrerBonus).toFixed(2));
+  const coOpen2       = companyBalance;
+  const coClose2      = Number((companyBalance - referrerBonus).toFixed(2));
+
+  await conn.query(
+    `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+    [referrerBonus, referrerId]
+  );
+
+  await conn.query(
+    `UPDATE users SET referral_bonus = referral_bonus + ? WHERE id = ?`,
+    [referrerBonus, referrerId]
+  );
+
+  await conn.query(
+    `INSERT INTO wallet_transactions
+       (user_id, wallettype, transtype, remark,
+        amount, useropeningbalance, userclosingbalance,
+        opening_balance, closing_balance)
+     VALUES (?, 'winning', 'credit', 'Referral reward',
+       ?, ?, ?, ?, ?)`,
+    [referrerId, referrerBonus, referrerOpen, referrerClose, coOpen2, coClose2]
+  );
+
+  /* ─── 7️⃣ Mark bonus as given ─── */
+  await conn.query(
+    `UPDATE referral_rewards
+     SET join_bonus_given = 1,
+         first_bonus_given = 1
+     WHERE id = ?`,
+    [ref.id]
+  );
+};  
+
 // ─────────────────────────────────────────────────────────────────────────────
 // JOIN CONTEST
 //
@@ -661,9 +768,7 @@ const [[match]] = await db.query(
 
 
 // ─────────────────────────────────────────────────────────────
-//  compareTeamService.js
-//  GET /leaderboard/:contest_id/compare?my_team_id=X&opp_team_id=Y
-// ─────────────────────────────────────────────────────────────
+
 
 /* ─── helper: fetch players + points for one team ─── */
 
@@ -1234,121 +1339,3 @@ export const getScoreBreakdownService = async (contestId, userTeamId, matchId) =
 
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-
-const handleReferralBonus = async (conn, userId) => {
-
-  /* ─── 1️⃣ First contest join check ─── */
-  const [[{ contestCount }]] = await conn.query(
-    `SELECT COUNT(*) AS contestCount FROM contest_entries WHERE user_id = ?`,
-    [userId]
-  );
-
-  // First contest join kaadu — bonus ledu
-  if (contestCount !== 0) return;
-
-  /* ─── 2️⃣ Referral record check ─── */
-  const [[ref]] = await conn.query(
-    `SELECT * FROM referral_rewards WHERE referred_id = ?`,
-    [userId]
-  );
-
-  // Referral ledu — bonus ledu
-  if (!ref) return;
-
-  /* ─── 3️⃣ Already bonus given check ─── */
-  if (ref.join_bonus_given === 1) return;
-
-  /* ─── 4️⃣ Named Lock ─── */
-  const [[lockResult]] = await conn.query(
-    `SELECT GET_LOCK('company_balance_lock', 10) AS locked`
-  );
-  if (!lockResult?.locked) throw new Error("Server busy, please try again");
-
-  try {
-
-    /* ─── 5️⃣ NEW USER ki +3 bonus ─── */
-    const [[newUserWallet]] = await conn.query(
-      `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
-      [userId]
-    );
-
-    const [[coRow]] = await conn.query(
-      `SELECT closing_balance FROM wallet_transactions
-       WHERE closing_balance != 0
-       ORDER BY id DESC LIMIT 1`
-    );
-    let companyBalance = Number(coRow?.closing_balance || 0);
-
-    const newUserOpen  = Number(newUserWallet?.earnwallet || 0);
-    const newUserClose = Number((newUserOpen + 3).toFixed(2));
-    const coOpen1      = companyBalance;
-    const coClose1     = Number((companyBalance - 3).toFixed(2));
-    companyBalance     = coClose1;
-
-    await conn.query(
-      `UPDATE wallets SET earnwallet = earnwallet + 3 WHERE user_id = ?`,
-      [userId]
-    );
-
-    await conn.query(
-      `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark,
-          amount, useropeningbalance, userclosingbalance,
-          opening_balance, closing_balance)
-       VALUES (?, 'winning', 'credit', 'Referral join bonus',
-         3, ?, ?, ?, ?)`,
-      [userId, newUserOpen, newUserClose, coOpen1, coClose1]
-    );
-
-    /* ─── 6️⃣ REFERRER ki +5 (first time) or +3 (rest) ─── */
-    const referrerId    = ref.referrer_id;
-    const referrerBonus = ref.first_bonus_given === 0 ? 5 : 3;
-
-    const [[referrerWallet]] = await conn.query(
-      `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
-      [referrerId]
-    );
-
-    const referrerOpen  = Number(referrerWallet?.earnwallet || 0);
-    const referrerClose = Number((referrerOpen + referrerBonus).toFixed(2));
-    const coOpen2       = companyBalance;
-    const coClose2      = Number((companyBalance - referrerBonus).toFixed(2));
-    companyBalance      = coClose2;
-
-    await conn.query(
-      `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
-      [referrerBonus, referrerId]
-    );
-
-    await conn.query(
-      `UPDATE users SET referral_bonus = referral_bonus + ? WHERE id = ?`,
-      [referrerBonus, referrerId]
-    );
-
-    await conn.query(
-      `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark,
-          amount, useropeningbalance, userclosingbalance,
-          opening_balance, closing_balance)
-       VALUES (?, 'winning', 'credit', 'Referral reward',
-         ?, ?, ?, ?, ?)`,
-      [referrerId, referrerBonus, referrerOpen, referrerClose, coOpen2, coClose2]
-    );
-
-    /* ─── 7️⃣ Mark bonuses as given ─── */
-    await conn.query(
-      `UPDATE referral_rewards
-       SET join_bonus_given = 1,
-           first_bonus_given = 1
-       WHERE id = ?`,
-      [ref.id]
-    );
-
-  } finally {
-    try {
-      await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
-    } catch (_) {}
-  }
-};

@@ -7,6 +7,84 @@ import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
 import { sendOtpEmail } from '../../utils/send.otp.mails.js';
 
 
+//* =================== ADMIN SERVICES =================== */
+
+
+/* ================= ADMIN LOGIN ========================= */
+
+const MAX_FAILED_ATTEMPTS = 5;
+
+export const adminLoginService = async ({ email, password }, ipAddress) => {
+
+  const [rows] = await db.query(
+    "SELECT * FROM admin WHERE email = ?", [email]
+  );
+  const admin = rows[0];
+
+  /* ─── Admin Not Found ─── */
+  if (!admin) {
+    await db.query(
+      `INSERT INTO admin_logs (email, action, reason, ip_address)
+       VALUES (?, 'LOGIN_FAILED', 'EMAIL_NOT_FOUND', ?)`,
+      [email, ipAddress]
+    );
+    throw new Error("Invalid credentials");
+  }
+
+  /* ─── Inactive Account ─── */
+  if (admin.status !== "active") {
+    await db.query(
+      `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
+       VALUES (?, ?, 'LOGIN_FAILED', 'ACCOUNT_INACTIVE', ?)`,
+      [admin.id, admin.email, ipAddress]
+    );
+    throw new Error("Account is inactive");
+  }
+
+  /* ─── Password Check ─── */
+  const isMatch = await bcrypt.compare(password, admin.password_hash);
+
+  if (!isMatch) {
+
+    const newFailedAttempts = admin.failed_attempts + 1;
+
+    await db.query(
+      `UPDATE admin
+       SET failed_attempts = ?
+       ${newFailedAttempts >= MAX_FAILED_ATTEMPTS ? ", status = 'inactive'" : ""}
+       WHERE id = ?`,
+      [newFailedAttempts, admin.id]
+    );
+
+    await db.query(
+      `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
+       VALUES (?, ?, 'LOGIN_FAILED', 'INVALID_PASSWORD', ?)`,
+      [admin.id, admin.email, ipAddress]
+    );
+
+    throw new Error("Invalid credentials");
+  }
+
+  /* ─── Success ─── */
+  await db.query(
+    `UPDATE admin SET failed_attempts = 0, last_login = NOW() WHERE id = ?`,
+    [admin.id]
+  );
+
+  await db.query(
+    `INSERT INTO admin_logs (admin_id, email, action, ip_address)
+     VALUES (?, ?, 'LOGIN_SUCCESS', ?)`,
+    [admin.id, admin.email, ipAddress]
+  );
+
+  const { password_hash, ...safeAdmin } = admin;
+  return safeAdmin;
+};
+
+
+//====================================================================
+
+
 /* ================= PAUSE PLANS ================= */
 
 const PAUSE_PLANS = {
@@ -122,7 +200,6 @@ export const requestSignupOtpService = async (data) => {
 /* ================= VERIFY SIGNUP OTP ================= */
 
 const JOINING_BONUS = 5;
-const REFERRAL_SIGNUP_BONUS = 3;
 const MAX_USERCODE_RETRIES = 10;
 
 
@@ -292,76 +369,6 @@ export const pauseAccountService = async (userId, durationKey) => {
   return { status: "paused", pauseTill: end };
 };
 
-/* ================= ADMIN LOGIN ========================= */
-
-const MAX_FAILED_ATTEMPTS = 5;
-
-export const adminLoginService = async ({ email, password }, ipAddress) => {
-
-  const [rows] = await db.query(
-    "SELECT * FROM admin WHERE email = ?", [email]
-  );
-  const admin = rows[0];
-
-  /* ─── Admin Not Found ─── */
-  if (!admin) {
-    await db.query(
-      `INSERT INTO admin_logs (email, action, reason, ip_address)
-       VALUES (?, 'LOGIN_FAILED', 'EMAIL_NOT_FOUND', ?)`,
-      [email, ipAddress]
-    );
-    throw new Error("Invalid credentials");
-  }
-
-  /* ─── Inactive Account ─── */
-  if (admin.status !== "active") {
-    await db.query(
-      `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
-       VALUES (?, ?, 'LOGIN_FAILED', 'ACCOUNT_INACTIVE', ?)`,
-      [admin.id, admin.email, ipAddress]
-    );
-    throw new Error("Account is inactive");
-  }
-
-  /* ─── Password Check ─── */
-  const isMatch = await bcrypt.compare(password, admin.password_hash);
-
-  if (!isMatch) {
-
-    const newFailedAttempts = admin.failed_attempts + 1;
-
-    await db.query(
-      `UPDATE admin
-       SET failed_attempts = ?
-       ${newFailedAttempts >= MAX_FAILED_ATTEMPTS ? ", status = 'inactive'" : ""}
-       WHERE id = ?`,
-      [newFailedAttempts, admin.id]
-    );
-
-    await db.query(
-      `INSERT INTO admin_logs (admin_id, email, action, reason, ip_address)
-       VALUES (?, ?, 'LOGIN_FAILED', 'INVALID_PASSWORD', ?)`,
-      [admin.id, admin.email, ipAddress]
-    );
-
-    throw new Error("Invalid credentials");
-  }
-
-  /* ─── Success ─── */
-  await db.query(
-    `UPDATE admin SET failed_attempts = 0, last_login = NOW() WHERE id = ?`,
-    [admin.id]
-  );
-
-  await db.query(
-    `INSERT INTO admin_logs (admin_id, email, action, ip_address)
-     VALUES (?, ?, 'LOGIN_SUCCESS', ?)`,
-    [admin.id, admin.email, ipAddress]
-  );
-
-  const { password_hash, ...safeAdmin } = admin;
-  return safeAdmin;
-};
 
 /* ================= UPDATE PROFILE ================= */
 
@@ -690,6 +697,7 @@ export const verifyNewContactService = async (userId, otp) => {
   };
 };
 
+
 export const signupService = async ({ mobile, otp }) => {
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
@@ -710,16 +718,16 @@ export const signupService = async ({ mobile, otp }) => {
     throw new Error("Invalid signup session data");
   }
 
-  const name = String(signupData.name || "").trim().slice(0, 100);
-  const email = String(signupData.email || "").trim().toLowerCase().slice(0, 200);
-  const region = String(signupData.region || "").trim().slice(0, 100);
-  const nickname = signupData.nickname ? String(signupData.nickname).trim().slice(0, 50) : null;
-  const address = signupData.address ? String(signupData.address).trim().slice(0, 300) : null;
-  const dob = signupData.dob ? String(signupData.dob).trim() : null;
-  const referralid = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20) : null;
+  const name               = String(signupData.name      || "").trim().slice(0, 100);
+  const email              = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
+  const region             = String(signupData.region     || "").trim().slice(0, 100);
+  const nickname           = signupData.nickname   ? String(signupData.nickname).trim().slice(0, 50)  : null;
+  const address            = signupData.address    ? String(signupData.address).trim().slice(0, 300)  : null;
+  const dob                = signupData.dob        ? String(signupData.dob).trim()                    : null;
+  const referralid         = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20): null;
   const categoryNormalized = String(signupData.category || "").toLowerCase().trim();
 
-  if (!name) throw new Error("Invalid signup session: missing name");
+  if (!name)  throw new Error("Invalid signup session: missing name");
   if (!email) throw new Error("Invalid signup session: missing email");
 
   /* ─── 3️⃣ Transaction ─── */
@@ -743,12 +751,10 @@ export const signupService = async ({ mobile, otp }) => {
         throw new Error("Failed to generate unique usercode, please try again");
       }
       usercode = generateUserCode();
-
       const [[exists]] = await conn.query(
         "SELECT id FROM users WHERE usercode = ?",
         [usercode]
       );
-
       if (!exists) break;
       retries++;
     }
@@ -798,20 +804,18 @@ export const signupService = async ({ mobile, otp }) => {
       `SELECT closing_balance
        FROM wallet_transactions
        WHERE closing_balance != 0
-       ORDER BY id DESC
-       LIMIT 1
-       FOR UPDATE`
+       ORDER BY id DESC LIMIT 1 FOR UPDATE`
     );
     let companyBalance = Number(companyLast?.closing_balance || 0);
-    let userBalance = 0;
+    let userBalance    = 0;
 
     /* ─── 🔟 Joining Bonus ─── */
     {
-      const uOpen = userBalance;
+      const uOpen  = userBalance;
       const uClose = Number((userBalance + JOINING_BONUS).toFixed(2));
-      userBalance = uClose;
+      userBalance  = uClose;
 
-      const coOpen = companyBalance;
+      const coOpen  = companyBalance;
       const coClose = Number((companyBalance - JOINING_BONUS).toFixed(2));
       companyBalance = coClose;
 
@@ -830,14 +834,29 @@ export const signupService = async ({ mobile, otp }) => {
       );
     }
 
+    /* ─── 1️⃣1️⃣ Referral Record Insert ✅ (bonus ledu — only record) ─── */
+    if (referralid) {
+      const [[referrer]] = await conn.query(
+        `SELECT id FROM users WHERE usercode = ? FOR UPDATE`,
+        [referralid]
+      );
 
+      if (referrer && referrer.id !== userId) {
+        await conn.query(
+          `INSERT IGNORE INTO referral_rewards
+             (referrer_id, referred_id, join_bonus_given, first_bonus_given)
+           VALUES (?, ?, 0, 0)`,
+          [referrer.id, userId]
+        );
+      }
+    }
 
     await conn.commit();
 
     /* ─── Release Lock ─── */
     try {
       await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
-    } catch (_) { }
+    } catch (_) {}
 
     /* ─── Cleanup Redis ─── */
     await Promise.all([
@@ -847,26 +866,17 @@ export const signupService = async ({ mobile, otp }) => {
     ]);
 
     /* ─── Send Verification Email (background) ─── */
-    const emailSnapshot = email;       // ✅ capture before async boundary
-    const userIdSnapshot = userId;     // ✅ capture before async boundary
+    const emailSnapshot  = email;
+    const userIdSnapshot = userId;
 
     setImmediate(async () => {
       try {
         const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
-
-        console.log("📧 Sending verification email to:", emailSnapshot);
-        console.log("🔍 BACKEND_URL:", BACKEND);
-
         const emailToken = crypto.randomBytes(32).toString("hex");
-
         await redis.set(`EMAIL_VERIFY:${emailToken}`, userIdSnapshot, { ex: 86400 });
-
         const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
-        console.log("🔗 Verify link:", verifyLink);
-
         await sendVerificationEmail(emailSnapshot, verifyLink);
         console.log("✅ Verification email sent to:", emailSnapshot);
-
       } catch (emailErr) {
         console.error("❌ Email send failed:", emailErr.message);
       }
@@ -879,15 +889,11 @@ export const signupService = async ({ mobile, otp }) => {
     };
 
   } catch (err) {
-
     await conn.rollback();
-
     try {
       await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
-    } catch (_) { }
-
+    } catch (_) {}
     throw err;
-
   } finally {
     conn.release();
   }
