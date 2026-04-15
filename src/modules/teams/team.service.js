@@ -818,48 +818,158 @@ export const updateTeamService = async (
     if (!team) throw new Error("Team not found or not yours");
 
     /* ================================
-       2️⃣ DUPLICATE PLAYERS CHECK
+       2️⃣ UPDATE TEAM NAME (if provided)
     ================================= */
+    if (teamName) {
+      await conn.query(
+        `UPDATE user_teams SET team_name = ? WHERE id = ?`,
+        [teamName, teamId]
+      );
+    }
+
+    /* ================================
+       3️⃣ ONLY CAPTAIN/VC UPDATE
+         (no players sent)
+    ================================= */
+    const onlyCapUpdate = !players || players.length === 0;
+
+    if (onlyCapUpdate && (captainId || viceCaptainId)) {
+
+      // Fetch existing player IDs
+      const [existingPlayers] = await conn.query(
+        `SELECT player_id FROM user_team_players WHERE user_team_id = ?`,
+        [teamId]
+      );
+      const existingPlayerIds = existingPlayers.map((p) => p.player_id);
+
+      // Fill missing captain/VC from existing data
+      let finalCaptainId = captainId;
+      let finalViceCaptainId = viceCaptainId;
+
+      if (!finalCaptainId || !finalViceCaptainId) {
+        const [existingCaptains] = await conn.query(
+          `SELECT player_id, is_captain, is_vice_captain
+           FROM user_team_players
+           WHERE user_team_id = ? AND (is_captain = 1 OR is_vice_captain = 1)`,
+          [teamId]
+        );
+        for (const row of existingCaptains) {
+          if (row.is_captain === 1 && !finalCaptainId) finalCaptainId = row.player_id;
+          if (row.is_vice_captain === 1 && !finalViceCaptainId) finalViceCaptainId = row.player_id;
+        }
+      }
+
+      // Validate captain/VC are in existing players
+      if (
+        !existingPlayerIds.includes(finalCaptainId) ||
+        !existingPlayerIds.includes(finalViceCaptainId)
+      ) {
+        throw new Error("Captain/VC must be in selected players");
+      }
+
+      if (finalCaptainId === finalViceCaptainId) {
+        throw new Error("Captain and Vice Captain cannot be same");
+      }
+
+      // Reset all flags first
+      await conn.query(
+        `UPDATE user_team_players
+         SET is_captain = 0, is_vice_captain = 0
+         WHERE user_team_id = ?`,
+        [teamId]
+      );
+
+      // Set new captain
+      await conn.query(
+        `UPDATE user_team_players
+         SET is_captain = 1
+         WHERE user_team_id = ? AND player_id = ?`,
+        [teamId, finalCaptainId]
+      );
+
+      // Set new vice captain
+      await conn.query(
+        `UPDATE user_team_players
+         SET is_vice_captain = 1
+         WHERE user_team_id = ? AND player_id = ?`,
+        [teamId, finalViceCaptainId]
+      );
+
+      // Update captain/VC percentages only
+      const [[{ totalTeams }]] = await conn.query(
+        `SELECT COUNT(*) as totalTeams FROM user_teams WHERE match_id = ?`,
+        [team.match_id]
+      );
+
+      if (totalTeams > 0) {
+        await conn.query(
+          `UPDATE players p
+           SET
+             captainper = ROUND(
+               (SELECT COUNT(*) FROM user_team_players utp
+                JOIN user_teams ut ON ut.id = utp.user_team_id
+                WHERE utp.player_id = p.id AND ut.match_id = ? AND utp.is_captain = 1
+               ) / ? * 100, 2),
+             vcper = ROUND(
+               (SELECT COUNT(*) FROM user_team_players utp
+                JOIN user_teams ut ON ut.id = utp.user_team_id
+                WHERE utp.player_id = p.id AND ut.match_id = ? AND utp.is_vice_captain = 1
+               ) / ? * 100, 2)
+           WHERE p.id IN (
+             SELECT player_id FROM user_team_players WHERE user_team_id = ?
+           )`,
+          [
+            team.match_id, totalTeams,
+            team.match_id, totalTeams,
+            teamId,
+          ]
+        );
+      }
+
+      await conn.commit();
+      return { message: "Team updated successfully" };
+    }
+
+    /* ================================
+       4️⃣ FULL PLAYERS UPDATE
+    ================================= */
+
+    // Duplicate check
     const uniquePlayers = [...new Set(players)];
     if (uniquePlayers.length !== 11) {
       throw new Error("Team must have exactly 11 unique players");
     }
 
-    /* ================================
-       3️⃣ FETCH EXISTING CAPTAIN/VC
-         (DELETE ki MUNDU fetch cheyyi)
-    ================================= */
+    // Resolve final captain/VC
     let finalCaptainId = captainId;
     let finalViceCaptainId = viceCaptainId;
 
-    if (!captainId || !viceCaptainId) {
+    if (!finalCaptainId || !finalViceCaptainId) {
       const [existingCaptains] = await conn.query(
         `SELECT player_id, is_captain, is_vice_captain
          FROM user_team_players
          WHERE user_team_id = ? AND (is_captain = 1 OR is_vice_captain = 1)`,
         [teamId]
       );
-
       for (const row of existingCaptains) {
-        if (row.is_captain === 1) finalCaptainId = row.player_id;
-        if (row.is_vice_captain === 1) finalViceCaptainId = row.player_id;
+        if (row.is_captain === 1 && !finalCaptainId) finalCaptainId = row.player_id;
+        if (row.is_vice_captain === 1 && !finalViceCaptainId) finalViceCaptainId = row.player_id;
       }
     }
 
-    /* ================================
-       4️⃣ CAPTAIN / VC VALIDATION
-    ================================= */
-    if (!uniquePlayers.includes(finalCaptainId) || !uniquePlayers.includes(finalViceCaptainId)) {
+    // Captain/VC must be in new players list
+    if (
+      !uniquePlayers.includes(finalCaptainId) ||
+      !uniquePlayers.includes(finalViceCaptainId)
+    ) {
       throw new Error("Captain/VC must be in selected players");
     }
+
     if (finalCaptainId === finalViceCaptainId) {
       throw new Error("Captain and Vice Captain cannot be same");
     }
 
-    /* ================================
-       5️⃣ PLAYERS EXIST CHECK
-         (match_players join ledu — not needed for update)
-    ================================= */
+    // Validate players exist in DB
     const placeholders = uniquePlayers.map(() => "?").join(", ");
 
     const [validPlayers] = await conn.query(
@@ -873,9 +983,7 @@ export const updateTeamService = async (
       throw new Error("Some players do not exist");
     }
 
-    /* ================================
-       5️⃣b ROLE COUNT VALIDATION
-    ================================= */
+    // Role count validation
     const roleCounts = { GK: 0, DEF: 0, MID: 0, FWD: 0 };
 
     for (const { role } of validPlayers) {
@@ -891,34 +999,18 @@ export const updateTeamService = async (
     if (roleCounts.MID < 2 || roleCounts.MID > 5) throw new Error("Team must have 2 to 5 Midfielders");
     if (roleCounts.FWD < 1 || roleCounts.FWD > 3) throw new Error("Team must have 1 to 3 Forwards");
 
-    /* ================================
-       6️⃣ BUILD PLAYER ROLE MAP
-    ================================= */
+    // Build role map
     const playerRoleMap = Object.fromEntries(
       validPlayers.map(({ id, role }) => [id, role])
     );
 
-    /* ================================
-       7️⃣ UPDATE TEAM NAME
-    ================================= */
-    if (teamName) {
-      await conn.query(
-        `UPDATE user_teams SET team_name = ? WHERE id = ?`,
-        [teamName, teamId]
-      );
-    }
-
-    /* ================================
-       8️⃣ DELETE OLD PLAYERS
-    ================================= */
+    // Delete old players
     await conn.query(
       `DELETE FROM user_team_players WHERE user_team_id = ?`,
       [teamId]
     );
 
-    /* ================================
-       9️⃣ BULK INSERT NEW PLAYERS
-    ================================= */
+    // Bulk insert new players
     const values = uniquePlayers.map((pid) => [
       teamId,
       pid,
@@ -935,7 +1027,7 @@ export const updateTeamService = async (
     );
 
     /* ================================
-       🔟 UPDATE PLAYER PERCENTAGES
+       5️⃣ UPDATE ALL PERCENTAGES
     ================================= */
     const [[{ totalTeams }]] = await conn.query(
       `SELECT COUNT(*) as totalTeams FROM user_teams WHERE match_id = ?`,
