@@ -21,7 +21,7 @@ router.post("/create", createTeamRateLimit, createTeam);
 
 router.post("/generateTeams", createTeamRateLimit, generateTeams);
 
-router.put("/update-team/:teamId", updateTeamRateLimit, updateTeam);
+router.patch("/update-team/:teamId", updateTeamRateLimit, updateTeam);
 
 router.get("/user-my-teams/:matchId", getMyTeams);
 
