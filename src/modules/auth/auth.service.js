@@ -297,8 +297,8 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
 
 
   /* ─── Email Verification Check ─── */
-  // if (user.email_verify !== 1)
-  //   throw new Error("Please verify your email before login");
+  if (user.email_verify !== 1)
+    throw new Error("Please verify your email before login");
 
 
   /* ─── Age Verification Check ─── */
@@ -415,24 +415,26 @@ export const updateProfileService = async (userId, data) => {
 //   6. first_bonus_given + join_bonus_given both marked on completion
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+
 export const applyReferralContestBonus = async (userId, contestId, ip, device, conn) => {
 
-  // ── 1. First contest join check — use same conn so count includes current insert ──
+  // ── 1. First contest join check ──
   const [[{ contestCount }]] = await conn.query(
     `SELECT COUNT(*) AS contestCount FROM contest_entries WHERE user_id = ?`,
     [userId]
   );
-  if (contestCount !== 1) return; // not first join — skip
+  if (contestCount !== 1) return;
 
-  // ── 2. Fetch referral record with lock — prevents race condition ──
+  // ── 2. Fetch referral record with lock ──
   const [[ref]] = await conn.query(
     `SELECT id, referrer_id, first_bonus_given, join_bonus_given
      FROM referral_rewards
      WHERE referred_id = ? FOR UPDATE`,
     [userId]
   );
-  if (!ref)                      return; // no referral record
-  if (ref.join_bonus_given === 1) return; // already given — idempotency guard
+  if (!ref)                       return;
+  if (ref.join_bonus_given === 1) return;
 
   const referrerId = ref.referrer_id;
 
@@ -443,25 +445,25 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device, c
   const REFERRED_BONUS = Number(bonusConfig?.refereebonus       || 3);
   const FIRST_BONUS    = Number(bonusConfig?.firstreferalbonus  || 5);
   const NEXT_BONUS     = Number(bonusConfig?.secondreferalbonus || 3);
-  const [[{ prevCount }]] = await conn.query(
-  `SELECT COUNT(*) AS prevCount 
-   FROM referral_rewards 
-   WHERE referrer_id = ? AND join_bonus_given = 1`,
-  [referrerId]
-);
-const REFERRER_BONUS = prevCount === 0 ? FIRST_BONUS : NEXT_BONUS;
- 
 
-  // ── 4. Credit referred user → earnwallet ──
+  const [[{ prevCount }]] = await conn.query(
+    `SELECT COUNT(*) AS prevCount
+     FROM referral_rewards
+     WHERE referrer_id = ? AND join_bonus_given = 1`,
+    [referrerId]
+  );
+  const REFERRER_BONUS = prevCount === 0 ? FIRST_BONUS : NEXT_BONUS;
+
+  // ── 4. Credit referred user → bonusamount (bonus wallet) ──
   const [[userWallet]] = await conn.query(
-    `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
+    `SELECT bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
     [userId]
   );
-  const newUserOpen  = Number(userWallet.earnwallet);
+  const newUserOpen  = Number(userWallet.bonusamount);
   const newUserClose = Number((newUserOpen + REFERRED_BONUS).toFixed(2));
 
   await conn.query(
-    `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+    `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
     [REFERRED_BONUS, userId]
   );
 
@@ -470,25 +472,24 @@ const REFERRER_BONUS = prevCount === 0 ? FIRST_BONUS : NEXT_BONUS;
        (user_id, wallettype, transtype, remark,
         amount, useropeningbalance, userclosingbalance,
         ip_address, device)
-     VALUES (?, 'winning', 'credit', 'Referral join bonus',
+     VALUES (?, 'bonus', 'credit', 'Referral join bonus',
         ?, ?, ?, ?, ?)`,
     [userId, REFERRED_BONUS, newUserOpen, newUserClose, ip || null, device || null]
   );
 
-  // ── 5. Credit referrer → earnwallet ──
+  // ── 5. Credit referrer → bonusamount (bonus wallet) ──
   const [[referrerWallet]] = await conn.query(
-    `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
+    `SELECT bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
     [referrerId]
   );
-  const referrerOpen  = Number(referrerWallet.earnwallet);
+  const referrerOpen  = Number(referrerWallet.bonusamount);
   const referrerClose = Number((referrerOpen + REFERRER_BONUS).toFixed(2));
 
   await conn.query(
-    `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+    `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
     [REFERRER_BONUS, referrerId]
   );
 
-  // Update referral_bonus column on users table
   await conn.query(
     `UPDATE users SET referral_bonus = referral_bonus + ? WHERE id = ?`,
     [REFERRER_BONUS, referrerId]
@@ -499,12 +500,12 @@ const REFERRER_BONUS = prevCount === 0 ? FIRST_BONUS : NEXT_BONUS;
        (user_id, wallettype, transtype, remark,
         amount, useropeningbalance, userclosingbalance,
         ip_address, device)
-     VALUES (?, 'winning', 'credit', 'Referral reward',
+     VALUES (?, 'bonus', 'credit', 'Referral reward',
         ?, ?, ?, ?, ?)`,
     [referrerId, REFERRER_BONUS, referrerOpen, referrerClose, ip || null, device || null]
   );
 
-  // ── 6. Mark bonus as given — both flags ──
+  // ── 6. Mark bonus as given ──
   await conn.query(
     `UPDATE referral_rewards
      SET join_bonus_given  = 1,
