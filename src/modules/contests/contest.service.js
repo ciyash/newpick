@@ -332,10 +332,12 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
 // GET MY CONTESTS
 // ─────────────────────────────────────────────────────────────────────────────
 
+
 export const getMyContestsService = async (userId, matchId) => {
   if (!userId)  throw new Error("userId is required");
   if (!matchId) throw new Error("matchId is required");
 
+  // ── 1. Match info ──
   const [[match]] = await db.query(
     `SELECT
        m.status, m.matchdate,
@@ -352,8 +354,11 @@ export const getMyContestsService = async (userId, matchId) => {
   if (!match) throw new Error("Match not found");
 
   const matchStatus  = match.status?.toUpperCase();
-  const showAllTeams = matchStatus === "LIVE" || matchStatus === "RESULT";
+  const isLive       = matchStatus === "LIVE";
+  const isResult     = matchStatus === "RESULT";
+  const showAllTeams = isLive || isResult;
 
+  // ── 2. Contests this user joined ──
   const [contestRows] = await db.query(
     `SELECT
        c.id                  AS contest_id,
@@ -381,11 +386,11 @@ export const getMyContestsService = async (userId, matchId) => {
      ORDER BY MAX(ce.id) DESC`,
     [userId, matchId]
   );
-
   if (!contestRows?.length) return [];
 
   const contestIds = contestRows.map(c => c.contest_id);
 
+  // ── 3. My entries ──
   const [myEntryRows] = await db.query(
     `SELECT
        ce.id AS entry_id, ce.contest_id, ce.user_team_id, ce.user_id,
@@ -396,6 +401,7 @@ export const getMyContestsService = async (userId, matchId) => {
     [userId, contestIds]
   );
 
+  // ── 4. Other entries (LIVE/RESULT only) ──
   let allEntryRows = [];
   if (showAllTeams) {
     const [rows] = await db.query(
@@ -412,6 +418,7 @@ export const getMyContestsService = async (userId, matchId) => {
     allEntryRows = rows;
   }
 
+  // ── 5. All team IDs ──
   const myTeamIds    = [...new Set(myEntryRows.map(e => e.user_team_id).filter(Boolean))];
   const otherTeamIds = showAllTeams
     ? [...new Set(allEntryRows.map(e => e.user_team_id).filter(Boolean))]
@@ -421,40 +428,61 @@ export const getMyContestsService = async (userId, matchId) => {
   let teamsMap = {};
 
   if (allTeamIds.length > 0) {
+    // ── 6. Team players WITH live/final points from player_match_stats ──
     const [teamRows] = await db.query(
       `SELECT
          ut.id               AS team_id,
          ut.user_id          AS team_owner_id,
          ut.team_name, ut.team_rank, ut.locked, ut.created_at,
          utp.id              AS player_entry_id,
-         utp.player_id, utp.is_captain, utp.is_vice_captain,
-         utp.role, utp.is_substitude,
+         utp.player_id,
+         utp.is_captain,
+         utp.is_vice_captain,
+         utp.role,
+         utp.is_substitude,
          p.name              AS player_name,
          p.playerimage       AS player_image,
-         p.position, p.playercredits,
-         p.points            AS player_points,
-         p.flag_image, p.country,
-         t.short_name        AS real_team_short_name
+         p.position,
+         p.playercredits,
+         p.flag_image,
+         p.country,
+         t.short_name        AS real_team_short_name,
+         COALESCE(pms.fantasy_points, 0) AS fantasy_points
        FROM user_teams ut
        LEFT JOIN user_team_players utp ON utp.user_team_id = ut.id
        LEFT JOIN players p             ON p.id = utp.player_id
        LEFT JOIN teams   t             ON t.id = p.team_id
+       LEFT JOIN player_match_stats pms
+              ON pms.player_id = utp.player_id
+             AND pms.match_id  = ?
        WHERE ut.id IN (?)`,
-      [allTeamIds]
+      [matchId, allTeamIds]
     );
 
     teamRows.forEach(row => {
       if (!teamsMap[row.team_id]) {
         teamsMap[row.team_id] = {
-          teamId: row.team_id, teamOwnerId: row.team_owner_id,
-          teamName: row.team_name || null, teamRank: row.team_rank || null,
-          locked: row.locked === 1, createdAt: row.created_at || null,
-          totalPoints: 0, totalCredits: 0, creditsLeft: 100, players: [],
+          teamId:       row.team_id,
+          teamOwnerId:  row.team_owner_id,
+          teamName:     row.team_name  || null,
+          teamRank:     row.team_rank  || null,
+          locked:       row.locked === 1,
+          createdAt:    row.created_at || null,
+          totalPoints:  0,
+          totalCredits: 0,
+          creditsLeft:  100,
+          players:      [],
         };
       }
+
       if (row.player_entry_id) {
-        const credits = parseFloat(row.playercredits) || 0;
-        const points  = parseFloat(row.player_points)  || 0;
+        const credits    = parseFloat(row.playercredits)  || 0;
+        const basePoints = parseFloat(row.fantasy_points) || 0;
+
+        // Captain ×2, VC ×1.5 for team total
+        const multiplier    = row.is_captain ? 2 : row.is_vice_captain ? 1.5 : 1;
+        const effectivePts  = parseFloat((basePoints * multiplier).toFixed(2));
+
         teamsMap[row.team_id].players.push({
           playerEntryId:     row.player_entry_id,
           playerId:          row.player_id,
@@ -469,9 +497,12 @@ export const getMyContestsService = async (userId, matchId) => {
           isCaptain:         row.is_captain      === 1,
           isViceCaptain:     row.is_vice_captain === 1,
           isSubstitute:      row.is_substitude   === 1,
-          points,
+          basePoints,
+          effectivePoints:   effectivePts,
         });
-        teamsMap[row.team_id].totalPoints  += points;
+
+        // totalPoints = sum of effective points (with captain/VC multiplier)
+        teamsMap[row.team_id].totalPoints  += effectivePts;
         teamsMap[row.team_id].totalCredits += credits;
       }
     });
@@ -483,6 +514,7 @@ export const getMyContestsService = async (userId, matchId) => {
     });
   }
 
+  // ── 7. Group entries by contest ──
   const myEntriesByContest    = {};
   const otherEntriesByContest = {};
 
@@ -497,42 +529,55 @@ export const getMyContestsService = async (userId, matchId) => {
     });
   }
 
+  // ── 8. Format entry ──
   const formatEntry = (e, isOwn, contest) => {
     const team    = teamsMap[e.user_team_id] || null;
     let   players = team?.players || [];
 
+    // Hide captain/VC for opponents in UPCOMING
     if (!isOwn && !showAllTeams) {
       players = players.map(p => ({ ...p, isCaptain: false, isViceCaptain: false }));
     }
 
-    const prize = getPrizeForRank(
-      e.urank,
-      contest.prize_distribution ?? null,
-      contest.entry_fee,
-      contest.refund_winners,     // ← correct column
-      contest.refund_start_rank
-    );
+    // RESULT → use DB winning_amount (set by scoreContestService)
+    // LIVE   → 0 (not finalized yet)
+    // UPCOMING → 0
+    const winningAmount = isResult
+      ? (Number(e.winning_amount) || getPrizeForRank(
+           e.urank,
+           contest.prize_distribution ?? null,
+           contest.entry_fee,
+           contest.refund_winners,
+           contest.refund_start_rank
+         ))
+      : 0;
+
+    // Rank — RESULT: DB urank, LIVE: null (leaderboard handles live rank)
+    const rank = isResult ? (e.urank || null) : null;
 
     return {
-      entryId: e.entry_id, userId: e.user_id,
-      userName: e.user_name || null, userNickname: e.user_nickname || null,
-      isMyEntry: isOwn,
-      entryFee:      Number(e.entry_fee)      || 0,
-      urank:         e.urank                  || null,
-      winningAmount: Number(e.winning_amount) || prize,
-      entryStatus:   e.entry_status           || null,
-      joinedAt:      e.joined_at              || null,
-      teamId:        team?.teamId             || null,
-      teamName:      team?.teamName           || null,
-      teamRank:      team?.teamRank           || null,
-      locked:        team?.locked             ?? null,
-      totalPoints:   team?.totalPoints        || 0,
-      totalCredits:  team?.totalCredits       || 0,
-      creditsLeft:   team?.creditsLeft        ?? 100,
+      entryId:       e.entry_id,
+      userId:        e.user_id,
+      userName:      e.user_name     || null,
+      userNickname:  e.user_nickname || null,
+      isMyEntry:     isOwn,
+      entryFee:      Number(e.entry_fee) || 0,
+      rank,
+      totalPoints:   team?.totalPoints   || 0,
+      winningAmount,
+      entryStatus:   e.entry_status      || null,
+      joinedAt:      e.joined_at         || null,
+      teamId:        team?.teamId        || null,
+      teamName:      team?.teamName      || null,
+      teamRank:      team?.teamRank      || null,
+      locked:        team?.locked        ?? null,
+      totalCredits:  team?.totalCredits  || 0,
+      creditsLeft:   team?.creditsLeft   ?? 100,
       players,
     };
   };
 
+  // ── 9. Build response ──
   return contestRows.map(c => {
     const myEntries    = (myEntriesByContest[c.contest_id]    || []).map(e => formatEntry(e, true,  c));
     const otherEntries = (otherEntriesByContest[c.contest_id] || []).map(e => formatEntry(e, false, c));
