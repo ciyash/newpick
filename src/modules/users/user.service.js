@@ -160,7 +160,7 @@ export const getUserProfileService = async (userId) => {
 
     wallet: {
       depositWallet,
-      withdrawWallet,
+      withdrawWallet,  
       bonusWallet,
       totalWallet
     },

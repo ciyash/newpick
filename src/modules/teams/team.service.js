@@ -23,6 +23,12 @@ export const createTeamService = async (
 
     if (!match) throw new Error("Match not found");
 
+      // ✅ Block team creation if match is LIVE
+    const matchStatus = match.status?.trim().toLowerCase();
+    if (matchStatus === "live") {
+      throw new Error("Team creation is closed — match is live");
+    }
+
     // Uncomment to enforce match timing:
     // const now         = new Date();
     // const matchStatus = match.status?.trim().toLowerCase();
