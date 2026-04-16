@@ -55,16 +55,18 @@ export const getContestsByMatchId = async (req, res) => {
 // Body: { contestId, userTeamId, entryFee }
 // userTeamId can be a single ID or an array of IDs (multi-team join)
 // ─────────────────────────────────────────────────────────────────────────────
+
+
 export const joinContest = async (req, res) => {
   try {
-    const userId                        = req.user?.id;
-    const { contestId, userTeamId, entryFee } = req.body;
+    const userId = req.user?.id;
+    const { contestId, userTeamId } = req.body;  // entryFee తీసేశాం
 
-    if (!userId)     return res.status(401).json({ success: false, message: "Unauthorized" });
-    if (!contestId)  return res.status(400).json({ success: false, message: "contestId is required" });
+    if (!userId)    return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!contestId) return res.status(400).json({ success: false, message: "contestId is required" });
     if (!userTeamId) return res.status(400).json({ success: false, message: "userTeamId is required" });
 
-    const result = await joinContestService(userId, entryFee ?? 0, {
+    const result = await joinContestService(userId, { // entryFee parameter తీసేశాం
       contestId,
       userTeamId,
       ip:     req.ip,

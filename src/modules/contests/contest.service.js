@@ -166,7 +166,7 @@ export const getContestsService = async (matchId, userId) => {
 //   7. Calls applyReferralContestBonus with same conn (inside transaction)
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const joinContestService = async (userId, entryFee, { contestId, userTeamId, ip, device }) => {
+export const joinContestService = async (userId, { contestId, userTeamId, ip, device }) => {
   let conn;
   try {
     conn = await db.getConnection();
@@ -1033,4 +1033,4 @@ export const getScoreBreakdownService = async (contestId, userTeamId, matchId) =
   });
 
   return { success: true, userTeamId, teamTotal: result.teamTotal, players: playersWithInfo };
-};
+};  
