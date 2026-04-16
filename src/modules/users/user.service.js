@@ -7,34 +7,47 @@ export const getUserProfileService = async (userId) => {
 
   /* ================= USER DETAILS ================= */
 
+ 
   const [[user]] = await db.query(
-    `SELECT 
-        userid,
-        usercode,
-        name,
-        email,
-        mobile,
-        nickname,
-        region,
-        category,
-        dob,
-        created_at,
-        last_login,
-        current_login,
-        last_login_ip,
-        current_login_ip,
-        issofverify,
-        kyc_status,
-        mobile_verify,
-        email_verify
-     FROM users
-     WHERE id = ?`,
-    [userId]
-  );
+  `SELECT 
+      userid,
+      usercode,
+      name,
+      email,
+      mobile,
+      nickname,
+      region,
+      category,
+      dob,
+      created_at,
+      last_login,
+      current_login,
+      last_login_ip,
+      current_login_ip,
+      issofverify,
+      kyc_status,
+      mobile_verify,
+      email_verify,
+      account_status          -- ✅ ADD THIS
+   FROM users
+   WHERE id = ?`,
+  [userId]
+);
 
   if (!user) {
     throw new Error("User not found");
   }
+
+   /* ================= NICKNAME ================= */        // ✅ ADD HERE
+  const generateNickname = (fullName) => {
+    if (!fullName) return null;
+    const parts = fullName.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].slice(0, 8);
+    const firstName = parts[0];
+    const lastInitial = parts[parts.length - 1][0].toUpperCase();
+    return `${firstName} ${lastInitial}`;
+  };
+
 
   /* ================= WALLET =================== */
 
@@ -114,8 +127,10 @@ export const getUserProfileService = async (userId) => {
       name: user.name,
       email: user.email,
       mobile: user.mobile,
-      nickname: user.nickname || null,
+      nickname: user.nickname || generateNickname(user.name),
       region: user.region,
+      accountStatus: user.account_status,   // ✅ ADD THIS
+      isActive: user.account_status === "active",  // ✅ boolean convenience field
       category: user.category,
       dob: user.dob,
       memberSince: user.created_at,
