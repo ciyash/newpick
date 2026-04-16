@@ -3211,3 +3211,262 @@ export const getWithdrawDetailService = async (withdrawId) => {
   if (!row) throw new Error("Withdrawal not found");
   return { success: true, data: row };
 };
+
+//===============================================================================
+
+//chandra wrote by functions
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER — Prize for a given rank
+// ─────────────────────────────────────────────────────────────────────────────
+
+const getPrizeForRank = (rank, prizeDistribution, entryFee, totalWinners, refundStartRank) => {
+  if (!rank || rank <= 0) return 0;
+  if (rank > totalWinners) return 0;
+  if (rank >= refundStartRank) return Number(entryFee) || 0;
+  if (!prizeDistribution) return 0;
+
+  let tiers;
+  try {
+    tiers = typeof prizeDistribution === "string"
+      ? JSON.parse(prizeDistribution)
+      : prizeDistribution;
+  } catch {
+    return 0;
+  }
+
+  // Single rank tier (e.g. { rank: 1, amount: 4450 })
+  const single = tiers.find(t => t.rank === rank);
+  if (single) return Number(single.amount) || 0;
+
+  // Range tier (e.g. { rank_from: 11, rank_to: 20, amount: 700 })
+  const range = tiers.find(t => rank >= t.rank_from && rank <= t.rank_to);
+  return range ? Number(range.amount) || 0 : 0;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PROCESS MATCH RESULT
+// 1. Match status → RESULT
+// 2. All contests for that match → urank update
+// 3. winning_amount update
+// 4. wallet credit (earn wallet)
+// 5. Contest status → RESULT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const processMatchResultService = async (matchId) => {
+  const conn = await db.getConnection();
+
+  try {
+    await conn.beginTransaction();
+
+    // ── Validate match ────────────────────────────────────────────────────
+    const [[match]] = await conn.query(
+      `SELECT id, status FROM matches WHERE id = ?`,
+      [matchId]
+    );
+    if (!match) throw new Error("Match not found");
+    if (match.status === "RESULT") throw new Error("Match result already processed");
+
+    // ── Step 1: Match status → RESULT ─────────────────────────────────────
+    await conn.query(
+      `UPDATE matches SET status = 'RESULT' WHERE id = ?`,
+      [matchId]
+    );
+
+    // ── Step 2: Get all contests for this match ───────────────────────────
+    const [contests] = await conn.query(
+      `SELECT
+         id, entry_fee, prize_distribution,
+         total_winners, refund_start_rank, min_entries,
+         current_entries, is_guaranteed
+       FROM contest
+       WHERE match_id = ? AND status != 'CANCELLED'`,
+      [matchId]
+    );
+
+    if (!contests.length) {
+      await conn.commit();
+      return { success: true, message: "No contests found for this match" };
+    }
+
+    const summary = [];
+
+    for (const contest of contests) {
+      // ── Check min entries (guaranteed కాకపోతే refund) ──────────────────
+      const shouldRefund =
+        !contest.is_guaranteed &&
+        contest.current_entries < contest.min_entries;
+
+      if (shouldRefund) {
+        // Refund all entries
+        const [entries] = await conn.query(
+          `SELECT user_id, entry_fee FROM contest_entries WHERE contest_id = ?`,
+          [contest.id]
+        );
+
+        for (const entry of entries) {
+          if (parseFloat(entry.entry_fee) > 0) {
+            await conn.query(
+              `UPDATE wallets SET depositwallet = depositwallet + ? WHERE user_id = ?`,
+              [entry.entry_fee, entry.user_id]
+            );
+            await conn.query(
+              `INSERT INTO wallet_transactions
+                 (user_id, wallettype, transtype, amount, remark, reference_id)
+               VALUES (?, 'deposit', 'credit', ?, 'Contest refund - min entries not met', ?)`,
+              [entry.user_id, entry.entry_fee, contest.id]
+            );
+          }
+        }
+
+        await conn.query(
+          `UPDATE contest SET status = 'CANCELLED' WHERE id = ?`,
+          [contest.id]
+        );
+
+        summary.push({
+          contest_id: contest.id,
+          status: "CANCELLED",
+          reason: "Min entries not met",
+          refunded: entries.length,
+        });
+        continue;
+      }
+
+      // ── Step 3: Rank all entries by fantasy points ────────────────────
+      await conn.query(
+        `UPDATE contest_entries ce
+         JOIN (
+           SELECT
+             ce2.id,
+             RANK() OVER (
+               PARTITION BY ce2.contest_id
+               ORDER BY COALESCE(team_pts.total_points, 0) DESC
+             ) AS computed_rank
+           FROM contest_entries ce2
+           LEFT JOIN (
+             SELECT
+               utp.user_team_id,
+               SUM(pms.fantasy_points) AS total_points
+             FROM user_team_players utp
+             JOIN player_match_stats pms
+               ON pms.player_id = utp.player_id
+              AND pms.match_id  = ?
+             GROUP BY utp.user_team_id
+           ) team_pts ON team_pts.user_team_id = ce2.user_team_id
+           WHERE ce2.contest_id = ?
+         ) ranked ON ranked.id = ce.id
+         SET ce.urank = ranked.computed_rank
+         WHERE ce.contest_id = ?`,
+        [matchId, contest.id, contest.id]
+      );
+
+      // ── Step 4: Calculate & update winning_amount ─────────────────────
+      const [rankedEntries] = await conn.query(
+        `SELECT id, user_id, urank, entry_fee
+         FROM contest_entries
+         WHERE contest_id = ?`,
+        [contest.id]
+      );
+
+      let totalWinnersPaid = 0;
+
+      for (const entry of rankedEntries) {
+        const prize = getPrizeForRank(
+          entry.urank,
+          contest.prize_distribution,
+          contest.entry_fee,
+          contest.total_winners,
+          contest.refund_start_rank
+        );
+
+        if (prize > 0) {
+          // Update winning_amount
+          await conn.query(
+            `UPDATE contest_entries SET winning_amount = ?, status = 'won'
+             WHERE id = ?`,
+            [prize, entry.id]
+          );
+
+          // Credit earn wallet
+          await conn.query(
+            `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+            [prize, entry.user_id]
+          );
+
+          // Wallet transaction
+          await conn.query(
+            `INSERT INTO wallet_transactions
+               (user_id, wallettype, transtype, amount, remark, reference_id)
+             VALUES (?, 'winning', 'credit', ?, 'Contest winnings', ?)`,
+            [entry.user_id, prize, contest.id]
+          );
+
+          totalWinnersPaid++;
+        } else {
+          await conn.query(
+            `UPDATE contest_entries SET status = 'lost' WHERE id = ?`,
+            [entry.id]
+          );
+        }
+      }
+
+      // ── Step 5: Contest status → RESULT ──────────────────────────────
+      await conn.query(
+        `UPDATE contest SET status = 'RESULT' WHERE id = ?`,
+        [contest.id]
+      );
+
+      summary.push({
+        contest_id:          contest.id,
+        status:              "RESULT",
+        total_entries:       rankedEntries.length,
+        total_winners_paid:  totalWinnersPaid,
+      });
+    }
+
+    await conn.commit();
+
+    return {
+      success: true,
+      match_id: parseInt(matchId),
+      contests_processed: summary.length,
+      summary,
+    };
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SET MATCH LIVE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const setMatchLiveService = async (matchId) => {
+  const [[match]] = await db.query(
+    `SELECT id, status FROM matches WHERE id = ?`,
+    [matchId]
+  );
+  if (!match) throw new Error("Match not found");
+  if (match.status === "RESULT") throw new Error("Match already completed");
+  if (match.status === "LIVE") throw new Error("Match already live");
+
+  await db.query(
+    `UPDATE matches SET status = 'LIVE' WHERE id = ?`,
+    [matchId]
+  );
+
+  await db.query(
+    `UPDATE contest SET status = 'LIVE' WHERE match_id = ? AND status != 'CANCELLED'`,
+    [matchId]
+  );
+
+  return {
+    success: true,
+    message: `Match ${matchId} is now LIVE`,
+  };
+};

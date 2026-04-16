@@ -8,6 +8,7 @@ import {
   getMatches,
   syncPlayingXI,
   syncPlayerPoints,
+  getFixturesByDateRange,
    
 } from "./sportmonks.controller.js";
 
@@ -32,9 +33,6 @@ router.get("/matches/:seriesid",           getMatches);
 ══════════════════════════════════════════ */
 router.get("/sync-playingxi/:match_id",    syncPlayingXI);
 router.get("/sync-points/:match_id",       syncPlayerPoints);
-
-
-
-
+router.post("/fixtures", getFixturesByDateRange);
 
 export default router;    

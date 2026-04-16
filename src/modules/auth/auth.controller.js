@@ -274,6 +274,7 @@ export const verifyEmailLink = async (req, res) => {
     `);
 
   } catch (err) {
+    console.error("❌ Verify email error:", err.message); // ✅ err.message not err.log
     return res.status(400).send(`
       <html>
         <body style="font-family: sans-serif; text-align: center; padding: 50px;">
@@ -284,6 +285,7 @@ export const verifyEmailLink = async (req, res) => {
     `);
   }
 };
+
 
 export const requestContactChange = async (req, res) => {
   try {

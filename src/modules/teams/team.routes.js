@@ -21,7 +21,7 @@ router.post("/create", createTeamRateLimit, createTeam);
 
 router.post("/generateTeams", createTeamRateLimit, generateTeams);
 
-router.put("/update-team/:teamId", updateTeamRateLimit, updateTeam);
+router.patch("/update-team/:teamId", updateTeamRateLimit, updateTeam);
 
 router.get("/user-my-teams/:matchId", getMyTeams);
 
@@ -37,4 +37,4 @@ router.get("/playing-xi/:match_id", getPlayingXI);
 
 router.get("/team-comparison/:team_id", getTeamComparison);
 
-export default router;           
+export default router;                
