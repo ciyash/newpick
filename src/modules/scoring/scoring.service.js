@@ -1,50 +1,52 @@
-/**
- * PICK2WIN – Scoring Service
- * DB interaction: fetch stats → score → save results
- */
-
 import db from "../../config/db.js";
-import {  calculateTeamPoints,  rankTeams,  distributePrizes,
-} from "./scoring.engine.js";
+import { calculateTeamPoints, rankTeams } from "./scoring.engine.js";
+import { getPrizeForRank } from '../contests/contest.service.js'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FETCH PLAYER STATS FROM DB
+// Fix: all columns read from player_match_stats (not hardcoded 0)
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const fetchPlayerStats = async (matchId, playerIds) => {
-  if (!playerIds.length) return [];
+  if (!playerIds?.length) return [];
 
   const [rows] = await db.query(
     `SELECT
-       pms.player_id   AS playerId,
+       pms.player_id          AS playerId,
        p.position,
        pms.goals,
        pms.assists,
-       pms.yellow_cards  AS yellowCards,
-       pms.red_cards     AS redCards,
-       -- All missing stats default to 0 in the engine via (stats.x || 0)
-       0  AS started,
-       0  AS subAppearance,
-       0  AS playedFullMatch,
-       0  AS minutesPlayed,
-       0  AS shotsOnTarget,
-       0  AS keyPasses,
-       0  AS penaltiesEarned,
-       0  AS goalsConceded,
-       0  AS saves,
-       0  AS penaltySaves,
-       0  AS tacklesWon,
-       0  AS interceptions,
-       0  AS blockedShots,
-       0  AS ownGoals,
-       0  AS penaltiesMissed
+       pms.yellow_cards       AS yellowCards,
+       pms.red_cards          AS redCards,
+       pms.started,
+       pms.sub_appearance     AS subAppearance,
+       pms.played_full_match  AS playedFullMatch,
+       pms.minutes_played     AS minutesPlayed,
+       pms.shots_on_target    AS shotsOnTarget,
+       pms.key_passes         AS keyPasses,
+       pms.penalties_earned   AS penaltiesEarned,
+       pms.goals_conceded     AS goalsConceded,
+       pms.saves,
+       pms.penalty_saves      AS penaltySaves,
+       pms.tackles_won        AS tacklesWon,
+       pms.interceptions,
+       pms.blocked_shots      AS blockedShots,
+       pms.own_goals          AS ownGoals,
+       pms.penalties_missed   AS penaltiesMissed
      FROM player_match_stats pms
      JOIN players p ON p.id = pms.player_id
-     WHERE pms.match_id = ?
-     AND pms.player_id IN (?)`,
+     WHERE pms.match_id  = ?
+       AND pms.player_id IN (?)`,
     [matchId, playerIds]
   );
 
   return rows;
 };
-  
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FETCH CONTEST ENTRIES WITH TEAM PLAYERS
+// ─────────────────────────────────────────────────────────────────────────────
+
 const fetchContestEntries = async (contestId) => {
   const [entries] = await db.query(
     `SELECT
@@ -55,97 +57,123 @@ const fetchContestEntries = async (contestId) => {
      WHERE ce.contest_id = ?`,
     [contestId]
   );
-
   if (!entries.length) return [];
 
-  const teamIds = [...new Set(entries.map((e) => e.userTeamId))];
+  const teamIds = [...new Set(entries.map(e => e.userTeamId))];
 
   const [teamPlayers] = await db.query(
     `SELECT
-       utp.user_team_id  AS userTeamId,
-       utp.player_id     AS playerId,
-       utp.is_captain    AS isCaptain,
+       utp.user_team_id    AS userTeamId,
+       utp.player_id       AS playerId,
+       utp.is_captain      AS isCaptain,
        utp.is_vice_captain AS isViceCaptain
      FROM user_team_players utp
      WHERE utp.user_team_id IN (?)`,
     [teamIds]
   );
 
-  // Group players by team
   const teamPlayersMap = {};
-  teamPlayers.forEach((tp) => {
+  teamPlayers.forEach(tp => {
     if (!teamPlayersMap[tp.userTeamId]) teamPlayersMap[tp.userTeamId] = [];
     teamPlayersMap[tp.userTeamId].push(tp);
   });
 
-  return entries.map((e) => ({
+  return entries.map(e => ({
     ...e,
-    players: teamPlayersMap[e.userTeamId] || [],
-    captainId:    (teamPlayersMap[e.userTeamId] || []).find((p) => p.isCaptain)?.playerId    || null,
-    viceCaptainId:(teamPlayersMap[e.userTeamId] || []).find((p) => p.isViceCaptain)?.playerId || null,
+    players:       teamPlayersMap[e.userTeamId] || [],
+    captainId:     (teamPlayersMap[e.userTeamId] || []).find(p => p.isCaptain)?.playerId     || null,
+    viceCaptainId: (teamPlayersMap[e.userTeamId] || []).find(p => p.isViceCaptain)?.playerId || null,
   }));
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SAVE SCORE RESULTS TO DB
+// Updates contest_entries.urank + winning_amount
+// Updates user_team_players.points (per player final points)
+// Marks contest COMPLETED
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────
-// HELPER: Fetch prize pool for contest
-// ─────────────────────────────────────────────
-const fetchPrizePool = async (contestId) => {
-  const [[contest]] = await db.query(
-    `SELECT prize_distribution FROM contest WHERE id = ?`,
-    [contestId]
-  );
-
-  if (!contest) throw new Error("Contest not found");
-
-  let tiers = [];
+const saveScoreResults = async (contestId, rankedEntries) => {
+  const conn = await db.getConnection();
   try {
-    tiers = typeof contest.prize_distribution === "string"
-      ? JSON.parse(contest.prize_distribution)
-      : contest.prize_distribution || [];
-  } catch {
-    tiers = [];
-  }
+    await conn.beginTransaction();
 
-  // Convert tier array → { rank: amount } map
-  const prizePool = {};
-  tiers.forEach((tier) => {
-    for (let r = tier.rank_from; r <= tier.rank_to; r++) {
-      prizePool[r] = tier.amount || 0;
+    for (const entry of rankedEntries) {
+      await conn.query(
+        `UPDATE contest_entries
+         SET urank = ?, winning_amount = ?, status = 'completed'
+         WHERE id = ?`,
+        [entry.rank, entry.prizeWon || 0, entry.entryId]
+      );
+
+      for (const player of entry.players || []) {
+        await conn.query(
+          `UPDATE user_team_players
+           SET points = ?
+           WHERE user_team_id = ? AND player_id = ?`,
+          [player.finalPoints ?? 0, entry.userTeamId, player.playerId]
+        );
+      }
     }
-  });
 
-  return prizePool;
+    await conn.query(
+      `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
+      [contestId]
+    );
+
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 };
 
-
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // SCORE CONTEST SERVICE
-// Score all teams in a contest, rank, distribute prizes
-// ─────────────────────────────────────────────
+// Runs ONCE after match RESULT
+// 1. Score all teams (engine handles captain/VC/highest scorer/skill bonus)
+// 2. DENSE_RANK
+// 3. Tie-safe prize split using getPrizeForRank
+// 4. Save to DB
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const scoreContestService = async (contestId, matchId) => {
   if (!contestId) throw new Error("contestId is required");
   if (!matchId)   throw new Error("matchId is required");
 
-  // 1. Fetch all entries
+  // ── Already completed? ──
+  const [[contest]] = await db.query(
+    `SELECT id, status, entry_fee, prize_distribution,
+            refund_winners, refund_start_rank
+     FROM contest WHERE id = ?`,
+    [contestId]
+  );
+  if (!contest) throw new Error(`Contest ${contestId} not found`);
+  if (contest.status === "COMPLETED") {
+    return { success: true, message: "Already scored", contestId, totalEntries: 0 };
+  }
+
+  // ── 1. Fetch entries ──
   const entries = await fetchContestEntries(contestId);
   if (!entries.length) throw new Error("No entries found for this contest");
 
-  // 2. Collect all unique playerIds
+  // ── 2. All unique player IDs ──
   const allPlayerIds = [...new Set(
-    entries.flatMap((e) => e.players.map((p) => p.playerId))
+    entries.flatMap(e => e.players.map(p => p.playerId))
   )];
 
-  // 3. Fetch player match stats from DB
+  // ── 3. Fetch stats from player_match_stats ──
   const allStats = await fetchPlayerStats(matchId, allPlayerIds);
   const statsMap = {};
-  allStats.forEach((s) => { statsMap[s.playerId] = s; });
+  allStats.forEach(s => { statsMap[s.playerId] = s; });
 
-  // 4. Score each entry (team)
-  const scoredEntries = entries.map((entry) => {
+  // ── 4. Score each team ──
+  const scoredEntries = entries.map(entry => {
     const playerStatsList = entry.players
-      .map((p) => statsMap[p.playerId])
-      .filter(Boolean); // skip players with no stats
+      .map(p => statsMap[p.playerId])
+      .filter(Boolean);
 
     if (!playerStatsList.length) {
       return {
@@ -172,130 +200,103 @@ export const scoreContestService = async (contestId, matchId) => {
     };
   });
 
-  // 5. Rank teams
+  // ── 5. Rank teams (DENSE_RANK — same points = same rank) ──
   const ranked = rankTeams(scoredEntries);
 
-  // 6. Prize distribution
-  const prizePool    = await fetchPrizePool(contestId);
-  const withPrizes   = distributePrizes(ranked, prizePool);
+  // ── 6. Tie-safe prize distribution using getPrizeForRank ──
+  // Group by rank → aggregate prizes for tied range → split equally
+  const rankGroups = {};
+  for (const entry of ranked) {
+    if (!rankGroups[entry.rank]) rankGroups[entry.rank] = [];
+    rankGroups[entry.rank].push(entry);
+  }
 
-  // 7. Save results to DB
-  await saveScoreResults(contestId, withPrizes);
+  for (const [rankStr, group] of Object.entries(rankGroups)) {
+    const rank  = parseInt(rankStr);
+    const count = group.length;
+
+    let totalPrize = 0;
+    for (let r = rank; r < rank + count; r++) {
+      totalPrize += getPrizeForRank(
+        r,
+        contest.prize_distribution,
+        contest.entry_fee,
+        contest.refund_winners,
+        contest.refund_start_rank
+      );
+    }
+
+    const splitPrize = parseFloat((totalPrize / count).toFixed(2));
+    group.forEach(entry => { entry.prizeWon = splitPrize; });
+  }
+
+  // ── 7. Save results ──
+  await saveScoreResults(contestId, ranked);
 
   return {
     success:      true,
     contestId,
-    totalEntries: withPrizes.length,
-    results:      withPrizes.map((e) => ({
-      entryId:       e.entryId,
-      userId:        e.userId,
-      userTeamId:    e.userTeamId,
-      rank:          e.rank,
-      teamTotal:     e.teamTotal,
-      prizeWon:      e.prizeWon,
+    totalEntries: ranked.length,
+    results:      ranked.map(e => ({
+      entryId:    e.entryId,
+      userId:     e.userId,
+      userTeamId: e.userTeamId,
+      rank:       e.rank,
+      teamTotal:  e.teamTotal,
+      prizeWon:   e.prizeWon || 0,
     })),
   };
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET SCORE BREAKDOWN (single team in a contest)
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────
-// SAVE SCORE RESULTS TO DB
-// Updates contest_entries with rank + winning_amount
-// Saves per-player points to user_team_players
-// ─────────────────────────────────────────────
-const saveScoreResults = async (contestId, rankedEntries) => {
-  const conn = await db.getConnection();
-
-  try {
-    await conn.beginTransaction();
-
-    for (const entry of rankedEntries) {
-      // Update contest_entry: rank + winning_amount
-      await conn.query(
-        `UPDATE contest_entries
-         SET urank = ?, winning_amount = ?, status = 'completed'
-         WHERE id = ?`,
-        [entry.rank, entry.prizeWon || 0, entry.entryId]
-      );
-
-      // Update per-player fantasy points in user_team_players
-      for (const player of entry.players || []) {
-        await conn.query(
-          `UPDATE user_team_players
-           SET points = ?
-           WHERE user_team_id = ? AND player_id = ?`,
-          [player.finalPoints, entry.userTeamId, player.playerId]
-        );
-      }
-    }
-
-    // Mark contest as completed
-    await conn.query(
-      `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
-      [contestId]
-    );
-
-    await conn.commit();
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
-
-// ─────────────────────────────────────────────
-// GET SCORE BREAKDOWN SERVICE (single entry)
-// ─────────────────────────────────────────────
 export const getScoreBreakdownService = async (contestId, userTeamId, matchId) => {
   if (!contestId || !userTeamId || !matchId)
     throw new Error("contestId, userTeamId, matchId are required");
 
-  // Fetch team players
   const [teamPlayers] = await db.query(
     `SELECT
-       utp.player_id     AS playerId,
-       utp.is_captain    AS isCaptain,
+       utp.player_id       AS playerId,
+       utp.is_captain      AS isCaptain,
        utp.is_vice_captain AS isViceCaptain,
        p.name,
        p.position,
-       p.playerimage     AS image
+       p.playerimage       AS image
      FROM user_team_players utp
      JOIN players p ON p.id = utp.player_id
      WHERE utp.user_team_id = ?`,
     [userTeamId]
   );
-
   if (!teamPlayers.length) throw new Error("Team not found");
 
-  const playerIds   = teamPlayers.map((p) => p.playerId);
-  const allStats    = await fetchPlayerStats(matchId, playerIds);
-  const statsMap    = {};
-  allStats.forEach((s) => { statsMap[s.playerId] = s; });
+  const playerIds      = teamPlayers.map(p => p.playerId);
+  const allStats       = await fetchPlayerStats(matchId, playerIds);
+  const statsMap       = {};
+  allStats.forEach(s => { statsMap[s.playerId] = s; });
 
-  const captainId    = teamPlayers.find((p) => p.isCaptain)?.playerId    || null;
-  const viceCaptainId= teamPlayers.find((p) => p.isViceCaptain)?.playerId || null;
+  const captainId      = teamPlayers.find(p => p.isCaptain)?.playerId     || null;
+  const viceCaptainId  = teamPlayers.find(p => p.isViceCaptain)?.playerId  || null;
 
   const playerStatsList = teamPlayers
-    .map((p) => statsMap[p.playerId])
+    .map(p => statsMap[p.playerId])
     .filter(Boolean);
 
   const result = calculateTeamPoints(playerStatsList, captainId, viceCaptainId);
 
-  // Merge player info with score breakdown
-  const playersWithInfo = result.players.map((scored) => {
-    const info = teamPlayers.find((p) => p.playerId === scored.playerId) || {};
+  const playersWithInfo = result.players.map(scored => {
+    const info = teamPlayers.find(p => p.playerId === scored.playerId) || {};
     return {
-      playerId:     scored.playerId,
-      name:         info.name     || null,
-      image:        info.image    || null,
-      position:     info.position || null,
-      isCaptain:    info.isCaptain    === 1,
-      isViceCaptain:info.isViceCaptain === 1,
-      basePoints:   scored.basePoints,
-      finalPoints:  scored.finalPoints,
-      breakdown:    scored.breakdown,
+      playerId:      scored.playerId,
+      name:          info.name          || null,
+      image:         info.image         || null,
+      position:      info.position      || null,
+      isCaptain:     info.isCaptain     === 1,
+      isViceCaptain: info.isViceCaptain === 1,
+      basePoints:    scored.basePoints,
+      finalPoints:   scored.finalPoints,
+      breakdown:     scored.breakdown,
     };
   });
 

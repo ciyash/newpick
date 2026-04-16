@@ -830,7 +830,7 @@ export const syncPlayingXIService = async (matchId) => {
 //     return { count: 0, reason: `Match not started yet (status: ${matchRow.status})` };
 //   }
 
-//   const data    = await apiGet(`/fixtures/${matchId}`, { include: "events" });
+//   const data = await apiGet(`/fixtures/${matchId}`, { include: "events" });
 //   const fixture = data?.data;
 //   if (!fixture) return { count: 0, reason: "Fixture not found in API" };
 
@@ -839,26 +839,32 @@ export const syncPlayingXIService = async (matchId) => {
 
 //   const statsMap = {};
 //   const init = (pid) => {
-//     if (!statsMap[pid]) statsMap[pid] = { goals: 0, assists: 0, yellow_cards: 0, red_cards: 0 };
+//     if (!statsMap[pid]) statsMap[pid] = {
+//       goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
+//       own_goals: 0, penalties_missed: 0
+//     };
 //   };
 
 //   for (const e of events) {
 //     const pid        = e.player_id         ? String(e.player_id)         : null;
 //     const relatedPid = e.related_player_id ? String(e.related_player_id) : null;
 
-//     if (e.type_id === 14 && pid) {
+//     if (e.type_id === 14 && pid) {          // Goal
 //       init(pid);
 //       statsMap[pid].goals++;
 //       if (relatedPid) { init(relatedPid); statsMap[relatedPid].assists++; }
-//     } else if (e.type_id === 15 && pid) {
+//     } else if (e.type_id === 15 && pid) {   // Own goal
 //       init(pid);
-//       statsMap[pid].goals--;
-//     } else if (e.type_id === 19 && pid) {
+//       statsMap[pid].own_goals++;
+//     } else if (e.type_id === 19 && pid) {   // Yellow card
 //       init(pid);
 //       statsMap[pid].yellow_cards++;
-//     } else if (e.type_id === 20 && pid) {
+//     } else if (e.type_id === 20 && pid) {   // Red card
 //       init(pid);
 //       statsMap[pid].red_cards++;
+//     } else if (e.type_id === 45 && pid) {   // Penalty missed
+//       init(pid);
+//       statsMap[pid].penalties_missed++;
 //     }
 //   }
 
@@ -870,8 +876,12 @@ export const syncPlayingXIService = async (matchId) => {
 //     [pids]
 //   );
 //   const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
+// //  const playerMap = new Map(playerRows.map((r) => [String(r.provider_player_id), r.id]));
+//   const POINTS = {
+//     goal: 6, assist: 3, yellow_card: -1, red_card: -3,
+//     own_goal: -2, penalty_missed: -2
+//   };
 
-//   const POINTS = { goal: 6, assist: 3, yellow_card: -1, red_card: -3 };
 //   let count = 0;
 
 //   for (const [pid, stats] of Object.entries(statsMap)) {
@@ -879,26 +889,35 @@ export const syncPlayingXIService = async (matchId) => {
 //     if (!internalId) continue;
 
 //     const fantasy_points =
-//       (stats.goals        * POINTS.goal)       +
-//       (stats.assists      * POINTS.assist)      +
-//       (stats.yellow_cards * POINTS.yellow_card) +
-//       (stats.red_cards    * POINTS.red_card);
+//       (stats.goals            * POINTS.goal)            +
+//       (stats.assists          * POINTS.assist)           +
+//       (stats.yellow_cards     * POINTS.yellow_card)      +
+//       (stats.red_cards        * POINTS.red_card)         +
+//       (stats.own_goals        * POINTS.own_goal)         +
+//       (stats.penalties_missed * POINTS.penalty_missed);
 
 //     // ✅ player_match_stats insert/update
 //     await db.query(
 //       `INSERT INTO player_match_stats
-//          (match_id, player_id, goals, assists, yellow_cards, red_cards, fantasy_points)
-//        VALUES (?, ?, ?, ?, ?, ?, ?)
+//          (match_id, player_id, goals, assists, yellow_cards, red_cards,
+//           own_goals, penalties_missed, fantasy_points)
+//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 //        ON DUPLICATE KEY UPDATE
-//          goals          = VALUES(goals),
-//          assists        = VALUES(assists),
-//          yellow_cards   = VALUES(yellow_cards),
-//          red_cards      = VALUES(red_cards),
-//          fantasy_points = VALUES(fantasy_points)`,
-//       [matchRow.id, internalId, stats.goals, stats.assists, stats.yellow_cards, stats.red_cards, fantasy_points]
+//          goals             = VALUES(goals),
+//          assists           = VALUES(assists),
+//          yellow_cards      = VALUES(yellow_cards),
+//          red_cards         = VALUES(red_cards),
+//          own_goals         = VALUES(own_goals),
+//          penalties_missed  = VALUES(penalties_missed),
+//          fantasy_points    = VALUES(fantasy_points)`,
+//       [
+//         matchRow.id, internalId,
+//         stats.goals, stats.assists, stats.yellow_cards, stats.red_cards,
+//         stats.own_goals, stats.penalties_missed, fantasy_points
+//       ]
 //     );
 
-//     // ✅ players.points = all matches total sum
+//     // ✅ players.points update
 //     await db.query(
 //       `UPDATE players
 //        SET points = (
@@ -916,130 +935,6 @@ export const syncPlayingXIService = async (matchId) => {
 //   console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${matchId}`);
 //   return { count, reason: null };
 // };
-  
-
-
-
-
-// utils/sportmonks.js
-
-export const syncPlayerPointsService = async (matchId) => {
-  const [[matchRow]] = await db.query(
-    `SELECT id, provider_match_id, status FROM matches
-     WHERE provider_match_id = ? LIMIT 1`,
-    [matchId]
-  );
-  if (!matchRow) throw new Error("Match not found: " + matchId);
-
-  if (matchRow.status !== "RESULT" && matchRow.status !== "LIVE") {
-    return { count: 0, reason: `Match not started yet (status: ${matchRow.status})` };
-  }
-
-  const data = await apiGet(`/fixtures/${matchId}`, { include: "events" });
-  const fixture = data?.data;
-  if (!fixture) return { count: 0, reason: "Fixture not found in API" };
-
-  const events = fixture?.events || [];
-  if (!events.length) return { count: 0, reason: "No events found" };
-
-  const statsMap = {};
-  const init = (pid) => {
-    if (!statsMap[pid]) statsMap[pid] = {
-      goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
-      own_goals: 0, penalties_missed: 0
-    };
-  };
-
-  for (const e of events) {
-    const pid        = e.player_id         ? String(e.player_id)         : null;
-    const relatedPid = e.related_player_id ? String(e.related_player_id) : null;
-
-    if (e.type_id === 14 && pid) {          // Goal
-      init(pid);
-      statsMap[pid].goals++;
-      if (relatedPid) { init(relatedPid); statsMap[relatedPid].assists++; }
-    } else if (e.type_id === 15 && pid) {   // Own goal
-      init(pid);
-      statsMap[pid].own_goals++;
-    } else if (e.type_id === 19 && pid) {   // Yellow card
-      init(pid);
-      statsMap[pid].yellow_cards++;
-    } else if (e.type_id === 20 && pid) {   // Red card
-      init(pid);
-      statsMap[pid].red_cards++;
-    } else if (e.type_id === 45 && pid) {   // Penalty missed
-      init(pid);
-      statsMap[pid].penalties_missed++;
-    }
-  }
-
-  const pids = Object.keys(statsMap);
-  if (!pids.length) return { count: 0, reason: "No scoreable events found" };
-
-  const [playerRows] = await db.query(
-    `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
-    [pids]
-  );
-  const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
-//  const playerMap = new Map(playerRows.map((r) => [String(r.provider_player_id), r.id]));
-  const POINTS = {
-    goal: 6, assist: 3, yellow_card: -1, red_card: -3,
-    own_goal: -2, penalty_missed: -2
-  };
-
-  let count = 0;
-
-  for (const [pid, stats] of Object.entries(statsMap)) {
-    const internalId = playerMap.get(pid);
-    if (!internalId) continue;
-
-    const fantasy_points =
-      (stats.goals            * POINTS.goal)            +
-      (stats.assists          * POINTS.assist)           +
-      (stats.yellow_cards     * POINTS.yellow_card)      +
-      (stats.red_cards        * POINTS.red_card)         +
-      (stats.own_goals        * POINTS.own_goal)         +
-      (stats.penalties_missed * POINTS.penalty_missed);
-
-    // ✅ player_match_stats insert/update
-    await db.query(
-      `INSERT INTO player_match_stats
-         (match_id, player_id, goals, assists, yellow_cards, red_cards,
-          own_goals, penalties_missed, fantasy_points)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         goals             = VALUES(goals),
-         assists           = VALUES(assists),
-         yellow_cards      = VALUES(yellow_cards),
-         red_cards         = VALUES(red_cards),
-         own_goals         = VALUES(own_goals),
-         penalties_missed  = VALUES(penalties_missed),
-         fantasy_points    = VALUES(fantasy_points)`,
-      [
-        matchRow.id, internalId,
-        stats.goals, stats.assists, stats.yellow_cards, stats.red_cards,
-        stats.own_goals, stats.penalties_missed, fantasy_points
-      ]
-    );
-
-    // ✅ players.points update
-    await db.query(
-      `UPDATE players
-       SET points = (
-         SELECT COALESCE(SUM(fantasy_points), 0)
-         FROM player_match_stats
-         WHERE player_id = ?
-       )
-       WHERE id = ?`,
-      [internalId, internalId]
-    );
-
-    count++;
-  }
-
-  console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${matchId}`);
-  return { count, reason: null };
-};
 
 
 /* ─── Fetch Fixtures Between Two Dates ─── */
@@ -1081,3 +976,282 @@ export const getAllFixturesBetween = async (fromDate, toDate) => {
   return allFixtures;
 };
   
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POSITION MAP
+// position_id: 24=GK, 25=DEF, 26=MID, 27=FWD
+// ─────────────────────────────────────────────────────────────────────────────
+const POSITION_MAP = { 24: "GK", 25: "DEF", 26: "MID", 27: "FWD" };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POINTS RULES — per Points-Info doc
+// ─────────────────────────────────────────────────────────────────────────────
+const GOAL_POINTS   = { FWD: 20, MID: 22, DEF: 24, GK: 24 };
+const ASSIST_PTS    = 12;
+const YELLOW_PTS    = -4;
+const RED_PTS       = -10;
+const OWN_GOAL_PTS  = -12;
+const PEN_MISS_PTS  = -12;
+const STARTED_PTS   = 4;
+const SUB_APP_PTS   = 2;
+const CLEAN_SHEET   = 8;   // DEF/GK, 60+ mins, goals_conceded = 0
+const SEVERE_PTS    = -15; // red + own_goal or red + pen_miss
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER — calculate minutes played from lineups + substitution events
+// Returns { pid → minutes_played }
+// ─────────────────────────────────────────────────────────────────────────────
+const calcMinutes = (lineups, events, matchLength = 90) => {
+  const minutesMap = {};
+
+  // Starting XI — starts at 0
+  for (const l of lineups) {
+    if (l.type_id === 11) {
+      minutesMap[String(l.player_id)] = { start: 0, end: matchLength };
+    }
+  }
+
+  // Substitutions — type_id 18
+  // player_id = player coming OFF, related_player_id = player coming ON
+  for (const e of events) {
+    if (e.type_id !== 18) continue;
+
+    const minute    = e.minute || matchLength;
+    const playerOff = e.player_id         ? String(e.player_id)         : null;
+    const playerOn  = e.related_player_id ? String(e.related_player_id) : null;
+
+    // Player going OFF — set end minute
+    if (playerOff && minutesMap[playerOff]) {
+      minutesMap[playerOff].end = minute;
+    }
+
+    // Player coming ON — starts at this minute
+    if (playerOn) {
+      minutesMap[playerOn] = { start: minute, end: matchLength };
+    }
+  }
+
+  // Convert to minutes played
+  const result = {};
+  for (const [pid, { start, end }] of Object.entries(minutesMap)) {
+    result[pid] = Math.max(0, end - start);
+  }
+
+  return result;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN SERVICE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const syncPlayerPointsService = async (providerMatchId) => {
+
+  // ── 1. Match row from DB ──
+  const [[matchRow]] = await db.query(
+    `SELECT id, provider_match_id, status FROM matches
+     WHERE provider_match_id = ? LIMIT 1`,
+    [providerMatchId]
+  );
+  if (!matchRow) throw new Error("Match not found: " + providerMatchId);
+
+  if (matchRow.status !== "RESULT" && matchRow.status !== "LIVE") {
+    return { count: 0, reason: `Match not started yet (status: ${matchRow.status})` };
+  }
+
+  // ── 2. Fetch events + lineups from Sportmonks ──
+  const data    = await apiGet(`/fixtures/${providerMatchId}`, { include: "events;lineups" });
+  const fixture = data?.data;
+  if (!fixture) return { count: 0, reason: "Fixture not found in API" };
+
+  const events  = fixture.events  || [];
+  const lineups = fixture.lineups || [];
+
+  if (!lineups.length) return { count: 0, reason: "No lineup data yet" };
+
+  // ── 3. Build player map: provider_player_id → { id, position } ──
+  // Get all provider_player_ids from lineups
+  const providerPids = [...new Set(lineups.map(l => String(l.player_id)))];
+
+  const [playerRows] = await db.query(
+    `SELECT id, provider_player_id, position FROM players
+     WHERE provider_player_id IN (?)`,
+    [providerPids]
+  );
+  const playerMap = new Map(playerRows.map(r => [
+    String(r.provider_player_id),
+    { id: r.id, position: r.position }
+  ]));
+
+  // ── 4. Build team → goals conceded map (for clean sheet) ──
+  // Count goals per team_id of the CONCEDING team
+  // A goal by participant_id X means X scored → opponent conceded
+  const teamGoalsScored = {};
+  for (const e of events) {
+    if (e.type_id === 14 || e.type_id === 15) { // goal or own goal
+      const tid = String(e.participant_id);
+      // own goal counts for opponent
+      if (e.type_id === 15) {
+        // own goal — conceded by participant_id's own team
+        teamGoalsScored[tid] = (teamGoalsScored[tid] || 0); // no change for scorer
+        // find opponent team id
+        const allTeams = [...new Set(lineups.map(l => String(l.team_id)))];
+        const oppTeam  = allTeams.find(t => t !== tid);
+        if (oppTeam) teamGoalsScored[oppTeam] = (teamGoalsScored[oppTeam] || 0) + 1;
+      } else {
+        teamGoalsScored[tid] = (teamGoalsScored[tid] || 0) + 1;
+      }
+    }
+  }
+
+  // goals_conceded per team = goals scored by OPPONENT
+  const allTeams = [...new Set(lineups.map(l => String(l.team_id)))];
+  const teamGoalsConceded = {};
+  for (const tid of allTeams) {
+    const oppTeam = allTeams.find(t => t !== tid);
+    teamGoalsConceded[tid] = oppTeam ? (teamGoalsScored[oppTeam] || 0) : 0;
+  }
+
+  // ── 5. Minutes played per player ──
+  const minutesMap = calcMinutes(lineups, events, fixture.length || 90);
+
+  // ── 6. Build stats per player from events ──
+  const statsMap = {};
+
+  const initStats = (pid) => {
+    if (!statsMap[pid]) statsMap[pid] = {
+      goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
+      own_goals: 0, penalties_missed: 0,
+    };
+  };
+
+  for (const e of events) {
+    const pid        = e.player_id         ? String(e.player_id)         : null;
+    const relatedPid = e.related_player_id ? String(e.related_player_id) : null;
+
+    switch (e.type_id) {
+      case 14: // Goal
+        if (pid)        { initStats(pid);        statsMap[pid].goals++;   }
+        if (relatedPid) { initStats(relatedPid); statsMap[relatedPid].assists++; }
+        break;
+      case 15: // Own goal
+        if (pid) { initStats(pid); statsMap[pid].own_goals++; }
+        break;
+      case 17: // Missed penalty
+        if (pid) { initStats(pid); statsMap[pid].penalties_missed++; }
+        break;
+      case 19: // Yellow card
+        if (pid) { initStats(pid); statsMap[pid].yellow_cards++; }
+        break;
+      case 20: // Red card
+      case 21: // Yellow/Red card
+        if (pid) { initStats(pid); statsMap[pid].red_cards++; }
+        break;
+    }
+  }
+
+  // ── 7. Calculate fantasy points per player ──
+  let count = 0;
+
+  for (const lineup of lineups) {
+    const provPid    = String(lineup.player_id);
+    const playerInfo = playerMap.get(provPid);
+    if (!playerInfo) continue; // player not in our DB
+
+    const internalId = playerInfo.id;
+    const position   = playerInfo.position || "MID"; // GK/DEF/MID/FWD
+    const teamId     = String(lineup.team_id);
+    const isStarting = lineup.type_id === 11;
+    const isBench    = lineup.type_id === 12;
+    const minutes    = minutesMap[provPid] || 0;
+
+    // Did this bench player actually come on?
+    const subAppearance = isBench && minutes > 0;
+
+    const stats = statsMap[provPid] || {
+      goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
+      own_goals: 0, penalties_missed: 0,
+    };
+
+    let pts = 0;
+
+    // ── Participation ──
+    if (isStarting)    pts += STARTED_PTS;   // +4
+    if (subAppearance) pts += SUB_APP_PTS;   // +2
+
+    // ── Goals (position weighted) ──
+    pts += stats.goals * (GOAL_POINTS[position] || 20);
+
+    // ── Assists ──
+    pts += stats.assists * ASSIST_PTS;
+
+    // ── Discipline ──
+    pts += stats.yellow_cards     * YELLOW_PTS;
+    pts += stats.red_cards        * RED_PTS;
+    pts += stats.own_goals        * OWN_GOAL_PTS;
+    pts += stats.penalties_missed * PEN_MISS_PTS;
+
+    // ── Severe misconduct (-15 once) ──
+    if (stats.red_cards > 0 && (stats.own_goals > 0 || stats.penalties_missed > 0)) {
+      pts += SEVERE_PTS;
+    }
+
+    // ── Clean sheet (DEF/GK only, 60+ mins, 0 goals conceded) ──
+    const goalsConceded = teamGoalsConceded[teamId] || 0;
+    if (
+      (position === "DEF" || position === "GK") &&
+      minutes >= 60 &&
+      goalsConceded === 0
+    ) {
+      pts += CLEAN_SHEET;
+    }
+
+    // ── Full match contribution bonus (+2) ──
+    // played full match AND earned ≥2 performance points (before participation bonus)
+    const perfPts =
+      stats.goals * (GOAL_POINTS[position] || 20) +
+      stats.assists * ASSIST_PTS;
+    if (minutes >= (fixture.length || 90) && perfPts >= 2) {
+      pts += 2;
+    }
+
+    // ── Save to player_match_stats ──
+    await db.query(
+      `INSERT INTO player_match_stats
+         (match_id, player_id,
+          goals, assists, yellow_cards, red_cards,
+          own_goals, penalties_missed,
+          started, sub_appearance, played_full_match, minutes_played,
+          goals_conceded, fantasy_points)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         goals             = VALUES(goals),
+         assists           = VALUES(assists),
+         yellow_cards      = VALUES(yellow_cards),
+         red_cards         = VALUES(red_cards),
+         own_goals         = VALUES(own_goals),
+         penalties_missed  = VALUES(penalties_missed),
+         started           = VALUES(started),
+         sub_appearance    = VALUES(sub_appearance),
+         played_full_match = VALUES(played_full_match),
+         minutes_played    = VALUES(minutes_played),
+         goals_conceded    = VALUES(goals_conceded),
+         fantasy_points    = VALUES(fantasy_points)`,
+      [
+        matchRow.id, internalId,
+        stats.goals, stats.assists, stats.yellow_cards, stats.red_cards,
+        stats.own_goals, stats.penalties_missed,
+        isStarting ? 1 : 0,
+        subAppearance ? 1 : 0,
+        minutes >= (fixture.length || 90) ? 1 : 0,
+        minutes,
+        goalsConceded,
+        pts,
+      ]
+    );
+
+    count++;
+  }
+
+  console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${providerMatchId}`);
+  return { count, reason: null };
+};
