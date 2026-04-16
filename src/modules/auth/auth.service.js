@@ -443,7 +443,14 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device, c
   const REFERRED_BONUS = Number(bonusConfig?.refereebonus       || 3);
   const FIRST_BONUS    = Number(bonusConfig?.firstreferalbonus  || 5);
   const NEXT_BONUS     = Number(bonusConfig?.secondreferalbonus || 3);
-  const REFERRER_BONUS = ref.first_bonus_given === 0 ? FIRST_BONUS : NEXT_BONUS;
+  const [[{ prevCount }]] = await conn.query(
+  `SELECT COUNT(*) AS prevCount 
+   FROM referral_rewards 
+   WHERE referrer_id = ? AND join_bonus_given = 1`,
+  [referrerId]
+);
+const REFERRER_BONUS = prevCount === 0 ? FIRST_BONUS : NEXT_BONUS;
+ 
 
   // ── 4. Credit referred user → earnwallet ──
   const [[userWallet]] = await conn.query(
