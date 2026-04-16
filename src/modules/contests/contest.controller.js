@@ -51,7 +51,7 @@ export const getContestsByMatchId = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/contests/join contest
+// POST /api/contests/join contsj
 // Body: { contestId, userTeamId, entryFee }
 // userTeamId can be a single ID or an array of IDs (multi-team join)
 // ─────────────────────────────────────────────────────────────────────────────
