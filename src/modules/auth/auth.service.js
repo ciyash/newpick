@@ -6,352 +6,9 @@ import generateUserCode from "../../utils/usercode.js";
 import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
 import { sendOtpEmail } from '../../utils/send.otp.mails.js';
 
-    
-/* ================= PAUSE PLANS ================= */ 
-  
-const PAUSE_PLANS = {  
-  "1d":  1,
-  "7d":  7,
-  "30d": 30,   
-};
 
-/* ================= HELPER — GET LAST BALANCE ================= */
+//* =================== ADMIN SERVICES =================== */
 
-const getLastBalance = async (conn, userId) => {
-
-  // User last closing balance
-  const [[userLast]] = await conn.query(
-    `SELECT userclosingbalance
-     FROM wallet_transactions
-     WHERE user_id = ?
-     AND user_id != 0
-     ORDER BY id DESC
-     LIMIT 1 FOR UPDATE`,
-    [userId]
-  );
-
-  // Company last closing balance
-  const [[companyLast]] = await conn.query(
-    `SELECT closing_balance
-     FROM wallet_transactions
-     WHERE user_id = 0
-     ORDER BY id DESC
-     LIMIT 1 FOR UPDATE`
-  );
-
-  return {
-    userOpening:    Number(userLast?.userclosingbalance || 0),
-    companyOpening: Number(companyLast?.closing_balance || 0)
-  };
-};
-
-/* ================= REQUEST SIGNUP OTP ================= */
-
-// export const requestSignupOtpService = async (data) => {
-//   const { name, email, mobile, region, address, dob, nickname, category, referralid } = data;
-
-//   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-//   /* ─── 1 Age Check ─── */
-//   const birthDate = new Date(dob);
-//   const age       = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
-//   if (age < 18) throw new Error("You must be at least 18 years old");
-
-//   /* ─── 2 Email & Mobile Check — parallel for speed ─── */
-//   const [
-//     [[emailUser]],
-//     [[mobileUser]]
-//   ] = await Promise.all([
-//     db.query(`SELECT id, account_status FROM users WHERE email = ?`,  [email]),
-//     db.query(`SELECT id, account_status FROM users WHERE mobile = ?`, [normalizedMobile])
-//   ]);
-
-//   if (emailUser) {
-//     throw new Error(
-//       emailUser.account_status === "deleted"
-//         ? "This email was previously deleted. Contact support."
-//         : "Email already registered"
-//     );
-//   }
-
-//   if (mobileUser) {
-//     throw new Error(
-//       mobileUser.account_status === "deleted"
-//         ? "This mobile was previously deleted. Contact support."
-//         : "Mobile already registered"
-//     );
-//   }
-
-//   /* ─── 3 Generate & Store OTP — parallel for speed ─── */
-//   const otp = crypto.randomInt(100000, 999999).toString();
-
-//   await Promise.all([
-//     redis.set(
-//       `SIGNUP:${normalizedMobile}`,
-//       JSON.stringify({
-//         name, email, nickname,
-//         mobile: normalizedMobile,
-//         region, address, dob, category,
-//         referralid: referralid || "AAAAA1111"
-//       }),
-//       { ex: 300 }
-//     ),
-//     redis.set(`SIGNUP_OTP:${normalizedMobile}`, otp, { ex: 300 })
-//   ]);
-
-
-//   return {
-//     success: true,
-//     message: "OTP sent successfully",
-//     ...(process.env.NODE_ENV !== "production" && { otp })
-//   };
-// };
-
-
-export const requestSignupOtpService = async (data) => {
-  const { name, email, mobile, region, address, dob, nickname, category, referralid } = data;
-
-  const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
-
-  /* ─── 1 Age Check ─── */
-  const birthDate = new Date(dob);
-  const age       = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
-  if (age < 18) throw new Error("You must be at least 18 years old");
-
-  /* ─── 2 Email & Mobile Check — parallel for speed ─── */
-  const [
-    [[emailUser]],
-    [[mobileUser]]
-  ] = await Promise.all([
-    db.query(`SELECT id, account_status FROM users WHERE email = ?`,  [email]),
-    db.query(`SELECT id, account_status FROM users WHERE mobile = ?`, [normalizedMobile])
-  ]);
-
-  if (emailUser) {
-    throw new Error(
-      emailUser.account_status === "deleted"
-        ? "This email was previously deleted. Contact support."
-        : "Email already registered"
-    );
-  }
-
-  if (mobileUser) {
-    throw new Error(
-      mobileUser.account_status === "deleted"
-        ? "This mobile was previously deleted. Contact support."
-        : "Mobile already registered"
-    );
-  }
-
-  /* ─── 3 Referral Code Validate ─── */
-  if (referralid) {
-    const [[referrer]] = await db.query(
-      `SELECT id FROM users WHERE usercode = ? LIMIT 1`,
-      [referralid]
-    );
-
-    if (!referrer) {
-      throw new Error("Invalid referral code");
-    }
-  }
-
-  /* ─── 4 Generate & Store OTP — parallel for speed ─── */
-  const otp = crypto.randomInt(100000, 999999).toString();
-
-  await Promise.all([
-    redis.set(
-      `SIGNUP:${normalizedMobile}`,
-      JSON.stringify({
-        name, email, nickname,
-        mobile: normalizedMobile,
-        region, address, dob, category,
-        referralid: referralid || null   // ✅ "AAAAA1111" default తీసేశాం
-      }),
-      { ex: 300 }
-    ),
-    redis.set(`SIGNUP_OTP:${normalizedMobile}`, otp, { ex: 300 })
-  ]);
-
-  return {
-    success: true,
-    message: "OTP sent successfully",
-    ...(process.env.NODE_ENV !== "production" && { otp })
-  };
-};
-
-
-/* ================= VERIFY SIGNUP OTP ================= */
-
-const JOINING_BONUS          = 5;
-const REFERRAL_SIGNUP_BONUS  = 3;
-const MAX_USERCODE_RETRIES   = 10;
-
-
-/* ================= SEND LOGIN OTP ================= */
-
-
-export const sendLoginOtpService = async ({ email, mobile }) => {
-
-  /* ─── 1 Fetch User ─── */
-  const [users] = await db.query(
-    `SELECT id, email, mobile, loginotp, loginotpexpires, account_status, email_verify
-     FROM users
-     WHERE (email = ? OR mobile = ?)
-     LIMIT 1`,
-    [email || null, mobile || null]
-  );
-
-  if (!users.length) throw new Error("User not found");
-  const user = users[0];
-
-  /* ─── 2 Block Deleted Account ─── */
-  if (user.account_status === "deleted") {
-    throw new Error("This account has been deleted");
-  }
-
-  // 3 email_verify check
-
-   if (user.email_verify !== 1) {
-    throw new Error("Please verify your email before login");
-  }
-  /* ─── 4 Generate OTP ─── */
-  let otpToSend;
-
-  if (
-    user.loginotp &&
-    user.loginotpexpires &&
-    new Date(user.loginotpexpires) > new Date()
-  ) {
-    // Reuse existing valid OTP
-    otpToSend = user.loginotp;
-  } else {
-    // Generate new OTP
-    otpToSend = crypto.randomInt(100000, 999999).toString();
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
-    const [updateResult] = await db.query(
-      `UPDATE users SET loginotp = ?, loginotpexpires = ? WHERE id = ?`,
-      [otpToSend, expiresAt, user.id]
-    );
-
-    if (updateResult.affectedRows === 0) throw new Error("Failed to generate OTP");
-  }
-
-
-  return {
-     success: true,
-    message: "OTP sent successfully",
-    ...(process.env.NODE_ENV !== "production" && {otp: otpToSend})
-
-  };
-};
-
-
-/* ================= LOGIN ====================================== */
-
-export const loginService = async ({ email, mobile, otp }, ipAddress) => {
-
-  /* ─── Find User ─── */
-  const [users] = await db.query(
-    `SELECT id, usercode, email, mobile, name,
-            loginotp, loginotpexpires, account_status,
-            email_verify, mobile_verify, age_verified
-     FROM users
-     WHERE (email = ? OR mobile = ?)
-     LIMIT 1`,
-    [email || null, mobile || null]
-  );
-
-  if (!users.length)
-    throw new Error("User not found");
-
-  const user = users[0];
-
-  /* ─── Account Status ─── */
-  if (user.account_status === "deleted")
-    throw new Error("This account has been deleted");
-
-  if (user.account_status === "paused")
-    throw new Error("Your account is temporarily paused");
-
-
-  /* ─── Mobile Verification Check ─── */
-  if (user.mobile_verify !== 1)
-    throw new Error("Please verify your mobile number first");
-
-
-  /* ─── Email Verification Check ─── */
-  if (user.email_verify !== 1)
-    throw new Error("Please verify your email before login");
-
-
-  /* ─── Age Verification Check ─── */
-  if (user.age_verified !== 1)
-    throw new Error("Age verification required before login");
-
-
-  /* ─── OTP Validation ─── */
-  if (!user.loginotp)
-    throw new Error("OTP not requested");
-
-  if (user.loginotp !== otp)
-    throw new Error("Invalid OTP");
-
-  if (new Date(user.loginotpexpires) < new Date())
-    throw new Error("OTP expired");
-
-
-  /* ─── Shift Login Times (Bank Style) ─── */
-  const [result] = await db.query(
-    `UPDATE users
-     SET loginotp         = NULL,
-         loginotpexpires  = NULL,
-         last_login       = current_login,
-         current_login    = NOW(),
-         last_login_ip    = current_login_ip,
-         current_login_ip = ?
-     WHERE id = ?`,
-    [ipAddress || null, user.id]
-  );
-
-  if (result.affectedRows === 0)
-    throw new Error("Login state update failed");
-
-
-  /* ─── Return User ─── */
-  return {
-    id:       user.id,
-    usercode: user.usercode,
-    email:    user.email,
-    mobile:   user.mobile,
-    name:     user.name
-  };
-};
-
-/* ================= PAUSE ACCOUNT ====================== */
-
-export const pauseAccountService = async (userId, durationKey) => {
-
-  const days = PAUSE_PLANS[durationKey];
-  if (!days) throw new Error("Invalid pause duration");
-
-  const now = new Date();
-  const end = new Date(now);
-  end.setDate(end.getDate() + days);
-
-  const [result] = await db.query(
-    `UPDATE users SET
-      account_status = 'paused',
-      pause_start    = ?,
-      pause_end      = ?
-     WHERE id = ?`,
-    [now, end, userId]
-  );
-
-  if (result.affectedRows === 0) throw new Error("Failed to pause account");
-
-  return { status: "paused", pauseTill: end };
-};
 
 /* ================= ADMIN LOGIN ========================= */
 
@@ -424,6 +81,295 @@ export const adminLoginService = async ({ email, password }, ipAddress) => {
   return safeAdmin;
 };
 
+
+//====================================================================
+
+
+/* ================= PAUSE PLANS ================= */
+
+const PAUSE_PLANS = {
+  "1d": 1,
+  "7d": 7,
+  "30d": 30,
+};
+
+/* ================= HELPER — GET LAST BALANCE ================= */
+
+const getLastBalance = async (conn, userId) => {
+
+  // User last closing balance
+  const [[userLast]] = await conn.query(
+    `SELECT userclosingbalance
+     FROM wallet_transactions
+     WHERE user_id = ?
+     AND user_id != 0
+     ORDER BY id DESC
+     LIMIT 1 FOR UPDATE`,
+    [userId]
+  );
+
+  // Company last closing balance
+  const [[companyLast]] = await conn.query(
+    `SELECT closing_balance
+     FROM wallet_transactions
+     WHERE user_id = 0
+     ORDER BY id DESC
+     LIMIT 1 FOR UPDATE`
+  );
+
+  return {
+    userOpening: Number(userLast?.userclosingbalance || 0),
+    companyOpening: Number(companyLast?.closing_balance || 0)
+  };
+};
+
+/* ================= REQUEST SIGNUP OTP ================= */
+
+export const requestSignupOtpService = async (data) => {
+  const { name, email, mobile, region, address, dob, nickname, category, referralid } = data;
+
+  const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
+
+  /* ─── 1 Age Check ─── */
+  const birthDate = new Date(dob);
+  const age = new Date(Date.now() - birthDate.getTime()).getUTCFullYear() - 1970;
+  if (age < 18) throw new Error("You must be at least 18 years old");
+
+  /* ─── 2 Email & Mobile Check — parallel for speed ─── */
+  const [
+    [[emailUser]],
+    [[mobileUser]]
+  ] = await Promise.all([
+    db.query(`SELECT id, account_status FROM users WHERE email = ?`, [email]),
+    db.query(`SELECT id, account_status FROM users WHERE mobile = ?`, [normalizedMobile])
+  ]);
+
+  if (emailUser) {
+    throw new Error(
+      emailUser.account_status === "deleted"
+        ? "This email was previously deleted. Contact support."
+        : "Email already registered"
+    );
+  }
+
+  if (mobileUser) {
+    throw new Error(
+      mobileUser.account_status === "deleted"
+        ? "This mobile was previously deleted. Contact support."
+        : "Mobile already registered"
+    );
+  }
+
+  /* ─── 3 Referral Code Validate ─── */
+  if (referralid) {
+    const [[referrer]] = await db.query(
+      `SELECT id FROM users WHERE usercode = ? LIMIT 1`,
+      [referralid]
+    );
+
+    if (!referrer) {
+      throw new Error("Invalid referral code");
+    }
+  }
+
+  /* ─── 4 Generate & Store OTP — parallel for speed ─── */
+  const otp = crypto.randomInt(100000, 999999).toString();
+
+  await Promise.all([
+    redis.set(
+      `SIGNUP:${normalizedMobile}`,
+      JSON.stringify({
+        name, email, nickname,
+        mobile: normalizedMobile,
+        region, address, dob, category,
+        referralid: referralid || null   // ✅ "AAAAA1111" default తీసేశాం
+      }),
+      { ex: 300 }
+    ),
+    redis.set(`SIGNUP_OTP:${normalizedMobile}`, otp, { ex: 300 })
+  ]);
+
+  return {
+    success: true,
+    message: "OTP sent successfully",
+    ...(process.env.NODE_ENV !== "production" && { otp })
+  };
+};
+
+
+/* ================= VERIFY SIGNUP OTP ================= */
+
+const JOINING_BONUS = 5;
+const MAX_USERCODE_RETRIES = 10;
+
+
+/* ================= SEND LOGIN OTP ================= */
+
+
+export const sendLoginOtpService = async ({ email, mobile }) => {
+
+  /* ─── 1 Fetch User ─── */
+  const [users] = await db.query(
+    `SELECT id, email, mobile, loginotp, loginotpexpires, account_status, email_verify
+     FROM users
+     WHERE (email = ? OR mobile = ?)
+     LIMIT 1`,
+    [email || null, mobile || null]
+  );
+
+  if (!users.length) throw new Error("User not found");
+  const user = users[0];
+
+  /* ─── 2 Block Deleted Account ─── */
+  if (user.account_status === "deleted") {
+    throw new Error("This account has been deleted");
+  }
+
+  // 3 email_verify check
+
+  //  if (user.email_verify !== 1) {
+  //   throw new Error("Please verify your email before login");
+  // }
+  /* ─── 4 Generate OTP ─── */
+  let otpToSend;
+
+  if (
+    user.loginotp &&
+    user.loginotpexpires &&
+    new Date(user.loginotpexpires) > new Date()
+  ) {
+    // Reuse existing valid OTP
+    otpToSend = user.loginotp;
+  } else {
+    // Generate new OTP
+    otpToSend = crypto.randomInt(100000, 999999).toString();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    const [updateResult] = await db.query(
+      `UPDATE users SET loginotp = ?, loginotpexpires = ? WHERE id = ?`,
+      [otpToSend, expiresAt, user.id]
+    );
+
+    if (updateResult.affectedRows === 0) throw new Error("Failed to generate OTP");
+  }
+
+
+  return {
+    success: true,
+    message: "OTP sent successfully",
+    ...(process.env.NODE_ENV !== "production" && { otp: otpToSend })
+
+  };
+};
+
+
+/* ================= LOGIN ====================================== */
+
+export const loginService = async ({ email, mobile, otp }, ipAddress) => {
+
+  /* ─── Find User ─── */
+  const [users] = await db.query(
+    `SELECT id, usercode, email, mobile, name,
+            loginotp, loginotpexpires, account_status,
+            email_verify, mobile_verify, age_verified
+     FROM users
+     WHERE (email = ? OR mobile = ?)
+     LIMIT 1`,
+    [email || null, mobile || null]
+  );
+
+  if (!users.length)
+    throw new Error("User not found");
+
+  const user = users[0];
+
+  /* ─── Account Status ─── */
+  if (user.account_status === "deleted")
+    throw new Error("This account has been deleted");
+
+  if (user.account_status === "paused")
+    throw new Error("Your account is temporarily paused");
+
+
+  /* ─── Mobile Verification Check ─── */
+  if (user.mobile_verify !== 1)
+    throw new Error("Please verify your mobile number first");
+
+
+  /* ─── Email Verification Check ─── */
+  // if (user.email_verify !== 1)
+  //   throw new Error("Please verify your email before login");
+
+
+  /* ─── Age Verification Check ─── */
+  if (user.age_verified !== 1)
+    throw new Error("Age verification required before login");
+
+
+  /* ─── OTP Validation ─── */
+  if (!user.loginotp)
+    throw new Error("OTP not requested");
+
+  if (user.loginotp !== otp)
+    throw new Error("Invalid OTP");
+
+  if (new Date(user.loginotpexpires) < new Date())
+    throw new Error("OTP expired");
+
+
+  /* ─── Shift Login Times (Bank Style) ─── */
+  const [result] = await db.query(
+    `UPDATE users
+     SET loginotp         = NULL,
+         loginotpexpires  = NULL,
+         last_login       = current_login,
+         current_login    = NOW(),
+         last_login_ip    = current_login_ip,
+         current_login_ip = ?
+     WHERE id = ?`,
+    [ipAddress || null, user.id]
+  );
+
+  if (result.affectedRows === 0)
+    throw new Error("Login state update failed");
+
+
+  /* ─── Return User ─── */
+  return {
+    id: user.id,
+    usercode: user.usercode,
+    email: user.email,
+    mobile: user.mobile,
+    name: user.name
+  };
+};
+
+/* ================= PAUSE ACCOUNT ====================== */
+
+export const pauseAccountService = async (userId, durationKey) => {
+
+  const days = PAUSE_PLANS[durationKey];
+  if (!days) throw new Error("Invalid pause duration");
+
+  const now = new Date();
+  const end = new Date(now);
+  end.setDate(end.getDate() + days);
+
+  const [result] = await db.query(
+    `UPDATE users SET
+      account_status = 'paused',
+      pause_start    = ?,
+      pause_end      = ?
+     WHERE id = ?`,
+    [now, end, userId]
+  );
+
+  if (result.affectedRows === 0) throw new Error("Failed to pause account");
+
+  return { status: "paused", pauseTill: end };
+};
+
+
 /* ================= UPDATE PROFILE ================= */
 
 export const updateProfileService = async (userId, data) => {
@@ -440,7 +386,7 @@ export const updateProfileService = async (userId, data) => {
   if (!Object.keys(sanitized).length) throw new Error("No valid fields to update");
 
   const setClauses = Object.keys(sanitized).map(k => `${k} = ?`).join(", ");
-  const values     = [...Object.values(sanitized), userId];
+  const values = [...Object.values(sanitized), userId];
 
   const [result] = await db.query(
     `UPDATE users SET ${setClauses} WHERE id = ?`, values
@@ -452,93 +398,141 @@ export const updateProfileService = async (userId, data) => {
 
   return { success: true, message: "Profile updated successfully" };
 };
- 
+
 /* ================= REFERRAL CONTEST BONUS ================= */
 
-export const applyReferralContestBonus = async (userId) => {
 
-  const [[ref]] = await db.query(
-    `SELECT * FROM referral_rewards WHERE referred_id = ?`, [userId]
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REFERRAL CONTEST BONUS  (replaces handleReferralBonus in contest.service.js)
+//
+// Fixes applied:
+//   1. Accepts existing conn — runs inside joinContest transaction
+//   2. Idempotency guard using join_bonus_given (race-condition safe)
+//   3. Reads bonus amounts from bonusadd table (not hardcoded)
+//   4. Both referred user AND referrer credited to earnwallet consistently
+//   5. users.referral_bonus column updated for referrer
+//   6. first_bonus_given + join_bonus_given both marked on completion
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const applyReferralContestBonus = async (userId, contestId, ip, device, conn) => {
+
+  // ── 1. First contest join check — use same conn so count includes current insert ──
+  const [[{ contestCount }]] = await conn.query(
+    `SELECT COUNT(*) AS contestCount FROM contest_entries WHERE user_id = ?`,
+    [userId]
+  );
+  if (contestCount !== 1) return; // not first join — skip
+
+  // ── 2. Fetch referral record with lock — prevents race condition ──
+  const [[ref]] = await conn.query(
+    `SELECT id, referrer_id, first_bonus_given, join_bonus_given
+     FROM referral_rewards
+     WHERE referred_id = ? FOR UPDATE`,
+    [userId]
+  );
+  if (!ref)                      return; // no referral record
+  if (ref.join_bonus_given === 1) return; // already given — idempotency guard
+
+  const referrerId = ref.referrer_id;
+
+  // ── 3. Read bonus amounts from bonusadd table ──
+  const [[bonusConfig]] = await conn.query(
+    `SELECT refereebonus, firstreferalbonus, secondreferalbonus FROM bonusadd LIMIT 1`
+  );
+  const REFERRED_BONUS = Number(bonusConfig?.refereebonus       || 3);
+  const FIRST_BONUS    = Number(bonusConfig?.firstreferalbonus  || 5);
+  const NEXT_BONUS     = Number(bonusConfig?.secondreferalbonus || 3);
+  const [[{ prevCount }]] = await conn.query(
+  `SELECT COUNT(*) AS prevCount 
+   FROM referral_rewards 
+   WHERE referrer_id = ? AND join_bonus_given = 1`,
+  [referrerId]
+);
+const REFERRER_BONUS = prevCount === 0 ? FIRST_BONUS : NEXT_BONUS;
+ 
+
+  // ── 4. Credit referred user → earnwallet ──
+  const [[userWallet]] = await conn.query(
+    `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
+    [userId]
+  );
+  const newUserOpen  = Number(userWallet.earnwallet);
+  const newUserClose = Number((newUserOpen + REFERRED_BONUS).toFixed(2));
+
+  await conn.query(
+    `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+    [REFERRED_BONUS, userId]
   );
 
-  if (!ref) return;
-
-  const reward = ref.first_bonus_given === 0 ? 5 : 3;
-
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    /* ─── Add Bonus to Referrer Wallet ─── */
-    await conn.query(
-      `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
-      [reward, ref.referrer_id]
-    );
-
-    /* ─── Update Referral Earnings ─── */
-    await conn.query(
-      `UPDATE users SET referral_bonus = referral_bonus + ? WHERE id = ?`,
-      [reward, ref.referrer_id]
-    );  
-
-    /* ─── Referrer Wallet Transaction ─── */
-    const { userOpening, companyOpening } = await getLastBalance(conn, ref.referrer_id);
-
-    const userClosing    = userOpening    + reward;  // credit → plus
-    const companyClosing = companyOpening - reward;  // expense → minus
-
-    await conn.query(
-      `INSERT INTO wallet_transactions
+  await conn.query(
+    `INSERT INTO wallet_transactions
        (user_id, wallettype, transtype, remark,
-        amount,
-        useropeningbalance, userclosingbalance,
-        opening_balance,    closing_balance)
-       VALUES (?, 'bonus', 'credit', 'Referral contest bonus',
-        ?,
-        ?, ?,
-        ?, ?)`,
-      [
-        ref.referrer_id,
-        reward,
-        userOpening,    userClosing,      // user side
-        companyOpening, companyClosing    // company side
-      ]
-    );
+        amount, useropeningbalance, userclosingbalance,
+        ip_address, device)
+     VALUES (?, 'winning', 'credit', 'Referral join bonus',
+        ?, ?, ?, ?, ?)`,
+    [userId, REFERRED_BONUS, newUserOpen, newUserClose, ip || null, device || null]
+  );
 
-    /* ─── Mark First Bonus Used ─── */
-    if (ref.first_bonus_given === 0) {
-      await conn.query(
-        `UPDATE referral_rewards SET first_bonus_given = 1 WHERE id = ?`,
-        [ref.id]
-      );
-    }
+  // ── 5. Credit referrer → earnwallet ──
+  const [[referrerWallet]] = await conn.query(
+    `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
+    [referrerId]
+  );
+  const referrerOpen  = Number(referrerWallet.earnwallet);
+  const referrerClose = Number((referrerOpen + REFERRER_BONUS).toFixed(2));
 
-    await conn.commit();
+  await conn.query(
+    `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+    [REFERRER_BONUS, referrerId]
+  );
 
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
+  // Update referral_bonus column on users table
+  await conn.query(
+    `UPDATE users SET referral_bonus = referral_bonus + ? WHERE id = ?`,
+    [REFERRER_BONUS, referrerId]
+  );
+
+  await conn.query(
+    `INSERT INTO wallet_transactions
+       (user_id, wallettype, transtype, remark,
+        amount, useropeningbalance, userclosingbalance,
+        ip_address, device)
+     VALUES (?, 'winning', 'credit', 'Referral reward',
+        ?, ?, ?, ?, ?)`,
+    [referrerId, REFERRER_BONUS, referrerOpen, referrerClose, ip || null, device || null]
+  );
+
+  // ── 6. Mark bonus as given — both flags ──
+  await conn.query(
+    `UPDATE referral_rewards
+     SET join_bonus_given  = 1,
+         first_bonus_given = 1
+     WHERE id = ?`,
+    [ref.id]
+  );
 };
 
 /* ================= VERIFY EMAIL LINK ================= */
+
 export const verifyEmailLinkService = async (token) => {
+
+  console.log("🔍 Received token:", token);
 
   if (!token) throw new Error("Invalid verification link");
 
   const userId = await redis.get(`EMAIL_VERIFY:${token}`);
+  console.log("📦 Redis userId:", userId);
 
-  if (!userId)
-    throw new Error("Verification link expired");
+  if (!userId) throw new Error("Verification link expired");
 
   const [result] = await db.query(
-    `UPDATE users
-     SET email_verify = 1
-     WHERE id = ?`,
+    `UPDATE users SET email_verify = 1 WHERE id = ?`,
     [userId]
   );
+
+  console.log("📦 DB update result:", result);  // ✅ result — not result.log
 
   if (result.affectedRows === 0)
     throw new Error("User not found");
@@ -549,7 +543,7 @@ export const verifyEmailLinkService = async (token) => {
     success: true,
     message: "Email verified successfully"
   };
-};   
+};
 
 //* ================= CONTACT CHANGE (EMAIL/MOBILE) ================= */
 
@@ -595,7 +589,7 @@ export const requestContactChangeService = async (userId, type, newValue) => {
     success: true,
     message: `OTP sent to your registered ${type}`
   };
-}; 
+};
 
 export const verifyOldContactService = async (userId, otp) => {
 
@@ -699,6 +693,7 @@ export const verifyNewContactService = async (userId, otp) => {
   };
 };
 
+
 export const signupService = async ({ mobile, otp }) => {
 
   const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
@@ -719,13 +714,13 @@ export const signupService = async ({ mobile, otp }) => {
     throw new Error("Invalid signup session data");
   }
 
-  const name             = String(signupData.name      || "").trim().slice(0, 100);
-  const email            = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
-  const region           = String(signupData.region     || "").trim().slice(0, 100);
-  const nickname         = signupData.nickname   ? String(signupData.nickname).trim().slice(0, 50)   : null;
-  const address          = signupData.address    ? String(signupData.address).trim().slice(0, 300)   : null;
-  const dob              = signupData.dob        ? String(signupData.dob).trim()                     : null;
-  const referralid       = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20) : null;
+  const name               = String(signupData.name      || "").trim().slice(0, 100);
+  const email              = String(signupData.email      || "").trim().toLowerCase().slice(0, 200);
+  const region             = String(signupData.region     || "").trim().slice(0, 100);
+  const nickname           = signupData.nickname   ? String(signupData.nickname).trim().slice(0, 50)  : null;
+  const address            = signupData.address    ? String(signupData.address).trim().slice(0, 300)  : null;
+  const dob                = signupData.dob        ? String(signupData.dob).trim()                    : null;
+  const referralid         = signupData.referralid ? String(signupData.referralid).trim().slice(0, 20): null;
   const categoryNormalized = String(signupData.category || "").toLowerCase().trim();
 
   if (!name)  throw new Error("Invalid signup session: missing name");
@@ -752,12 +747,10 @@ export const signupService = async ({ mobile, otp }) => {
         throw new Error("Failed to generate unique usercode, please try again");
       }
       usercode = generateUserCode();
-
       const [[exists]] = await conn.query(
         "SELECT id FROM users WHERE usercode = ?",
         [usercode]
       );
-
       if (!exists) break;
       retries++;
     }
@@ -807,9 +800,7 @@ export const signupService = async ({ mobile, otp }) => {
       `SELECT closing_balance
        FROM wallet_transactions
        WHERE closing_balance != 0
-       ORDER BY id DESC
-       LIMIT 1
-       FOR UPDATE`
+       ORDER BY id DESC LIMIT 1 FOR UPDATE`
     );
     let companyBalance = Number(companyLast?.closing_balance || 0);
     let userBalance    = 0;
@@ -817,7 +808,7 @@ export const signupService = async ({ mobile, otp }) => {
     /* ─── 🔟 Joining Bonus ─── */
     {
       const uOpen  = userBalance;
-      const uClose = Number((userBalance    + JOINING_BONUS).toFixed(2));
+      const uClose = Number((userBalance + JOINING_BONUS).toFixed(2));
       userBalance  = uClose;
 
       const coOpen  = companyBalance;
@@ -839,41 +830,19 @@ export const signupService = async ({ mobile, otp }) => {
       );
     }
 
-    /* ─── 1️⃣1️⃣ Referral Bonus ─── */
+    /* ─── 1️⃣1️⃣ Referral Record Insert ✅ (bonus ledu — only record) ─── */
     if (referralid) {
-
       const [[referrer]] = await conn.query(
-        "SELECT id FROM users WHERE usercode = ? FOR UPDATE",
+        `SELECT id FROM users WHERE usercode = ? FOR UPDATE`,
         [referralid]
       );
 
       if (referrer && referrer.id !== userId) {
-
         await conn.query(
-          `INSERT IGNORE INTO referral_rewards (referrer_id, referred_id) VALUES (?, ?)`,
+          `INSERT IGNORE INTO referral_rewards
+             (referrer_id, referred_id, join_bonus_given, first_bonus_given)
+           VALUES (?, ?, 0, 0)`,
           [referrer.id, userId]
-        );
-
-        const uOpen  = userBalance;
-        const uClose = Number((userBalance    + REFERRAL_SIGNUP_BONUS).toFixed(2));
-        userBalance  = uClose;
-
-        const coOpen  = companyBalance;
-        const coClose = Number((companyBalance - REFERRAL_SIGNUP_BONUS).toFixed(2));
-        companyBalance = coClose;
-
-        await conn.query(
-          `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
-          [REFERRAL_SIGNUP_BONUS, userId]
-        );
-
-        await conn.query(
-          `INSERT INTO wallet_transactions
-           (user_id, wallettype, transtype, remark,
-            amount, useropeningbalance, userclosingbalance,
-            opening_balance, closing_balance)
-           VALUES (?, 'bonus', 'credit', 'Referral signup bonus', ?, ?, ?, ?, ?)`,
-          [userId, REFERRAL_SIGNUP_BONUS, uOpen, uClose, coOpen, coClose]
         );
       }
     }
@@ -892,15 +861,20 @@ export const signupService = async ({ mobile, otp }) => {
       redis.del(`KYC_VERIFIED:${normalizedMobile}`),
     ]);
 
-    // ✅ Email background లో పంపు — response block చేయదు
+    /* ─── Send Verification Email (background) ─── */
+    const emailSnapshot  = email;
+    const userIdSnapshot = userId;
+
     setImmediate(async () => {
       try {
+        const BACKEND = process.env.BACKEND_URL || "https://newpick.onrender.com";
         const emailToken = crypto.randomBytes(32).toString("hex");
-        await redis.set(`EMAIL_VERIFY:${emailToken}`, userId, { ex: 86400 });
-        const verifyLink = `${process.env.BACKEND_URL}/api/auth/verify-email?token=${emailToken}`;
-        await sendVerificationEmail(email, verifyLink);
+        await redis.set(`EMAIL_VERIFY:${emailToken}`, userIdSnapshot, { ex: 86400 });
+        const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
+        await sendVerificationEmail(emailSnapshot, verifyLink);
+        console.log("✅ Verification email sent to:", emailSnapshot);
       } catch (emailErr) {
-        console.error("Background email verification send failed:", emailErr.message);
+        console.error("❌ Email send failed:", emailErr.message);
       }
     });
 
@@ -911,17 +885,13 @@ export const signupService = async ({ mobile, otp }) => {
     };
 
   } catch (err) {
-
     await conn.rollback();
-
     try {
       await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
     } catch (_) {}
-
     throw err;
-
   } finally {
     conn.release();
   }
-};  
+};
 

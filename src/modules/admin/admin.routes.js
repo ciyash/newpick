@@ -4,7 +4,7 @@ import * as v from "./admin.validation.js";
 import { adminAuth, adminLimiter } from "../../middlewares/adminAuth.middleware.js";
 // import entitySportRoutes from '../entity-sport/entitysport.routes.js'
 import sportmonksRoutes from '../sportmonks/sportmonks.router.js'
-
+import testRoutes from '../test/test.routes.js'
 
 
 const router = Router();
@@ -83,5 +83,12 @@ router.post("/fetchusersbyaccount",   adminAuth(), c.fetchUsersByAccountStatus);
 
 //sportmonks
 router.use("/sportmonks", adminAuth(), sportmonksRoutes);
+
+router.use("/test",testRoutes);
+//=================================================================================
+router.get("/match-live/:match_id",   c.setMatchLive);
+
+// Match RESULT process చేయి (ranks + winnings + wallet credit)
+router.get("/match-result/:match_id", c.processMatchResult);
 
 export default router;     

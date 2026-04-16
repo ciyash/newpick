@@ -6,41 +6,31 @@ import {
   getMyContests,
   getMyRank,
   getScoreBreakdown,
-  joinContest   
+  joinContest,
+  compareTeam,
 } from "./contest.controller.js";
 
-const router = express.Router();  
+const router = express.Router();
 
-router.post("/join",                            joinContest);
-router.get("/my-contests/:match_id",            getMyContests);
-router.get("/leaderboard/:contest_id",          getLeaderboard);        
-router.get("/my-rank/:contest_id/:teamId",      getMyRank);            
-router.get("/breakdown/:contestId/:userTeamId", getScoreBreakdown);     
-router.get("/",                                 getAllContests);
-router.get("/:match_id",                        getContestsByMatchId);  
-  
-export default router;   
-     
+// ── Mutation ──────────────────────────────────────────────────────────────────
+router.post("/join",                              joinContest);
+
+// ── Authenticated user's contests ────────────────────────────────────────────
+router.get("/my-contests/:match_id",              getMyContests);
+
+// ── Leaderboard + Winnings (two tabs in the UI) ───────────────────────────────
+router.get("/leaderboard/:contest_id",            getLeaderboard);    // Leaderboard tab
 
 
+router.post("/leaderboard/compare/:contest_id",    compareTeam);
 
-   
+// ── Rank / Score breakdown ────────────────────────────────────────────────────
+router.get("/my-rank/:contest_id/:teamId",        getMyRank);
 
-// // user contest
-// router.post("/join",  joinContest);
-  
-// router.get("/my-contests/:match_id",  getMyContests);
+router.get("/breakdown/:contestId/:userTeamId",   getScoreBreakdown);  
 
+// ── General (keep LAST — broad patterns must not shadow specific routes) ──────
+router.get("/",                                   getAllContests);
+router.get("/:match_id",                          getContestsByMatchId);
 
-// // admin get contestss
-
-// router.get("/", getAllContests);
-
-// router.get("/:match_id",  getContestsByMatchId);
-
-// router.get("/leaderboard/:contest_id", getLeaderboard);
-
-// router.get("/my-rank/:contest_id/:teamId", getMyRank); 
-
-// router.get("/breakdown/:contestId/:userTeamId", getScoreBreakdown);
-
+export default router;

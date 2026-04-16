@@ -87,7 +87,6 @@ export const getMatchesByTypeService = async (type, userId) => {
 
 export const getPastMatchesService = async (userId) => {
 
-  // ✅ User join అయిన matches — teams + contests count తో
   const [matches] = await db.query(
     `SELECT 
         m.id AS matchId,
@@ -104,7 +103,7 @@ export const getPastMatchesService = async (userId) => {
         s.id             AS seriesId,
         s.name           AS seriesName,
 
-        COUNT(DISTINCT ut.id)  AS teamCount,
+        COUNT(DISTINCT ut.id)         AS teamCount,
         COUNT(DISTINCT ce.contest_id) AS contestCount
 
      FROM contest_entries ce
@@ -115,6 +114,7 @@ export const getPastMatchesService = async (userId) => {
      LEFT JOIN series s      ON s.seriesid = m.series_id
 
      WHERE ce.user_id = ?
+       AND m.status = 'RESULT'       -- ✅ Only completed matches
 
      GROUP BY 
         m.id, m.seriesname, m.hometeamname, m.awayteamname,
