@@ -174,10 +174,10 @@ export const joinContestService = async (userId, entryFee, { contestId, userTeam
 
     // ── 1. Contest exists & open? ──
     const [[contest]] = await conn.query(
-      `SELECT id, entry_fee, max_entries, current_entries, status
-       FROM contest WHERE id = ? FOR UPDATE`,
-      [contestId]
-    );
+  `SELECT id, entry_fee, max_entries, current_entries, status
+   FROM contest WHERE id = ? FOR UPDATE`,
+  [contestId]
+);
     if (!contest)
       throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
     if (contest.status !== "upcoming")
