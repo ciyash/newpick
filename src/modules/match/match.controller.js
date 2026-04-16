@@ -248,13 +248,6 @@ export const getMatchFullDetails = async (req, res) => {
       finalLineupStatus = lineupStatus || "announced";
     }
 
-     const [[contestCount]] = await db.execute(
-      `SELECT COUNT(*) AS total_contests
-       FROM contest
-       WHERE match_id = ?`,
-      [match.id]
-    );
-
     return res.status(200).json({
       success: true,
       data: {
@@ -285,7 +278,6 @@ export const getMatchFullDetails = async (req, res) => {
           away_substitutes: awaySubs.length,
           home_squad: homeSquad.length,
           away_squad: awaySquad.length,
-          total_contests: contestCount.total_contests,
         },
       },
     });

@@ -1,4 +1,4 @@
-import  db  from "../../config/db.js";
+import db from "../../config/db.js";
 
 
 export const getAllSeries = async (req, res) => {
@@ -23,6 +23,7 @@ export const getAllSeries = async (req, res) => {
     const result = await Promise.all(
       seriesRows.map(async (series) => {
 
+
         const [matches] = await db.execute(
           `SELECT 
              m.id,
@@ -34,11 +35,24 @@ export const getAllSeries = async (req, res) => {
              m.lineupavailable,
              m.lineup_status,
              ht.short_name AS home_team_name,
-             at.short_name AS away_team_name
+             at.short_name AS away_team_name,
+             COUNT(c.id) AS total_contests
            FROM matches m
            JOIN teams ht ON m.home_team_id = ht.id
            JOIN teams at ON m.away_team_id = at.id
+           LEFT JOIN contest c ON c.match_id = m.id
            WHERE m.series_id = ?
+           GROUP BY 
+             m.id,
+             m.provider_match_id,
+             m.series_id,
+             m.start_time,
+             m.status,
+             m.matchdate,
+             m.lineupavailable,
+             m.lineup_status,
+             ht.short_name,
+             at.short_name
            ORDER BY m.start_time ASC`,
           [series.seriesid]
         );
@@ -151,10 +165,3 @@ export const getMatchesBySeriesId = async (req, res) => {
     });
   }
 };
-
-
-
-
-
-
-//kjfbgnkjdngnkdfsnk
