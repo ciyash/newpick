@@ -1,12 +1,13 @@
 // home.ws.js — Socket.io namespace for the Home screen
-// Handles: JWT auth, initial data push, 30s heartbeat, broadcast on data change
+// Handles: JWT auth, initial data push, 30s heartbeat, DB change detection broadcast
 import jwt from "jsonwebtoken";
 import db from "../../config/db.js";
 import redis from "../../config/redis.js";
 
-const HEARTBEAT_MS = 30_000;
+const HEARTBEAT_MS  = 30_000;
+const POLL_INTERVAL = 15_000; // DB change detection — every 15s
 
-/* ── Fetch live/upcoming matches with series info ── */
+/* ── Fetch live/upcoming matches ── */
 async function fetchHomeData() {
   const [rows] = await db.execute(`
     SELECT
@@ -36,6 +37,12 @@ async function fetchHomeData() {
   return rows;
 }
 
+/* ── Lightweight fingerprint: id+status pairs joined as a string ──
+   If this string changes, the data changed.                         */
+function fingerprint(rows) {
+  return rows.map((r) => `${r.id}:${r.status}:${r.total_contests}`).join("|");
+}
+
 /* ── Verify JWT and check Redis blacklist ── */
 async function verifyToken(token) {
   const secret = process.env.JWT_SECRET;
@@ -54,44 +61,45 @@ async function verifyToken(token) {
 export function registerHomeNamespace(io) {
   const ns = io.of("/home");
 
+  // Auth middleware
   ns.use(async (socket, next) => {
     const token =
       socket.handshake.auth?.token ||
       socket.handshake.query?.token;
-
     if (!token) return next(new Error("AUTH_REQUIRED"));
-
     const payload = await verifyToken(token);
     if (!payload) return next(new Error("AUTH_INVALID"));
-
     socket.userId = payload.id ?? payload.userId;
     next();
   });
 
   ns.on("connection", async (socket) => {
-    // ── Send initial data immediately on connect ──
+    // Initial push on connect
     try {
       const matches = await fetchHomeData();
       socket.emit("home:data", { success: true, data: matches });
-    } catch (err) {
+    } catch {
       socket.emit("home:data", { success: false, message: "Failed to load matches" });
     }
 
-    // ── 30-second heartbeat ──
-    const heartbeat = setInterval(() => {
-      if (socket.connected) socket.emit("home:ping", { ts: Date.now() });
+    // 30s heartbeat — keeps connection alive and refreshes data
+    const heartbeat = setInterval(async () => {
+      if (!socket.connected) return;
+      socket.emit("home:ping", { ts: Date.now() });
+      try {
+        const matches = await fetchHomeData();
+        socket.emit("home:data", { success: true, data: matches });
+      } catch { /* silent */ }
     }, HEARTBEAT_MS);
 
-    socket.on("home:pong", () => {
-      // client is alive — no action needed
-    });
+    socket.on("home:pong", () => { /* alive */ });
 
-    // ── Client requests a manual refresh ──
+    // Manual refresh requested by client
     socket.on("home:refresh", async () => {
       try {
         const matches = await fetchHomeData();
         socket.emit("home:data", { success: true, data: matches });
-      } catch (err) {
+      } catch {
         socket.emit("home:data", { success: false, message: "Refresh failed" });
       }
     });
@@ -101,11 +109,30 @@ export function registerHomeNamespace(io) {
     });
   });
 
+  // ── DB change detector ──────────────────────────────────────────
+  // Polls the DB every 15s regardless of what updated it.
+  // If the fingerprint (match statuses + contest counts) changed,
+  // broadcasts to all connected clients immediately.
+  let lastFingerprint = "";
+  setInterval(async () => {
+    if (ns.sockets.size === 0) return; // no clients — skip query
+    try {
+      const matches = await fetchHomeData();
+      const fp = fingerprint(matches);
+      if (fp !== lastFingerprint) {
+        lastFingerprint = fp;
+        console.log("[HomeWS] DB change detected — broadcasting to", ns.sockets.size, "client(s)");
+        ns.emit("home:data", { success: true, data: matches });
+      }
+    } catch (err) {
+      console.error("[HomeWS] change detector error:", err.message);
+    }
+  }, POLL_INTERVAL);
+
   return ns;
 }
 
-/* ── Broadcast updated home data to all connected clients ──
-   Call this from cron jobs or match-status update handlers.    */
+/* ── Manual broadcast — callable from cron or any other module ── */
 let _ns = null;
 export function setHomeNamespace(ns) { _ns = ns; }
 
@@ -114,7 +141,5 @@ export async function broadcastHomeUpdate() {
   try {
     const matches = await fetchHomeData();
     _ns.emit("home:data", { success: true, data: matches });
-  } catch {
-    // silent — next heartbeat will retry
-  }
+  } catch { /* silent */ }
 }
