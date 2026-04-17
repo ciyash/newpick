@@ -5,7 +5,7 @@ import crypto from "crypto";
 import generateUserCode from "../../utils/usercode.js";
 import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
 import { sendOtpEmail } from '../../utils/send.otp.mails.js';
-
+import { getSubscriptionStatusService } from '../users/subscription.service.js';
 
 //* =================== ADMIN SERVICES =================== */
 
@@ -333,6 +333,9 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
   if (result.affectedRows === 0)
     throw new Error("Login state update failed");
 
+   /* ─── Fetch Subscription Status ─── */
+  const subscription = await getSubscriptionStatusService(user.id);
+
 
   /* ─── Return User ─── */
   return {
@@ -340,7 +343,8 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
     usercode: user.usercode,
     email: user.email,
     mobile: user.mobile,
-    name: user.name
+    name: user.name,
+     subscription: subscription.active
   };
 };
 

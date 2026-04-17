@@ -165,6 +165,7 @@ export const getMyAnalytics = async (req, res) => {
 
 
 
+
 export const downloadAnalyticsStatement = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -283,23 +284,7 @@ export const downloadAnalyticsStatement = async (req, res) => {
       [userId]
     );
 
-    // ── 4. Contest performance summary ──
-    const [[contestSummary]] = await db.query(
-      `SELECT
-         COUNT(*)                                                       AS total_contests_joined,
-         COUNT(CASE WHEN ce.winning_amount > 0 THEN 1 END)             AS total_contests_won,
-         COALESCE(SUM(ce.entry_fee), 0)                                AS total_entry_fees,
-         COALESCE(SUM(ce.winning_amount), 0)                           AS total_winnings_from_contests,
-         COALESCE(AVG(NULLIF(ce.urank, 0)), 0)                         AS avg_rank,
-         MIN(NULLIF(ce.urank, 0))                                      AS best_rank
-       FROM contest_entries ce
-       JOIN contest c ON c.id = ce.contest_id
-       WHERE ce.user_id = ?
-       ${dateFilter("ce.joined_at")}`,
-      [userId]
-    );
-
-    // ── 5. Monthly breakdown with opening & closing balance ──
+    // ── 4. Monthly breakdown with opening & closing balance ──
     const [monthlyBreakdown] = await db.query(
       `SELECT
          YEAR(created_at)  AS year,
@@ -337,39 +322,6 @@ export const downloadAnalyticsStatement = async (req, res) => {
       [userId]
     );
 
-    // ── 6. Current wallet balances (per wallet type) ──
-    const [walletBalances] = await db.query(
-      `SELECT
-         wt.wallettype,
-         wt.closing_balance AS current_balance,
-         wt.created_at      AS balance_as_of
-       FROM wallet_transactions wt
-       INNER JOIN (
-         SELECT wallettype, MAX(id) AS max_id
-         FROM wallet_transactions
-         WHERE user_id = ?
-         GROUP BY wallettype
-       ) latest ON wt.wallettype = latest.wallettype AND wt.id = latest.max_id
-       WHERE wt.user_id = ?
-       ORDER BY wt.wallettype`,
-      [userId, userId]
-    );
-
-    // ── 7. Per-wallet-type summary ──
-    const [walletTypeSummary] = await db.query(
-      `SELECT
-         wallettype,
-         transtype,
-         COUNT(*)                 AS transaction_count,
-         COALESCE(SUM(amount), 0) AS total_amount
-       FROM wallet_transactions
-       WHERE user_id = ?
-       ${dateFilter("created_at")}
-       GROUP BY wallettype, transtype
-       ORDER BY wallettype, transtype`,
-      [userId]
-    );
-
     // ── Net P&L ──
     const totalIn  = Number(financial.total_deposits  || 0)
                    + Number(financial.total_winnings  || 0)
@@ -378,16 +330,6 @@ export const downloadAnalyticsStatement = async (req, res) => {
     const totalOut = Number(financial.total_withdrawals     || 0)
                    + Number(financial.total_entry_fees_paid || 0);
     const netPnL   = totalIn - totalOut;
-
-    // ── Win rate & ROI ──
-    const totalJoined    = Number(contestSummary.total_contests_joined        || 0);
-    const totalWon       = Number(contestSummary.total_contests_won           || 0);
-    const totalEntryFees = Number(contestSummary.total_entry_fees             || 0);
-    const totalWinnings  = Number(contestSummary.total_winnings_from_contests || 0);
-    const winRate        = totalJoined > 0 ? ((totalWon / totalJoined) * 100).toFixed(2) : "0.00";
-    const roi            = totalEntryFees > 0
-      ? (((totalWinnings - totalEntryFees) / totalEntryFees) * 100).toFixed(2)
-      : "0.00";
 
     // ── Build response ──
     return res.status(200).json({
@@ -412,32 +354,6 @@ export const downloadAnalyticsStatement = async (req, res) => {
         total_debited:         Number(financial.total_debited         || 0),
         total_transactions:    Number(financial.total_transactions    || 0),
         net_pnl:               parseFloat(netPnL.toFixed(2)),
-      },
-
-      wallet_type_summary: walletTypeSummary.map(w => ({
-        wallet_type:       w.wallettype,
-        direction:         w.transtype,
-        transaction_count: Number(w.transaction_count),
-        total_amount:      Number(w.total_amount),
-      })),
-
-      wallet_balances: walletBalances.map(w => ({
-        wallet_type:     w.wallettype,
-        current_balance: Number(w.current_balance || 0),
-        balance_as_of:   w.balance_as_of,
-      })),
-
-      contest_summary: {
-        total_joined:     totalJoined,
-        total_won:        totalWon,
-        total_lost:       totalJoined - totalWon,
-        win_rate_percent: parseFloat(winRate),
-        total_entry_fees: totalEntryFees,
-        total_winnings:   totalWinnings,
-        net_contest_pnl:  parseFloat((totalWinnings - totalEntryFees).toFixed(2)),
-        avg_rank:         parseFloat(Number(contestSummary.avg_rank || 0).toFixed(1)),
-        best_rank:        contestSummary.best_rank || null,
-        roi_percent:      parseFloat(roi),
       },
 
       monthly_breakdown: monthlyBreakdown.map(m => ({
