@@ -260,7 +260,6 @@ import {
   syncPlayerPointsService,
 } from "./sportmonks.service.js";
 import { scoreContestService } from "../scoring/scoring.service.js";
-import { broadcastHomeUpdate } from "../home/home.ws.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -416,16 +415,9 @@ const syncMatchStatuses = async () => {
          AND start_time <= DATE_SUB(NOW(), INTERVAL 150 MINUTE)`
     );
 
-    const changed = upcomingToLive.affectedRows + liveToResult.affectedRows;
     console.log(
       `✅ [CRON] Statuses updated | UPCOMING→LIVE: ${upcomingToLive.affectedRows}, LIVE/STUCK→RESULT: ${liveToResult.affectedRows}`
     );
-
-    // Push updated data to all home screen WebSocket clients immediately
-    if (changed > 0) {
-      console.log(`📡 [CRON] Broadcasting home update to WebSocket clients (${changed} match(es) changed)`);
-      await broadcastHomeUpdate();
-    }
   } catch (err) {
     console.error("❌ [CRON] syncMatchStatuses failed:", err.message);
   }
