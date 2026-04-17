@@ -1,7 +1,13 @@
-import db from "../../config/db.js";
-import { calculateTeamPoints } from "../scoring/scoring.engine.js";
-import { fetchPlayerStats }    from "../scoring/scoring.service.js";
+///
+
+import db    from "../../config/db.js";
+import redis from "../../config/redis.js";
+import { calculateTeamPoints }       from "../scoring/scoring.engine.js";
+import { fetchPlayerStats }           from "../scoring/scoring.service.js";
 import { applyReferralContestBonus } from "../auth/auth.service.js";
+
+// Redis cache key for leaderboard
+const lbKey = (contestId) => `LB:${contestId}`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -166,8 +172,7 @@ export const getContestsService = async (matchId, userId) => {
 //   7. Calls applyReferralContestBonus with same conn (inside transaction)
 // ─────────────────────────────────────────────────────────────────────────────
 
-
-export const joinContestService = async (userId, { contestId, userTeamId, ip, device }) => {
+export const joinContestService = async (userId, entryFee, { contestId, userTeamId, ip, device }) => {
   let conn;
   try {
     conn = await db.getConnection();
@@ -175,19 +180,18 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
 
     // ── 1. Contest exists & open? ──
     const [[contest]] = await conn.query(
-      `SELECT id, entry_fee, max_entries, current_entries, status, match_id
+      `SELECT id, entry_fee, max_entries, current_entries, status
        FROM contest WHERE id = ? FOR UPDATE`,
       [contestId]
     );
     if (!contest)
       throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
-    if (contest.status?.toUpperCase() !== "UPCOMING")
+    if (contest.status !== "upcoming")
       throw Object.assign(new Error("Contest is not open for joining"), { statusCode: 400 });
     if (contest.current_entries >= contest.max_entries)
       throw Object.assign(new Error("Contest is full"), { statusCode: 400 });
 
     const contestEntryFee = Number(contest.entry_fee);
-    const matchId         = contest.match_id;
 
     // ── 2. Normalise userTeamId — support single or array ──
     const teamIds = Array.isArray(userTeamId)
@@ -198,6 +202,10 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       throw Object.assign(new Error("userTeamId is required"), { statusCode: 400 });
 
     // ── 3. Validate all teams belong to this user & correct match ──
+    const matchId = (await conn.query(
+      `SELECT match_id FROM contest WHERE id = ?`, [contestId]
+    ))[0][0]?.match_id;
+
     const [teamRows] = await conn.query(
       `SELECT id FROM user_teams
        WHERE id IN (?) AND user_id = ? AND match_id = ?`,
@@ -238,17 +246,13 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     // Step A: max 5% from bonus wallet
     const bonusUsable = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
     const bonusDeduct = Math.min(bonusUsable, bonusBal);
-
     // Step B: remaining after bonus
     const remainingAfterBonus = Number((totalFee - bonusDeduct).toFixed(2));
-
-    // Step C: winning wallet (earnwallet) first priority for remaining
-    const earnDeduct = Math.min(earnBal, remainingAfterBonus);
-
-    // Step D: rest from deposit wallet
+    // Step C: winning wallet (earnwallet) first for remaining
+    const earnDeduct  = Math.min(earnBal, remainingAfterBonus);
+    // Step D: rest from deposit
     const depositDeduct = Number((remainingAfterBonus - earnDeduct).toFixed(2));
 
-    // Step E: check deposit wallet has enough
     if (depositBal < depositDeduct)
       throw Object.assign(new Error("Insufficient balance"), { statusCode: 400 });
 
@@ -271,12 +275,8 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
          (user_id, wallettype, transtype, remark, amount,
           useropeningbalance, userclosingbalance, ip_address, device)
          VALUES (?, 'winning', 'debit', ?, ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          `Contest join fee (winnings) - Contest #${contestId}`,
-          earnDeduct, eOpen, eClose,
-          ip || null, device || null,
-        ]
+        [userId, `Contest join fee (winnings) - Contest #${contestId}`,
+         earnDeduct, eOpen, eClose, ip || null, device || null]
       );
     }
 
@@ -289,12 +289,8 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
          (user_id, wallettype, transtype, remark, amount,
           useropeningbalance, userclosingbalance, ip_address, device)
          VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          `Contest join fee - Contest #${contestId}`,
-          depositDeduct, dOpen, dClose,
-          ip || null, device || null,
-        ]
+        [userId, `Contest join fee - Contest #${contestId}`,
+         depositDeduct, dOpen, dClose, ip || null, device || null]
       );
     }
 
@@ -307,12 +303,8 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
          (user_id, wallettype, transtype, remark, amount,
           useropeningbalance, userclosingbalance, ip_address, device)
          VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?, ?)`,
-        [
-          userId,
-          `Contest join bonus used - Contest #${contestId}`,
-          bonusDeduct, bOpen, bClose,
-          ip || null, device || null,
-        ]
+        [userId, `Contest join bonus used - Contest #${contestId}`,
+         bonusDeduct, bOpen, bClose, ip || null, device || null]
       );
     }
 
@@ -362,12 +354,10 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
 // GET MY CONTESTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-
 export const getMyContestsService = async (userId, matchId) => {
   if (!userId)  throw new Error("userId is required");
   if (!matchId) throw new Error("matchId is required");
 
-  // ── 1. Match info ──
   const [[match]] = await db.query(
     `SELECT
        m.status, m.matchdate,
@@ -383,12 +373,12 @@ export const getMyContestsService = async (userId, matchId) => {
   );
   if (!match) throw new Error("Match not found");
 
-  const matchStatus  = match.status?.toUpperCase();
-  const isLive       = matchStatus === "LIVE";
-  const isResult     = matchStatus === "RESULT";
-  const showAllTeams = isLive || isResult;
 
-  // ── 2. Contests this user joined ──
+  const matchStatus  = match.status?.toUpperCase();
+  const showAllTeams = matchStatus === "LIVE" || matchStatus === "RESULT";
+  const isLive       = matchStatus === "LIVE";    // ✅ ADD
+  const isResult     = matchStatus === "RESULT";  // ✅ ADD
+
   const [contestRows] = await db.query(
     `SELECT
        c.id                  AS contest_id,
@@ -416,11 +406,11 @@ export const getMyContestsService = async (userId, matchId) => {
      ORDER BY MAX(ce.id) DESC`,
     [userId, matchId]
   );
+
   if (!contestRows?.length) return [];
 
   const contestIds = contestRows.map(c => c.contest_id);
 
-  // ── 3. My entries ──
   const [myEntryRows] = await db.query(
     `SELECT
        ce.id AS entry_id, ce.contest_id, ce.user_team_id, ce.user_id,
@@ -431,7 +421,6 @@ export const getMyContestsService = async (userId, matchId) => {
     [userId, contestIds]
   );
 
-  // ── 4. Other entries (LIVE/RESULT only) ──
   let allEntryRows = [];
   if (showAllTeams) {
     const [rows] = await db.query(
@@ -448,36 +437,44 @@ export const getMyContestsService = async (userId, matchId) => {
     allEntryRows = rows;
   }
 
-  // ── 5. All team IDs ──
   const myTeamIds    = [...new Set(myEntryRows.map(e => e.user_team_id).filter(Boolean))];
   const otherTeamIds = showAllTeams
     ? [...new Set(allEntryRows.map(e => e.user_team_id).filter(Boolean))]
     : [];
   const allTeamIds   = [...new Set([...myTeamIds, ...otherTeamIds])];
 
+  // ── LIVE → Redis cache నుండి rank + points ──
+  let liveRankMap = {};
+  if (isLive) {
+    for (const cid of contestIds) {
+      try {
+        const cached = await redis.get(lbKey(cid));
+        if (cached) {
+          JSON.parse(cached).forEach(r => {
+            liveRankMap[r.user_team_id] = { rank: r.rank, points: r.points };
+          });
+        }
+      } catch { /* Redis miss — ok, DB points fallback */ }
+    }
+  }
+
   let teamsMap = {};
 
   if (allTeamIds.length > 0) {
-    // ── 6. Team players WITH live/final points from player_match_stats ──
     const [teamRows] = await db.query(
       `SELECT
          ut.id               AS team_id,
          ut.user_id          AS team_owner_id,
          ut.team_name, ut.team_rank, ut.locked, ut.created_at,
          utp.id              AS player_entry_id,
-         utp.player_id,
-         utp.is_captain,
-         utp.is_vice_captain,
-         utp.role,
-         utp.is_substitude,
+         utp.player_id, utp.is_captain, utp.is_vice_captain,
+         utp.role, utp.is_substitude,
          p.name              AS player_name,
          p.playerimage       AS player_image,
-         p.position,
-         p.playercredits,
-         p.flag_image,
-         p.country,
-         t.short_name        AS real_team_short_name,
-         COALESCE(pms.fantasy_points, 0) AS fantasy_points
+         p.position, p.playercredits,
+         COALESCE(pms.fantasy_points, 0) AS player_points,
+         p.flag_image, p.country,
+         t.short_name        AS real_team_short_name
        FROM user_teams ut
        LEFT JOIN user_team_players utp ON utp.user_team_id = ut.id
        LEFT JOIN players p             ON p.id = utp.player_id
@@ -492,27 +489,17 @@ export const getMyContestsService = async (userId, matchId) => {
     teamRows.forEach(row => {
       if (!teamsMap[row.team_id]) {
         teamsMap[row.team_id] = {
-          teamId:       row.team_id,
-          teamOwnerId:  row.team_owner_id,
-          teamName:     row.team_name  || null,
-          teamRank:     row.team_rank  || null,
-          locked:       row.locked === 1,
-          createdAt:    row.created_at || null,
-          totalPoints:  0,
-          totalCredits: 0,
-          creditsLeft:  100,
-          players:      [],
+          teamId: row.team_id, teamOwnerId: row.team_owner_id,
+          teamName: row.team_name || null, teamRank: row.team_rank || null,
+          locked: row.locked === 1, createdAt: row.created_at || null,
+          totalPoints: 0, totalCredits: 0, creditsLeft: 100, players: [],
         };
       }
-
       if (row.player_entry_id) {
         const credits    = parseFloat(row.playercredits)  || 0;
-        const basePoints = parseFloat(row.fantasy_points) || 0;
-
-        // Captain ×2, VC ×1.5 for team total
-        const multiplier    = row.is_captain ? 2 : row.is_vice_captain ? 1.5 : 1;
-        const effectivePts  = parseFloat((basePoints * multiplier).toFixed(2));
-
+        const basePoints = parseFloat(row.player_points)  || 0;
+        const multiplier = row.is_captain ? 2 : row.is_vice_captain ? 1.5 : 1;
+        const effectivePts = parseFloat((basePoints * multiplier).toFixed(2));
         teamsMap[row.team_id].players.push({
           playerEntryId:     row.player_entry_id,
           playerId:          row.player_id,
@@ -530,8 +517,6 @@ export const getMyContestsService = async (userId, matchId) => {
           basePoints,
           effectivePoints:   effectivePts,
         });
-
-        // totalPoints = sum of effective points (with captain/VC multiplier)
         teamsMap[row.team_id].totalPoints  += effectivePts;
         teamsMap[row.team_id].totalCredits += credits;
       }
@@ -544,7 +529,6 @@ export const getMyContestsService = async (userId, matchId) => {
     });
   }
 
-  // ── 7. Group entries by contest ──
   const myEntriesByContest    = {};
   const otherEntriesByContest = {};
 
@@ -559,19 +543,26 @@ export const getMyContestsService = async (userId, matchId) => {
     });
   }
 
-  // ── 8. Format entry ──
   const formatEntry = (e, isOwn, contest) => {
     const team    = teamsMap[e.user_team_id] || null;
     let   players = team?.players || [];
 
-    // Hide captain/VC for opponents in UPCOMING
+    // UPCOMING → captain/VC hidden for other teams
     if (!isOwn && !showAllTeams) {
       players = players.map(p => ({ ...p, isCaptain: false, isViceCaptain: false }));
     }
 
-    // RESULT → use DB winning_amount (set by scoreContestService)
-    // LIVE   → 0 (not finalized yet)
-    // UPCOMING → 0
+    // Rank per status
+    let rank = null;
+    if (isResult)    rank = e.urank || null;
+    else if (isLive) rank = liveRankMap[e.user_team_id]?.rank ?? null;
+
+    // Points per status
+    const totalPoints = isLive
+      ? (liveRankMap[e.user_team_id]?.points ?? team?.totalPoints ?? 0)
+      : (team?.totalPoints || 0);
+
+    // Winning amount — only shown after RESULT
     const winningAmount = isResult
       ? (Number(e.winning_amount) || getPrizeForRank(
            e.urank,
@@ -582,9 +573,6 @@ export const getMyContestsService = async (userId, matchId) => {
          ))
       : 0;
 
-    // Rank — RESULT: DB urank, LIVE: null (leaderboard handles live rank)
-    const rank = isResult ? (e.urank || null) : null;
-
     return {
       entryId:       e.entry_id,
       userId:        e.user_id,
@@ -593,21 +581,20 @@ export const getMyContestsService = async (userId, matchId) => {
       isMyEntry:     isOwn,
       entryFee:      Number(e.entry_fee) || 0,
       rank,
-      totalPoints:   team?.totalPoints   || 0,
+      totalPoints,
       winningAmount,
-      entryStatus:   e.entry_status      || null,
-      joinedAt:      e.joined_at         || null,
-      teamId:        team?.teamId        || null,
-      teamName:      team?.teamName      || null,
-      teamRank:      team?.teamRank      || null,
-      locked:        team?.locked        ?? null,
-      totalCredits:  team?.totalCredits  || 0,
-      creditsLeft:   team?.creditsLeft   ?? 100,
+      entryStatus:   e.entry_status  || null,
+      joinedAt:      e.joined_at     || null,
+      teamId:        team?.teamId    || null,
+      teamName:      team?.teamName  || null,
+      teamRank:      team?.teamRank  || null,
+      locked:        team?.locked    ?? null,
+      totalCredits:  team?.totalCredits || 0,
+      creditsLeft:   team?.creditsLeft  ?? 100,
       players,
     };
   };
 
-  // ── 9. Build response ──
   return contestRows.map(c => {
     const myEntries    = (myEntriesByContest[c.contest_id]    || []).map(e => formatEntry(e, true,  c));
     const otherEntries = (otherEntriesByContest[c.contest_id] || []).map(e => formatEntry(e, false, c));
@@ -641,7 +628,7 @@ export const getMyContestsService = async (userId, matchId) => {
     };
   });
 };
-
+ 
 // ─────────────────────────────────────────────────────────────────────────────
 // COMPARE TEAM
 // ─────────────────────────────────────────────────────────────────────────────
@@ -818,6 +805,37 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     };
   }
 
+  // ── LIVE → Redis cache first ──
+  if (matchStatus === "LIVE") {
+    try {
+      const cached = await redis.get(lbKey(contestId));
+      if (cached) {
+        const allRanked  = JSON.parse(cached);
+        const total      = allRanked.length;
+        const paginated  = allRanked.slice(offset, offset + limit);
+        const leaderboard = paginated.map(e => ({
+          ...e,
+          winning_amount: 0,
+          is_winner:      false,
+          is_me:          userId ? e.user_id === parseInt(userId) : false,
+        }));
+        const myRow = userId ? allRanked.find(e => e.user_id === parseInt(userId)) : null;
+        const my_entry = myRow ? {
+          user_team_id:   myRow.user_team_id,
+          team_name:      myRow.team_name,
+          username:       myRow.username,
+          profile_image:  myRow.profile_image,
+          rank:           myRow.rank,
+          points:         myRow.points,
+          winning_amount: 0,
+          is_winner:      false,
+        } : null;
+
+        return buildLeaderboardResponse(contest, matchStatus, leaderboard, my_entry, total, page, limit, offset);
+      }
+    } catch { /* Redis miss — fall through to DB */ }
+  }
+
   // Leaderboard — computed_points uses captain/VC multiplier
   const [entries] = await db.query(
     `SELECT
@@ -958,6 +976,14 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     }
   }
 
+  return buildLeaderboardResponse(contest, matchStatus, leaderboard, my_entry, parseInt(total), page, limit, offset);
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER — build leaderboard response shape (used by LIVE Redis + RESULT DB)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entry, totalEntries, page, limit, offset) => {
   let prizeTiers = [];
   try {
     prizeTiers = typeof contest.prize_distribution === "string"
@@ -1008,9 +1034,9 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     pagination: {
       current_page:  page,
       per_page:      limit,
-      total_entries: parseInt(total),
-      total_pages:   Math.ceil(total / limit),
-      has_more:      offset + limit < parseInt(total),
+      total_entries: totalEntries,
+      total_pages:   Math.ceil(totalEntries / limit),
+      has_more:      offset + limit < totalEntries,
     },
   };
 };
@@ -1108,4 +1134,4 @@ export const getScoreBreakdownService = async (contestId, userTeamId, matchId) =
   });
 
   return { success: true, userTeamId, teamTotal: result.teamTotal, players: playersWithInfo };
-};  
+};
