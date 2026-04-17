@@ -164,12 +164,13 @@ export const getMyAnalytics = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 
+
 export const downloadAnalyticsStatement = async (req, res) => {
   try {
     const userId = req.user?.id;
     if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
-    // ── Date filter (same logic as getMyAnalytics) ──
+    // ── Date filter ──
     const { type } = req.query;
     const now          = new Date();
     const currentYear  = now.getFullYear();
@@ -191,29 +192,34 @@ export const downloadAnalyticsStatement = async (req, res) => {
       month = parseInt(type);
       year  = currentYear;
     } else {
-      return res.status(400).json({ success: false, message: "Invalid type" });
+      return res.status(400).json({ success: false, message: "Invalid type. Use: all | month | year | 1-12 | YYYY" });
     }
 
-    // ── Build WHERE clause helper ──
-    const buildWhere = (baseField, extraConditions = []) => {
-      const conditions = [...extraConditions];
+    // ── Date filter SQL helper ──
+    const dateFilter = (field) => {
       if (month !== null && year !== null) {
-        conditions.push(`MONTH(${baseField}) = ${month}`, `YEAR(${baseField}) = ${year}`);
+        return `AND MONTH(${field}) = ${month} AND YEAR(${field}) = ${year}`;
       } else if (year !== null) {
-        conditions.push(`YEAR(${baseField}) = ${year}`);
+        return `AND YEAR(${field}) = ${year}`;
       } else if (month !== null) {
-        conditions.push(`MONTH(${baseField}) = ${month}`, `YEAR(${baseField}) = ${currentYear}`);
+        return `AND MONTH(${field}) = ${month} AND YEAR(${field}) = ${currentYear}`;
       }
-      return conditions.length ? "WHERE " + conditions.join(" AND ") : "";
+      return "";
     };
 
-    // ── 1. User info ──
-    const [[user]] = await db.query(
-      `SELECT name, nickname, email, mobile, created_at AS member_since FROM users WHERE id = ?`,
-      [userId]
-    );
+    const MONTH_NAMES = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
-    // ── 2. Wallet transactions (full detail) ──
+    // ── Format filter label ──
+    const filterLabel = (() => {
+      if (!type || type === "all") return "All Time";
+      if (type === "month")        return `${MONTH_NAMES[currentMonth - 1]} ${currentYear}`;
+      if (type === "year")         return `${currentYear}`;
+      if (/^\d{4}$/.test(type))   return `${type}`;
+      if (/^\d{1,2}$/.test(type)) return `${MONTH_NAMES[parseInt(type) - 1]} ${currentYear}`;
+      return type;
+    })();
+
+    // ── 1. Wallet transactions (full detail) ──
     const [transactions] = await db.query(
       `SELECT
          id,
@@ -227,28 +233,30 @@ export const downloadAnalyticsStatement = async (req, res) => {
          created_at
        FROM wallet_transactions
        WHERE user_id = ?
-       ${month || year ? `AND YEAR(created_at) = ${year || currentYear}${month ? ` AND MONTH(created_at) = ${month}` : ""}` : ""}
-       ORDER BY created_at DESC`,
+       ${dateFilter("created_at")}
+       ORDER BY created_at ASC`,
       [userId]
     );
 
-    // ── 3. Financial summary ──
+    // ── 2. Financial summary ──
     const [[financial]] = await db.query(
       `SELECT
-         SUM(CASE WHEN wallettype = 'deposit'    AND transtype = 'credit' THEN amount ELSE 0 END) AS total_deposits,
-         SUM(CASE WHEN wallettype = 'withdrawal' AND transtype = 'debit'  THEN amount ELSE 0 END) AS total_withdrawals,
-         SUM(CASE WHEN wallettype = 'winning'    AND transtype = 'credit' THEN amount ELSE 0 END) AS total_winnings,
-         SUM(CASE WHEN wallettype = 'refund'     AND transtype = 'credit' THEN amount ELSE 0 END) AS total_refunds,
-         SUM(CASE WHEN wallettype = 'bonus'      AND transtype = 'credit' THEN amount ELSE 0 END) AS total_bonus,
-         SUM(CASE WHEN wallettype = 'contest'    AND transtype = 'debit'  THEN amount ELSE 0 END) AS total_entry_fees_paid,
-         COUNT(*)                                                                                   AS total_transactions
+         COALESCE(SUM(CASE WHEN wallettype = 'deposit'    AND transtype = 'credit' THEN amount ELSE 0 END), 0) AS total_deposits,
+         COALESCE(SUM(CASE WHEN wallettype = 'withdrawal' AND transtype = 'debit'  THEN amount ELSE 0 END), 0) AS total_withdrawals,
+         COALESCE(SUM(CASE WHEN wallettype = 'winning'    AND transtype = 'credit' THEN amount ELSE 0 END), 0) AS total_winnings,
+         COALESCE(SUM(CASE WHEN wallettype = 'refund'     AND transtype = 'credit' THEN amount ELSE 0 END), 0) AS total_refunds,
+         COALESCE(SUM(CASE WHEN wallettype = 'bonus'      AND transtype = 'credit' THEN amount ELSE 0 END), 0) AS total_bonus,
+         COALESCE(SUM(CASE WHEN wallettype = 'contest'    AND transtype = 'debit'  THEN amount ELSE 0 END), 0) AS total_entry_fees_paid,
+         COALESCE(SUM(CASE WHEN transtype = 'credit'      THEN amount ELSE 0 END), 0)                          AS total_credited,
+         COALESCE(SUM(CASE WHEN transtype = 'debit'       THEN amount ELSE 0 END), 0)                          AS total_debited,
+         COUNT(*) AS total_transactions
        FROM wallet_transactions
        WHERE user_id = ?
-       ${month || year ? `AND YEAR(created_at) = ${year || currentYear}${month ? ` AND MONTH(created_at) = ${month}` : ""}` : ""}`,
+       ${dateFilter("created_at")}`,
       [userId]
     );
 
-    // ── 4. Contest entries (full detail) ──
+    // ── 3. Contest entries (full detail) ──
     const [contestEntries] = await db.query(
       `SELECT
          ce.id            AS entry_id,
@@ -256,7 +264,7 @@ export const downloadAnalyticsStatement = async (req, res) => {
          ce.entry_fee,
          ce.urank         AS final_rank,
          ce.winning_amount,
-        
+         ce.joined_at,
          c.contest_type,
          c.prize_pool,
          c.status         AS contest_status,
@@ -270,101 +278,129 @@ export const downloadAnalyticsStatement = async (req, res) => {
        JOIN matches  m ON m.id = c.match_id
        LEFT JOIN series s ON s.seriesid = m.series_id
        WHERE ce.user_id = ?
-       ${month || year ? `AND YEAR(ce.joined_at) = ${year || currentYear}${month ? ` AND MONTH(ce.joined_at) = ${month}` : ""}` : ""}
+       ${dateFilter("ce.joined_at")}
        ORDER BY ce.joined_at DESC`,
       [userId]
     );
 
-    // ── 5. Contest performance summary ──
+    // ── 4. Contest performance summary ──
     const [[contestSummary]] = await db.query(
       `SELECT
-         COUNT(*)                                                        AS total_contests_joined,
-         COUNT(CASE WHEN ce.winning_amount > 0 THEN 1 END)              AS total_contests_won,
-         COALESCE(SUM(ce.entry_fee), 0)                                 AS total_entry_fees,
-         COALESCE(SUM(ce.winning_amount), 0)                            AS total_winnings_from_contests,
-         COALESCE(AVG(ce.urank), 0)                                     AS avg_rank,
-         MIN(ce.urank)                                                   AS best_rank
+         COUNT(*)                                                       AS total_contests_joined,
+         COUNT(CASE WHEN ce.winning_amount > 0 THEN 1 END)             AS total_contests_won,
+         COALESCE(SUM(ce.entry_fee), 0)                                AS total_entry_fees,
+         COALESCE(SUM(ce.winning_amount), 0)                           AS total_winnings_from_contests,
+         COALESCE(AVG(NULLIF(ce.urank, 0)), 0)                         AS avg_rank,
+         MIN(NULLIF(ce.urank, 0))                                      AS best_rank
        FROM contest_entries ce
        JOIN contest c ON c.id = ce.contest_id
        WHERE ce.user_id = ?
-       ${month || year ? `AND YEAR(ce.joined_at) = ${year || currentYear}${month ? ` AND MONTH(ce.joined_at) = ${month}` : ""}` : ""}`,
+       ${dateFilter("ce.joined_at")}`,
       [userId]
     );
 
-    // ── 6. Monthly breakdown ──
+    // ── 5. Monthly breakdown with opening & closing balance ──
     const [monthlyBreakdown] = await db.query(
       `SELECT
          YEAR(created_at)  AS year,
          MONTH(created_at) AS month,
-         SUM(CASE WHEN wallettype = 'deposit'    AND transtype = 'credit' THEN amount ELSE 0 END) AS deposits,
-         SUM(CASE WHEN wallettype = 'withdrawal' AND transtype = 'debit'  THEN amount ELSE 0 END) AS withdrawals,
-         SUM(CASE WHEN wallettype = 'winning'    AND transtype = 'credit' THEN amount ELSE 0 END) AS winnings,
-         SUM(CASE WHEN wallettype = 'contest'    AND transtype = 'debit'  THEN amount ELSE 0 END) AS entry_fees
+         COUNT(*)          AS transactions_count,
+         COALESCE(SUM(CASE WHEN wallettype = 'deposit'    AND transtype = 'credit' THEN amount ELSE 0 END), 0) AS deposits,
+         COALESCE(SUM(CASE WHEN wallettype = 'withdrawal' AND transtype = 'debit'  THEN amount ELSE 0 END), 0) AS withdrawals,
+         COALESCE(SUM(CASE WHEN wallettype = 'winning'    AND transtype = 'credit' THEN amount ELSE 0 END), 0) AS winnings,
+         COALESCE(SUM(CASE WHEN wallettype = 'contest'    AND transtype = 'debit'  THEN amount ELSE 0 END), 0) AS entry_fees,
+         COALESCE(SUM(CASE WHEN wallettype = 'bonus'      AND transtype = 'credit' THEN amount ELSE 0 END), 0) AS bonus,
+         COALESCE(SUM(CASE WHEN wallettype = 'refund'     AND transtype = 'credit' THEN amount ELSE 0 END), 0) AS refunds,
+         COALESCE(SUM(CASE WHEN transtype = 'credit' THEN amount ELSE 0 END), 0) AS total_credited,
+         COALESCE(SUM(CASE WHEN transtype = 'debit'  THEN amount ELSE 0 END), 0) AS total_debited,
+         (SELECT wt2.opening_balance
+          FROM wallet_transactions wt2
+          WHERE wt2.user_id = wallet_transactions.user_id
+            AND YEAR(wt2.created_at)  = YEAR(wallet_transactions.created_at)
+            AND MONTH(wt2.created_at) = MONTH(wallet_transactions.created_at)
+          ORDER BY wt2.created_at ASC, wt2.id ASC
+          LIMIT 1
+         ) AS opening_balance,
+         (SELECT wt3.closing_balance
+          FROM wallet_transactions wt3
+          WHERE wt3.user_id = wallet_transactions.user_id
+            AND YEAR(wt3.created_at)  = YEAR(wallet_transactions.created_at)
+            AND MONTH(wt3.created_at) = MONTH(wallet_transactions.created_at)
+          ORDER BY wt3.created_at DESC, wt3.id DESC
+          LIMIT 1
+         ) AS closing_balance
        FROM wallet_transactions
        WHERE user_id = ?
        GROUP BY YEAR(created_at), MONTH(created_at)
        ORDER BY year DESC, month DESC
-       LIMIT 12`,
+       LIMIT 24`,
       [userId]
     );
 
-    // ── 7. Last activity ──
-    const [[lastActivity]] = await db.query(
-      `SELECT MAX(activity_time) AS last_activity FROM (
-         SELECT created_at AS activity_time FROM wallet_transactions WHERE user_id = ?
-         UNION ALL
-         SELECT joined_at  AS activity_time FROM contest_entries    WHERE user_id = ?
-       ) AS all_activities`,
-      [userId, userId]
-    );
-
-    // ── 8. Current wallet balances ──
+    // ── 6. Current wallet balances (per wallet type) ──
     const [walletBalances] = await db.query(
-      `SELECT wallettype, closing_balance AS balance, created_at AS as_of
-       FROM wallet_transactions
-       WHERE user_id = ?
-       AND id IN (
-         SELECT MAX(id) FROM wallet_transactions
+      `SELECT
+         wt.wallettype,
+         wt.closing_balance AS current_balance,
+         wt.created_at      AS balance_as_of
+       FROM wallet_transactions wt
+       INNER JOIN (
+         SELECT wallettype, MAX(id) AS max_id
+         FROM wallet_transactions
          WHERE user_id = ?
          GROUP BY wallettype
-       )`,
+       ) latest ON wt.wallettype = latest.wallettype AND wt.id = latest.max_id
+       WHERE wt.user_id = ?
+       ORDER BY wt.wallettype`,
       [userId, userId]
     );
 
-    // ── Net P&L calculation ──
-    const totalIn  = Number(financial.total_deposits || 0)
+    // ── 7. Per-wallet-type summary ──
+    const [walletTypeSummary] = await db.query(
+      `SELECT
+         wallettype,
+         transtype,
+         COUNT(*)                 AS transaction_count,
+         COALESCE(SUM(amount), 0) AS total_amount
+       FROM wallet_transactions
+       WHERE user_id = ?
+       ${dateFilter("created_at")}
+       GROUP BY wallettype, transtype
+       ORDER BY wallettype, transtype`,
+      [userId]
+    );
+
+    // ── Net P&L ──
+    const totalIn  = Number(financial.total_deposits  || 0)
                    + Number(financial.total_winnings  || 0)
                    + Number(financial.total_refunds   || 0)
                    + Number(financial.total_bonus     || 0);
-    const totalOut = Number(financial.total_withdrawals    || 0)
+    const totalOut = Number(financial.total_withdrawals     || 0)
                    + Number(financial.total_entry_fees_paid || 0);
     const netPnL   = totalIn - totalOut;
 
-    // ── Win rate ──
-    const totalJoined = Number(contestSummary.total_contests_joined || 0);
-    const totalWon    = Number(contestSummary.total_contests_won    || 0);
-    const winRate     = totalJoined > 0 ? ((totalWon / totalJoined) * 100).toFixed(2) : "0.00";
+    // ── Win rate & ROI ──
+    const totalJoined    = Number(contestSummary.total_contests_joined        || 0);
+    const totalWon       = Number(contestSummary.total_contests_won           || 0);
+    const totalEntryFees = Number(contestSummary.total_entry_fees             || 0);
+    const totalWinnings  = Number(contestSummary.total_winnings_from_contests || 0);
+    const winRate        = totalJoined > 0 ? ((totalWon / totalJoined) * 100).toFixed(2) : "0.00";
+    const roi            = totalEntryFees > 0
+      ? (((totalWinnings - totalEntryFees) / totalEntryFees) * 100).toFixed(2)
+      : "0.00";
 
     // ── Build response ──
     return res.status(200).json({
       success: true,
       generated_at: new Date().toISOString(),
+
       filter: {
-        type: type || "all",
+        type:  type || "all",
+        label: filterLabel,
         month: month || null,
         year:  year  || null,
       },
 
-      // ── User profile ──
-      user: {
-        name:          user?.nickname || user?.name || null,
-        email:         user?.email    || null,
-        mobile:        user?.mobile   || null,
-        member_since:  user?.member_since || null,
-        last_activity: lastActivity?.last_activity || null,
-      },
-
-      // ── Financial summary ──
       financial_summary: {
         total_deposits:        Number(financial.total_deposits        || 0),
         total_withdrawals:     Number(financial.total_withdrawals     || 0),
@@ -372,57 +408,94 @@ export const downloadAnalyticsStatement = async (req, res) => {
         total_refunds:         Number(financial.total_refunds         || 0),
         total_bonus:           Number(financial.total_bonus           || 0),
         total_entry_fees_paid: Number(financial.total_entry_fees_paid || 0),
+        total_credited:        Number(financial.total_credited        || 0),
+        total_debited:         Number(financial.total_debited         || 0),
         total_transactions:    Number(financial.total_transactions    || 0),
-        net_pnl:               Number(netPnL.toFixed(2)),
+        net_pnl:               parseFloat(netPnL.toFixed(2)),
       },
 
-      // ── Contest performance ──
-      contest_summary: {
-        total_joined:       totalJoined,
-        total_won:          totalWon,
-        win_rate_percent:   parseFloat(winRate),
-        total_entry_fees:   Number(contestSummary.total_entry_fees           || 0),
-        total_winnings:     Number(contestSummary.total_winnings_from_contests || 0),
-        avg_rank:           Number(contestSummary.avg_rank                   || 0).toFixed(1),
-        best_rank:          contestSummary.best_rank || null,
-        roi_percent:        contestSummary.total_entry_fees > 0
-          ? (((contestSummary.total_winnings_from_contests - contestSummary.total_entry_fees)
-              / contestSummary.total_entry_fees) * 100).toFixed(2)
-          : "0.00",
-      },
-
-      // ── Current wallet balances ──
-      wallet_balances: walletBalances,
-
-      // ── Monthly breakdown ──
-      monthly_breakdown: monthlyBreakdown,
-
-      // ── All transactions (full list) ──
-      transactions: transactions.map(t => ({
-        id:               t.id,
-        type:             t.wallettype,
-        direction:        t.transtype,
-        amount:           Number(t.amount),
-        opening_balance:  Number(t.opening_balance || 0),
-        closing_balance:  Number(t.closing_balance || 0),
-        remark:           t.remark || null,
-        reference_id:     t.reference_id || null,
-        date:             t.created_at,
+      wallet_type_summary: walletTypeSummary.map(w => ({
+        wallet_type:       w.wallettype,
+        direction:         w.transtype,
+        transaction_count: Number(w.transaction_count),
+        total_amount:      Number(w.total_amount),
       })),
 
-      // ── All contest entries (full list) ──
+      wallet_balances: walletBalances.map(w => ({
+        wallet_type:     w.wallettype,
+        current_balance: Number(w.current_balance || 0),
+        balance_as_of:   w.balance_as_of,
+      })),
+
+      contest_summary: {
+        total_joined:     totalJoined,
+        total_won:        totalWon,
+        total_lost:       totalJoined - totalWon,
+        win_rate_percent: parseFloat(winRate),
+        total_entry_fees: totalEntryFees,
+        total_winnings:   totalWinnings,
+        net_contest_pnl:  parseFloat((totalWinnings - totalEntryFees).toFixed(2)),
+        avg_rank:         parseFloat(Number(contestSummary.avg_rank || 0).toFixed(1)),
+        best_rank:        contestSummary.best_rank || null,
+        roi_percent:      parseFloat(roi),
+      },
+
+      monthly_breakdown: monthlyBreakdown.map(m => ({
+        year:               Number(m.year),
+        month:              Number(m.month),
+        month_name:         MONTH_NAMES[Number(m.month) - 1],
+        label:              `${MONTH_NAMES[Number(m.month) - 1]} ${m.year}`,
+        transactions_count: Number(m.transactions_count),
+        opening_balance:    Number(m.opening_balance  || 0),
+        closing_balance:    Number(m.closing_balance  || 0),
+        deposits:           Number(m.deposits         || 0),
+        winnings:           Number(m.winnings         || 0),
+        bonus:              Number(m.bonus            || 0),
+        refunds:            Number(m.refunds          || 0),
+        total_credited:     Number(m.total_credited   || 0),
+        withdrawals:        Number(m.withdrawals      || 0),
+        entry_fees:         Number(m.entry_fees       || 0),
+        total_debited:      Number(m.total_debited    || 0),
+        net:                parseFloat((Number(m.total_credited || 0) - Number(m.total_debited || 0)).toFixed(2)),
+      })),
+
+      transactions: transactions.map(t => {
+        const amount  = Number(t.amount);
+        const opening = Number(t.opening_balance || 0);
+        const closing = Number(t.closing_balance || 0);
+        const sign    = t.transtype === "credit" ? "+" : "-";
+        return {
+          id:              t.id,
+          wallet_type:     t.wallettype,
+          direction:       t.transtype,
+          amount:          amount,
+          amount_display:  `${sign}${amount.toFixed(2)}`,
+          opening_balance: opening,
+          closing_balance: closing,
+          balance_change:  parseFloat((closing - opening).toFixed(2)),
+          ledger_line:     `${t.transtype} ${sign}${amount.toFixed(2)}  |  balance: ${opening.toFixed(2)} → ${closing.toFixed(2)}`,
+          remark:          t.remark       || null,
+          reference_id:    t.reference_id || null,
+          date:            t.created_at,
+        };
+      }),
+
       contest_entries: contestEntries.map(e => ({
-        entry_id:         e.entry_id,
-        contest_id:       e.contest_id,
-        contest_type:     e.contest_type,
-        match:            `${e.hometeamname} vs ${e.awayteamname}`,
-        match_date:       e.matchdate,
-        series:           e.series_name || null,
-        entry_fee:        Number(e.entry_fee),
-        final_rank:       e.final_rank  || null,
-        winning_amount:   Number(e.winning_amount || 0),
-      result: e.winning_amount > 0 ? "WON" : e.contest_status === "COMPLETED" ? "LOST" : "PENDING",
-        joined_at:        e.joined_at,
+        entry_id:       e.entry_id,
+        contest_id:     e.contest_id,
+        contest_type:   e.contest_type,
+        match:          `${e.hometeamname} vs ${e.awayteamname}`,
+        match_date:     e.matchdate,
+        match_status:   e.match_status,
+        series:         e.series_name   || null,
+        prize_pool:     Number(e.prize_pool || 0),
+        entry_fee:      Number(e.entry_fee),
+        final_rank:     e.final_rank    || null,
+        winning_amount: Number(e.winning_amount || 0),
+        result:         e.winning_amount > 0
+          ? "WON"
+          : e.contest_status === "COMPLETED" ? "LOST" : "PENDING",
+        joined_at:      e.joined_at,
       })),
     });
 
