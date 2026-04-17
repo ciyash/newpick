@@ -387,7 +387,15 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
     `SELECT created_at AS member_since FROM users WHERE id = ? LIMIT 1`,
     [userId]
   );
-
+ // ── Last activity timestamp ──         
+  const [[lastActivity]] = await db.query(
+    `SELECT MAX(t) AS last_activity FROM (
+       SELECT created_at AS t FROM wallet_transactions WHERE user_id = ?
+       UNION ALL
+       SELECT joined_at  AS t FROM contest_entries       WHERE user_id = ?
+     ) x`,
+    [userId, userId]
+  );
   // ── Calculations ──
   const deposits     = Number(financial?.deposits      || 0);
   const withdrawals  = Number(financial?.withdrawals   || 0);
@@ -439,6 +447,7 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
     account: {
       member_since: userRow?.member_since || null,
       active_days:  activeDays,
+      last_activity_date: lastActivity?.last_activity || null
     },
     limits: {
       monthly_deposit_limit: monthlyLimit,
