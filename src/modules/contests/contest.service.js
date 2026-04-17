@@ -186,7 +186,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     );
     if (!contest)
       throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
-    if (contest.status !== "upcoming")
+    if (contest.status !== "UPCOMING")
       throw Object.assign(new Error("Contest is not open for joining"), { statusCode: 400 });
     if (contest.current_entries >= contest.max_entries)
       throw Object.assign(new Error("Contest is full"), { statusCode: 400 });
