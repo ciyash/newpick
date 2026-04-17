@@ -553,7 +553,7 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
   );
 
   if (!rows.length) {
-    throw new Error("No teams found");
+    return [];
   }
 
   const teams = {};
