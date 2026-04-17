@@ -414,6 +414,7 @@ const syncMatchStatuses = async () => {
          AND status IN ('UPCOMING', 'LIVE')
          AND start_time <= DATE_SUB(NOW(), INTERVAL 150 MINUTE)`
     );
+
     console.log(
       `✅ [CRON] Statuses updated | UPCOMING→LIVE: ${upcomingToLive.affectedRows}, LIVE/STUCK→RESULT: ${liveToResult.affectedRows}`
     );
