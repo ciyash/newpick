@@ -15,8 +15,9 @@ router.get("/my-transactions/:year", getMyTransactionsYear);
 
 router.delete("/:userid", deleteTransactionsByUser);
 
+router.get("/analytics/statement", downloadAnalyticsStatement);
+
 router.get("/analytics/:type", getMyAnalytics);
 
-router.get("/analytics/statement", downloadAnalyticsStatement);
 
 export default router;

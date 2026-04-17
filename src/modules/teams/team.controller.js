@@ -242,31 +242,26 @@ export const createTeam = async (req, res) => {
 };
 
 
-
 export const getMyTeams = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { matchId } = req.params;
+    const userId   = req.user.id;
+    const { matchId }   = req.params;
     const { contestId } = req.query;
 
-    const teams = await getMyTeamsWithPlayersService(
-      userId,
-      matchId,
-      contestId
-    );
+    const teams = await getMyTeamsWithPlayersService(userId, matchId, contestId);
 
-    return res.status(200).json({
+    res.status(200).json({
+      success: true,
       total: teams.length,
-      data: teams,
-      message: teams.length ? "Teams fetched successfully" : "No teams found"
+      data: teams
     });
 
   } catch (error) {
-    console.error("getMyTeams error:", error);
-
-    return res.status(500).json({
+    // ✅ 404 for "not found", 500 for unexpected crashes
+    const isNotFound = error.message.toLowerCase().includes("not found");
+    res.status(isNotFound ? 404 : 500).json({
       success: false,
-      message:error.message 
+      message: error.message
     });
   }
 };
