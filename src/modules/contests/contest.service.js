@@ -1221,3 +1221,192 @@ export const getScoreBreakdownService = async (contestId, userTeamId, matchId) =
 
   return { success: true, userTeamId, teamTotal: result.teamTotal, players: playersWithInfo };
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTEST HISTORY SERVICE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const getContestHistoryService = async (userId, { year, month, page, limit }) => {
+  const offset = (page - 1) * limit;
+
+  const conditions = [`ce.user_id = ?`];
+  const params     = [userId];
+
+  if (year) {
+    conditions.push(`YEAR(m.matchdate) = ?`);
+    params.push(year);
+  }
+  if (month) {
+    conditions.push(`MONTH(m.matchdate) = ?`);
+    params.push(month);
+  }
+
+  const WHERE = conditions.join(" AND ");
+
+  // ── Summary ──
+  const [[summary]] = await db.query(
+    `SELECT
+       COUNT(DISTINCT c.id)                        AS total_contests,
+       SUM(ce.entry_fee)                           AS total_spent,
+       SUM(ce.winning_amount)                      AS total_earnings,
+       SUM(ce.winning_amount) - SUM(ce.entry_fee)  AS net_profit,
+       COUNT(CASE WHEN ce.winning_amount > 0 THEN 1 END) AS total_won
+     FROM contest_entries ce
+     JOIN contest c ON c.id = ce.contest_id
+     JOIN matches m ON m.id = c.match_id
+     WHERE ${WHERE}`,
+    params
+  );
+
+  // ── Contest rows ──
+  const [contestRows] = await db.query(
+    `SELECT
+       c.id              AS contest_id,
+       c.contest_type,
+       c.entry_fee,
+       c.prize_pool,
+       c.first_prize,
+       c.status,
+       c.current_entries AS total_entries,
+       m.id              AS match_id,
+       m.matchdate       AS match_date,
+       m.status          AS match_status,
+       ht.name           AS home_team,
+       ht.short_name     AS home_team_short,
+       at.name           AS away_team,
+       at.short_name     AS away_team_short
+     FROM contest_entries ce
+     JOIN contest c  ON c.id  = ce.contest_id
+     JOIN matches m  ON m.id  = c.match_id
+     JOIN teams ht   ON ht.id = m.home_team_id
+     JOIN teams at   ON at.id = m.away_team_id
+     WHERE ${WHERE}
+     GROUP BY
+       c.id, c.contest_type, c.entry_fee, c.prize_pool,
+       c.first_prize, c.status, c.current_entries,
+       m.id, m.matchdate, m.status,
+       ht.name, ht.short_name,
+       at.name, at.short_name
+     ORDER BY m.matchdate DESC
+     LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
+  );
+
+  // ── Total count ──
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(DISTINCT c.id) AS total
+     FROM contest_entries ce
+     JOIN contest c ON c.id = ce.contest_id
+     JOIN matches m ON m.id = c.match_id
+     WHERE ${WHERE}`,
+    params
+  );
+
+  if (!contestRows.length) {
+    return {
+      success: true,
+      filters: { year, month },
+      summary: {
+        total_contests: 0,
+        total_won:      0,
+        total_spent:    0,
+        total_earnings: 0,
+        net_profit:     0,
+      },
+      data:       [],
+      pagination: { current_page: page, per_page: limit, total: 0, has_more: false },
+    };
+  }
+
+  // ── My entries per contest ──
+  const contestIds = contestRows.map(c => c.contest_id);
+  const [entryRows] = await db.query(
+    `SELECT
+       ce.contest_id,
+       ce.user_team_id,
+       ce.urank          AS my_rank,
+       ce.winning_amount,
+       ce.entry_fee,
+       ut.team_name,
+       SUM(
+         CASE
+           WHEN utp.is_captain      = 1 THEN pms.fantasy_points * 2
+           WHEN utp.is_vice_captain = 1 THEN pms.fantasy_points * 1.5
+           ELSE pms.fantasy_points
+         END
+       ) AS my_points
+     FROM contest_entries ce
+     LEFT JOIN user_teams ut         ON ut.id = ce.user_team_id
+     LEFT JOIN user_team_players utp ON utp.user_team_id = ce.user_team_id
+     LEFT JOIN contest con           ON con.id = ce.contest_id
+     LEFT JOIN player_match_stats pms
+            ON pms.player_id = utp.player_id
+           AND pms.match_id  = con.match_id
+     WHERE ce.user_id = ? AND ce.contest_id IN (?)
+     GROUP BY
+       ce.id, ce.contest_id, ce.user_team_id, ce.urank,
+       ce.winning_amount, ce.entry_fee, ut.team_name`,
+    [userId, contestIds]
+  );
+
+  // ── Group entries by contest ──
+  const entriesByContest = {};
+  entryRows.forEach(e => {
+    if (!entriesByContest[e.contest_id]) entriesByContest[e.contest_id] = [];
+    entriesByContest[e.contest_id].push({
+      team_name:      e.team_name      || null,
+      my_rank:        e.my_rank        || null,
+      my_points:      parseFloat(e.my_points)      || 0,
+      winning_amount: Number(e.winning_amount)      || 0,
+    });
+  });
+
+  // ── Build response ──
+  const data = contestRows.map(c => {
+    const myTeams    = entriesByContest[c.contest_id] || [];
+    const totalSpent = myTeams.length * Number(c.entry_fee);
+    const totalWon   = myTeams.reduce((s, t) => s + t.winning_amount, 0);
+
+    return {
+      contest_id:    c.contest_id,
+      match: {
+        id:              c.match_id,
+        home_team:       c.home_team,
+        home_team_short: c.home_team_short,
+        away_team:       c.away_team,
+        away_team_short: c.away_team_short,
+        match_date:      c.match_date   || null,
+        status:          c.match_status || null,
+      },
+      contest_type:  c.contest_type   || null,
+      entry_fee:     Number(c.entry_fee)   || 0,
+      prize_pool:    Number(c.prize_pool)  || 0,
+      first_prize:   Number(c.first_prize) || 0,
+      total_entries: c.total_entries       || 0,
+      my_teams:      myTeams,
+      total_spent:   totalSpent,
+      total_won:     totalWon,
+      net:           parseFloat((totalWon - totalSpent).toFixed(2)),
+      status:        c.status || null,
+    };
+  });
+
+  return {
+    success: true,
+    filters: { year, month },
+    summary: {
+      total_contests: parseInt(summary.total_contests)   || 0,
+      total_won:      parseInt(summary.total_won)        || 0,
+      total_spent:    parseFloat(summary.total_spent)    || 0,
+      total_earnings: parseFloat(summary.total_earnings) || 0,
+      net_profit:     parseFloat(summary.net_profit)     || 0,
+    },
+    data,
+    pagination: {
+      current_page: page,
+      per_page:     limit,
+      total:        parseInt(total),
+      has_more:     offset + limit < parseInt(total),
+    },
+  };
+};
