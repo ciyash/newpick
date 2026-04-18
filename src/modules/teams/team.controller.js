@@ -242,12 +242,12 @@ export const createTeam = async (req, res) => {
 };
 
 
+
 export const getMyTeams = async (req, res) => {
   try {
-
     const userId = req.user.id;
     const { matchId } = req.params;
-    const { contestId } = req.query; 
+    const { contestId } = req.query;
 
     const teams = await getMyTeamsWithPlayersService(
       userId,
@@ -255,16 +255,18 @@ export const getMyTeams = async (req, res) => {
       contestId
     );
 
-    res.status(200).json({
-      success: true,
+    return res.status(200).json({
       total: teams.length,
-      data: teams
+      data: teams,
+      message: teams.length ? "Teams fetched successfully" : "No teams found"
     });
 
   } catch (error) {
-    res.status(400).json({
+    console.error("getMyTeams error:", error);
+
+    return res.status(500).json({
       success: false,
-      message: error.message
+      message:error.message 
     });
   }
 };
