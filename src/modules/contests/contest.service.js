@@ -665,21 +665,26 @@ export const getMyContestsService = async (userId, matchId) => {
     : [];
   const allTeamIds   = [...new Set([...myTeamIds, ...otherTeamIds])];
 
-  // ── LIVE → Redis నుండి rank + points ──
-  let liveRankMap = {};
-  if (isLive) {
-    for (const cid of contestIds) {
-      try {
-        const cached = await redis.get(`LB:${cid}`);
-        if (cached) {
-          JSON.parse(cached).forEach(r => {
-            liveRankMap[r.user_team_id] = { rank: r.rank, points: r.points };
-          });
-        }
-      } catch { /* Redis miss — DB fallback */ }
+  
+
+
+// ── LIVE → Redis నుండి rank + points ──
+let liveRankMap = {};
+if (isLive) {
+  for (const cid of contestIds) {
+    try {
+      const cached = await redis.get(`LB:${cid}`);
+      // ✅ @upstash/redis already parsed object return చేస్తుంది
+      if (cached && Array.isArray(cached)) {
+        cached.forEach(r => {
+          liveRankMap[r.user_team_id] = { rank: r.rank, points: r.points };
+        });
+      }
+    } catch (err) {
+      console.error(`Redis error for ${cid}:`, err.message);
     }
   }
-
+}
   // ── Teams + Players build ──
   let teamsMap = {};
 
@@ -1097,35 +1102,40 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   }
 
   // ── LIVE → Redis cache first ──
-  if (matchStatus === "LIVE") {
-    try {
-      const cached = await redis.get(lbKey(contestId));
-      if (cached) {
-        const allRanked  = JSON.parse(cached);
-        const total      = allRanked.length;
-        const paginated  = allRanked.slice(offset, offset + limit);
-        const leaderboard = paginated.map(e => ({
-          ...e,
-          winning_amount: 0,
-          is_winner:      false,
-          is_me:          userId ? e.user_id === parseInt(userId) : false,
-        }));
-        const myRow = userId ? allRanked.find(e => e.user_id === parseInt(userId)) : null;
-        const my_entry = myRow ? {
-          user_team_id:   myRow.user_team_id,
-          team_name:      myRow.team_name,
-          username:       myRow.username,
-          profile_image:  myRow.profile_image,
-          rank:           myRow.rank,
-          points:         myRow.points,
-          winning_amount: 0,
-          is_winner:      false,
-        } : null;
+ // ── LIVE → Redis cache first ──
+if (matchStatus === "LIVE") {
+  try {
+    const cached = await redis.get(lbKey(contestId));
+    // ✅ @upstash/redis already parsed object return చేస్తుంది
+    if (cached && Array.isArray(cached)) {
+      const allRanked  = cached; // ← JSON.parse వద్దు
+      const total      = allRanked.length;
+      const paginated  = allRanked.slice(offset, offset + limit);
+      const leaderboard = paginated.map(e => ({
+        ...e,
+        winning_amount: 0,
+        is_winner:      false,
+        is_me:          userId ? e.user_id === parseInt(userId) : false,
+      }));
+      const myRow = userId ? allRanked.find(e => e.user_id === parseInt(userId)) : null;
+      const my_entry = myRow ? {
+        user_team_id:   myRow.user_team_id,
+        team_name:      myRow.team_name,
+        username:       myRow.username,
+        profile_image:  myRow.profile_image,
+        rank:           myRow.rank,
+        points:         myRow.points,
+        winning_amount: 0,
+        is_winner:      false,
+      } : null;
 
-        return buildLeaderboardResponse(contest, matchStatus, leaderboard, my_entry, total, page, limit, offset);
-      }
-    } catch { /* Redis miss — fall through to DB */ }
+      return buildLeaderboardResponse(contest, matchStatus, leaderboard, my_entry, total, page, limit, offset);
+    }
+  } catch (err) {
+    console.error(`Redis leaderboard error:`, err.message);
+    // Redis miss — fall through to DB
   }
+}
 
   // Leaderboard — computed_points uses captain/VC multiplier
   const [entries] = await db.query(
