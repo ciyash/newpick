@@ -327,6 +327,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     // ── 14. Referral bonus — first paid contest join only, same conn ──
     if (contestEntryFee > 0) {
       await applyReferralContestBonus(userId, contestId, ip, device, conn);
+       teamIds.length 
     }
 
     await conn.commit();
