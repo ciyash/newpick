@@ -1,4 +1,4 @@
-import { getMatchesByTypeService, getPastMatchesService } from "./match.service.js";
+import { getJoinedMatchesService, getMatchesByTypeService, getPastMatchesService } from "./match.service.js";
 import  db  from "../../config/db.js";
 
 export const getAllMatches = async (req, res) => {
@@ -48,6 +48,27 @@ export const getAllMatches = async (req, res) => {
 };
 
 
+export const getJoinedMatches = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+
+    const data = await getJoinedMatchesService(userId);
+
+    res.json({
+      success: true,
+      total: data.length,
+      data,
+    });
+
+  } catch (err) {
+    console.error("getJoinedMatches error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
 
 export const getMatchesByType = async (req, res) => {
   try {
@@ -76,7 +97,7 @@ export const getMatchesByType = async (req, res) => {
 export const getMatchFullDetails = async (req, res) => {
   try {
     const { id } = req.params;
-
+console.log("getMatchFullDetails hit with id:", id)
     // 1️⃣ Match details (support BOTH db id and provider_match_id)
     const [[match]] = await db.execute(
       `SELECT 
