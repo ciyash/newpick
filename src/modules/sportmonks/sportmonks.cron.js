@@ -599,7 +599,7 @@ const scoreCompletedMatches = async () => {
          AND c.status NOT IN ('COMPLETED')
          AND m.start_time >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
        ORDER BY c.id ASC`
-    );
+    );    
 
     if (!contests.length) {
       console.log("✅ [CRON] No contests pending scoring");
