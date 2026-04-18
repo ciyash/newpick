@@ -93,11 +93,35 @@ const fetchContestEntries = async (contestId) => {
 // Marks contest COMPLETED
 // ─────────────────────────────────────────────────────────────────────────────
 
-const saveScoreResults = async (contestId, rankedEntries) => {
+
+const saveScoreResults = async (contestId, rankedEntries, matchId) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
 
+    // ── Player base points → player_match_stats లో save ──
+    // (ఇది ONCE చేస్తే సరిపోతుంది — అన్ని contests కి same match stats)
+    const playerPointsMap = {};
+    for (const entry of rankedEntries) {
+      for (const player of entry.players || []) {
+        // basePoints మాత్రమే store చేయి (captain/VC లేకుండా)
+        if (!playerPointsMap[player.playerId]) {
+          playerPointsMap[player.playerId] = player.basePoints ?? 0;
+        }
+      }
+    }
+
+    // Bulk update — player_match_stats
+    for (const [playerId, basePoints] of Object.entries(playerPointsMap)) {
+      await conn.query(
+        `UPDATE player_match_stats 
+         SET fantasy_points = ?, is_finalized = 1
+         WHERE match_id = ? AND player_id = ?`,
+        [basePoints, matchId, playerId]
+      );
+    }
+
+    // ── Contest entries — rank + winning save ──
     for (const entry of rankedEntries) {
       await conn.query(
         `UPDATE contest_entries
@@ -106,6 +130,7 @@ const saveScoreResults = async (contestId, rankedEntries) => {
         [entry.rank, entry.prizeWon || 0, entry.entryId]
       );
 
+      // user_team_players — final points (captain/VC applied)
       for (const player of entry.players || []) {
         await conn.query(
           `UPDATE user_team_players
@@ -231,7 +256,7 @@ export const scoreContestService = async (contestId, matchId) => {
   }
 
   // ── 7. Save results ──
-  await saveScoreResults(contestId, ranked);
+  await saveScoreResults(contestId, ranked,matchId );
 
   return {
     success:      true,
@@ -306,4 +331,94 @@ export const getScoreBreakdownService = async (contestId, userTeamId, matchId) =
     teamTotal:  result.teamTotal,
     players:    playersWithInfo,
   };
+};
+
+
+// scoring.service.js లో — new function add చేయి
+export const updateLiveScores = async (matchId) => {
+  // ── 1. ఆ match కి ఉన్న అన్ని contests తీసుకో ──
+  const [contests] = await db.query(
+    `SELECT id FROM contest WHERE match_id = ? AND status = 'LIVE'`,
+    [matchId]
+  );
+  if (!contests.length) return;
+
+  // ── 2. అన్ని entries తీసుకో ──
+  const contestIds = contests.map(c => c.id);
+  const [entries] = await db.query(
+    `SELECT ce.contest_id, ce.user_id, ce.user_team_id,
+            ut.team_name, u.name, u.nickname, u.image
+     FROM contest_entries ce
+     JOIN user_teams ut ON ut.id = ce.user_team_id
+     JOIN users u ON u.id = ce.user_id
+     WHERE ce.contest_id IN (?)`,
+    [contestIds]
+  );
+
+  // ── 3. Unique team ids ──
+  const teamIds = [...new Set(entries.map(e => e.user_team_id))];
+
+  // ── 4. Player stats fetch (live — partial stats) ──
+  const allPlayerIds = [];
+  const [teamPlayerRows] = await db.query(
+    `SELECT user_team_id, player_id, is_captain, is_vice_captain
+     FROM user_team_players WHERE user_team_id IN (?)`,
+    [teamIds]
+  );
+
+  teamPlayerRows.forEach(r => allPlayerIds.push(r.player_id));
+  const uniquePlayerIds = [...new Set(allPlayerIds)];
+
+  const allStats = await fetchPlayerStats(matchId, uniquePlayerIds);
+  const statsMap = {};
+  allStats.forEach(s => { statsMap[s.playerId] = s; });
+
+  // ── 5. Team points calculate ──
+  const teamPlayersMap = {};
+  teamPlayerRows.forEach(r => {
+    if (!teamPlayersMap[r.user_team_id]) teamPlayersMap[r.user_team_id] = [];
+    teamPlayersMap[r.user_team_id].push(r);
+  });
+
+  const teamPointsMap = {};
+  for (const teamId of teamIds) {
+    const players = teamPlayersMap[teamId] || [];
+    const captainId    = players.find(p => p.is_captain)?.player_id || null;
+    const viceCaptainId = players.find(p => p.is_vice_captain)?.player_id || null;
+    const statsList = players.map(p => statsMap[p.player_id]).filter(Boolean);
+    if (!statsList.length) { teamPointsMap[teamId] = 0; continue; }
+    const result = calculateTeamPoints(statsList, captainId, viceCaptainId);
+    teamPointsMap[teamId] = result.teamTotal;
+  }
+
+  // ── 6. Contest wise — rank calculate + Redis store ──
+  for (const contest of contests) {
+    const contestEntries = entries.filter(e => e.contest_id === contest.id);
+
+    // Points assign + sort
+    const ranked = contestEntries
+      .map(e => ({
+        user_id:      e.user_id,
+        user_team_id: e.user_team_id,
+        team_name:    e.team_name    || null,
+        username:     e.nickname     || e.name,
+        profile_image: e.image       || null,
+        points:       teamPointsMap[e.user_team_id] || 0,
+      }))
+      .sort((a, b) => b.points - a.points);
+
+    // DENSE_RANK
+    ranked.forEach((entry, i) => {
+      if (i === 0) entry.rank = 1;
+      else if (entry.points === ranked[i - 1].points) entry.rank = ranked[i - 1].rank;
+      else entry.rank = i + 1;
+    });
+
+    // Redis లో store — 5 minutes expiry
+    await redis.set(
+      lbKey(contest.id),
+      JSON.stringify(ranked),
+      'EX', 300  // 5 minutes
+    );
+  }
 };
