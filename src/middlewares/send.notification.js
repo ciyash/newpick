@@ -1,5 +1,5 @@
 
-import { sendNotification } from "./notification.service.js";
+// import { sendNotification } from "./notification.service.js";
 import db from "../config/db.js";
 export const saveFcmToken = async (req, res) => { 
   const { fcm_token } = req.body;

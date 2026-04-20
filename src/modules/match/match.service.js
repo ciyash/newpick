@@ -1,6 +1,83 @@
 import db from "../../config/db.js";
 
 
+export const getJoinedMatchesService = async (userId) => {
+
+  const [rows] = await db.query(
+    `SELECT DISTINCT
+        m.id                  AS matchId,
+        m.series_id           AS seriesId,
+        m.seriesname,
+        m.home_team_id        AS homeTeamId,
+        m.away_team_id        AS awayTeamId,
+        m.hometeamname,
+        m.awayteamname,
+        ht.logo               AS homeTeamLogo,
+        at.logo               AS awayTeamLogo,
+        m.start_time          AS startTime,
+        m.matchdate           AS matchDate,
+        m.status,
+        m.is_active           AS isActive,
+        ce.contest_id         AS contestId,
+        ce.user_team_id       AS userTeamId,
+        ce.urank,
+        ce.winning_amount     AS winningAmount,
+        ce.status             AS entryStatus,
+        c.prize_pool          AS prizePool,
+        c.first_prize         AS firstPrize,
+        c.total_winners       AS totalWinners,
+        c.contest_type        AS contestType,
+        c.status              AS contestStatus
+     FROM matches m
+     INNER JOIN contest c          ON c.match_id   = m.id
+     INNER JOIN contest_entries ce ON ce.contest_id = c.id
+     LEFT JOIN  teams ht           ON ht.id = m.home_team_id
+     LEFT JOIN  teams at           ON at.id = m.away_team_id
+     WHERE m.is_active = 1
+       AND m.status    = 'UPCOMING'
+       AND ce.user_id  = ?
+     ORDER BY m.matchdate ASC`,
+    [userId]
+  );
+
+  const matchMap = {};
+
+  rows.forEach((row) => {
+    if (!matchMap[row.matchId]) {
+      matchMap[row.matchId] = {
+        matchId:      row.matchId,
+        seriesId:     row.seriesId,
+        seriesName:   row.seriesname,
+        homeTeamId:   row.homeTeamId,
+        awayTeamId:   row.awayTeamId,
+        homeTeamName: row.hometeamname,
+        awayTeamName: row.awayteamname,
+        homeTeamLogo: row.homeTeamLogo || null,
+        awayTeamLogo: row.awayTeamLogo || null,
+        startTime:    row.startTime,
+        matchDate:    row.matchDate,
+        status:       row.status,
+        entries:      [],
+      };
+    }
+
+    matchMap[row.matchId].entries.push({
+      contestId:     row.contestId,
+      userTeamId:    row.userTeamId,
+      urank:         row.urank         || null,
+      winningAmount: Number(row.winningAmount) || 0,
+      entryStatus:   row.entryStatus   || null,
+      prizePool:     Number(row.prizePool)     || 0,
+      firstPrize:    Number(row.firstPrize)    || 0,
+      totalWinners:  row.totalWinners  || 0,
+      contestType:   row.contestType   || null,
+      contestStatus: row.contestStatus || null,
+    });
+  });
+
+  return Object.values(matchMap);
+};
+
 export const getMatchesByTypeService = async (type, userId) => {
 
   const validTypes = ["LIVE", "RESULT", "COMPLETED", "IN-REVIEW"];
@@ -87,7 +164,6 @@ export const getMatchesByTypeService = async (type, userId) => {
 
 export const getPastMatchesService = async (userId) => {
 
-  // ✅ User join అయిన matches — teams + contests count తో
   const [matches] = await db.query(
     `SELECT 
         m.id AS matchId,
@@ -104,7 +180,7 @@ export const getPastMatchesService = async (userId) => {
         s.id             AS seriesId,
         s.name           AS seriesName,
 
-        COUNT(DISTINCT ut.id)  AS teamCount,
+        COUNT(DISTINCT ut.id)         AS teamCount,
         COUNT(DISTINCT ce.contest_id) AS contestCount
 
      FROM contest_entries ce
@@ -115,6 +191,7 @@ export const getPastMatchesService = async (userId) => {
      LEFT JOIN series s      ON s.seriesid = m.series_id
 
      WHERE ce.user_id = ?
+       AND m.status = 'RESULT'       -- ✅ Only completed matches
 
      GROUP BY 
         m.id, m.seriesname, m.hometeamname, m.awayteamname,
@@ -175,3 +252,4 @@ export const getPastMatchesService = async (userId) => {
 
   return results;
 };  
+

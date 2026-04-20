@@ -1,20 +1,24 @@
 import jwt from "jsonwebtoken";
 import db from "../../config/db.js";
-
 import { signupSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../auth/auth.validation.js";
 import {
-  signupService, sendLoginOtpService, loginService,
-  requestSignupOtpService, adminLoginService, updateProfileService,
+  signupService,
+  sendLoginOtpService,
+  loginService,
+  requestSignupOtpService,
+  adminLoginService,
+  updateProfileService,
   verifyEmailLinkService,
   requestContactChangeService,
   verifyOldContactService,
-  verifyNewContactService
+  verifyNewContactService,
 } from "../auth/auth.service.js";
 import { getClientIp } from "../../utils/ip.js";
 import redis from "../../config/redis.js";
 
-
-/* ================= SIGNUP ================= */
+// ─────────────────────────────────────────────────────────────────────────────
+// SIGNUP — step 1: request OTP
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const signup = async (req, res) => {
   try {
@@ -24,78 +28,53 @@ export const signup = async (req, res) => {
   } catch (err) {
     res.status(400).json({
       success: false,
-      message: err.details?.[0]?.message || err.message
+      message: err.details?.[0]?.message || err.message,
     });
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// RESEND SIGNUP OTP
+// Fix: OTP never returned in production
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const resendSignupOtp = async (req, res) => {
-
   try {
-
     const { mobile } = req.body;
-
     const normalizedMobile = String(mobile).replace(/\D/g, "").trim();
 
-    /* 1️⃣ check KYC session */
-
     const [rows] = await db.query(
-      "SELECT age_verified FROM kyc_sessions WHERE mobile=?",
+      "SELECT age_verified FROM kyc_sessions WHERE mobile = ?",
       [normalizedMobile]
     );
 
-    if (!rows.length) {
-      return res.status(400).json({
-        success: false,
-        message: "KYC session not found"
-      });
-    }
+    if (!rows.length)
+      return res.status(400).json({ success: false, message: "KYC session not found" });
 
-    /* 2️⃣ check age verification */
+    if (rows[0].age_verified !== 1)
+      return res.status(400).json({ success: false, message: "Complete KYC verification first" });
 
-    if (rows[0].age_verified !== 1) {
-      return res.status(400).json({
-        success: false,
-        message: "Complete KYC verification first"
-      });
-    }
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
-    /* 3️⃣ generate OTP */
-
-    const otp = Math.floor(100000 + Math.random() * 900000);
-
-    /* 4️⃣ store OTP in redis */
-
-    await redis.set(
-      `SIGNUP_OTP:${normalizedMobile}`,
-      otp,
-      { ex: 300 } // 5 minutes
-    );
-
-    /* 5️⃣ send OTP (SMS service) */
+    await redis.set(`SIGNUP_OTP:${normalizedMobile}`, otp, { ex: 300 });
 
     console.log(`Signup OTP for ${normalizedMobile}:`, otp);
 
     res.json({
       success: true,
       message: "OTP resent successfully",
-      otp: otp   // 👈 OTP in response
+      // ✅ Fix: OTP only in non-production
+      ...(process.env.NODE_ENV !== "production" && { otp }),
     });
-
   } catch (err) {
-
     console.error("Resend OTP error:", err);
-
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
-
+    res.status(500).json({ success: false, message: err.message });
   }
-
 };
 
-/* ================= VERIFY SIGNUP OTP ================= */
+// ─────────────────────────────────────────────────────────────────────────────
+// VERIFY SIGNUP OTP — step 2: creates account + sends verification email
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const verifySignupOtp = async (req, res) => {
   try {
@@ -105,30 +84,28 @@ export const verifySignupOtp = async (req, res) => {
   } catch (err) {
     const message = err.details?.[0]?.message || err.message;
 
-    // Duplicate entry — mobile or email already exists
-    if (err.code === "ER_DUP_ENTRY") {
+    if (err.code === "ER_DUP_ENTRY")
       return res.status(409).json({ success: false, message: "Mobile or email already registered" });
-    }
 
-    // Known business logic errors
     const knownErrors = {
-      "OTP expired": 400,
-      "Invalid OTP": 400,
-      "Signup session expired": 400,
-      "Invalid signup session data": 400,
-      "Invalid signup session: missing name": 400,
-      "Invalid signup session: missing email": 400,
+      "OTP expired":                                        400,
+      "Invalid OTP":                                        400,
+      "Signup session expired":                             400,
+      "Invalid signup session data":                        400,
+      "Invalid signup session: missing name":               400,
+      "Invalid signup session: missing email":              400,
       "Failed to generate unique usercode, please try again": 500,
-      "Server busy, please try again": 503,
+      "Server busy, please try again":                      503,
     };
 
     const status = knownErrors[message] ?? 400;
     return res.status(status).json({ success: false, message });
-  }  
+  }
 };
 
-/* ================= SEND LOGIN OTP ================= */ 
-
+// ─────────────────────────────────────────────────────────────────────────────
+// SEND LOGIN OTP
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const sendLoginOtp = async (req, res) => {
   try {
@@ -137,96 +114,41 @@ export const sendLoginOtp = async (req, res) => {
     res.status(200).json({
       success: true,
       message: result.message,
-      ...(process.env.NODE_ENV !== "production" && { otp: result.otp })
+      ...(process.env.NODE_ENV !== "production" && { otp: result.otp }),
     });
-
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
 };
 
-/* ================= VERIFY EMAIL ================= */
-
-export const verifyEmail = async (req, res) => {
-  try {
-    const { token } = req.query;
-    if (!token) throw new Error("Token missing");
-
-    // ✅ Bug 4 fixed — check token expiry in query
-    // ❌ BEFORE: no expiry check — old tokens worked forever
-    const [[user]] = await db.query(
-      `SELECT id, emailverify
-       FROM users
-       WHERE email_token = ?
-       AND email_token_expires > NOW()`,
-      [token]
-    );
-
-    if (!user) throw new Error("Invalid or expired token");
-
-    if (user.emailverify === 1) {
-      return res.redirect(`${process.env.FRONTEND_URL}/email-verified?status=already`);
-    }
-
-    await db.query(
-      "UPDATE users SET emailverify = 1, email_token = NULL WHERE id = ?",
-      [user.id]
-    );
-
-    // ✅ Bug 5 fixed — safe redirect using URL constructor
-    // ❌ BEFORE: direct string concat — open redirect risk
-    const redirectUrl = new URL("/email-verified", process.env.FRONTEND_URL);
-    redirectUrl.searchParams.set("status", "success");
-    res.redirect(redirectUrl.toString());
-
-  } catch (err) {
-    // ✅ Safe logging — only in development
-    if (process.env.NODE_ENV !== "production") console.error("Email verification error:", err);
-    const redirectUrl = new URL("/email-verified", process.env.FRONTEND_URL);
-    redirectUrl.searchParams.set("status", "failed");
-    res.redirect(redirectUrl.toString());
-  }
-};
-
-/* ================= LOGIN ================= */
-
-// ❌ REMOVED OLD LOGIN — was missing email in JWT payload
-// broke all protected routes — authenticate middleware checks decoded.email
-// export const login = async (req, res) => { ... }
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGIN
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const login = async (req, res) => {
   try {
     await loginSchema.validateAsync(req.body);
-
     const ipAddress = getClientIp(req);
     const user      = await loginService(req.body, ipAddress);
 
-    // ✅ email included in JWT — authenticate middleware requires it
-    // ❌ BEFORE: { id, usercode } only — all protected routes returned 401
     const token = jwt.sign(
       { id: user.id, usercode: user.usercode, email: user.email },
       process.env.JWT_SECRET,
       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
     );
 
-    res.status(200).json({
-      success: true,
-      message: "Login successful",
-      token,
-      data: user
-    });
-
+    res.status(200).json({ success: true, message: "Login successful", token, data: user });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
 };
 
-/* ================= ADMIN LOGIN ================= */
+// ─────────────────────────────────────────────────────────────────────────────
+// ADMIN LOGIN
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const adminLogin = async (req, res) => {
   try {
-    // ❌ REMOVED: console.log(req.body) — was logging password in plaintext
-
     const ipAddress = getClientIp(req);
     const admin     = await adminLoginService(req.body, ipAddress);
 
@@ -237,30 +159,23 @@ export const adminLogin = async (req, res) => {
     );
 
     res.json({ success: true, token, data: admin });
-
   } catch (err) {
     res.status(401).json({ success: false, message: err.message });
   }
 };
 
-/* ================= UPDATE PROFILE ================= */
-
-export const updateProfile = async (req, res) => {
-  try {
-    const result = await updateProfileService(req.user.id, req.body);
-    res.status(200).json(result);
-  } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
-  }
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// VERIFY EMAIL LINK — GET /api/auth/verify-email?token=xxx
+// Called when user clicks the link in their email
+// Sets email_verify = 1 in users table
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const verifyEmailLink = async (req, res) => {
   try {
     const { token } = req.query;
 
-    if (!token) {
+    if (!token)
       return res.status(400).json({ success: false, message: "Token missing" });
-    }
 
     await verifyEmailLinkService(token);
 
@@ -272,8 +187,8 @@ export const verifyEmailLink = async (req, res) => {
         </body>
       </html>
     `);
-
   } catch (err) {
+    console.error("❌ Verify email error:", err.message);
     return res.status(400).send(`
       <html>
         <body style="font-family: sans-serif; text-align: center; padding: 50px;">
@@ -285,124 +200,94 @@ export const verifyEmailLink = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// UPDATE PROFILE
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const updateProfile = async (req, res) => {
+  try {
+    const result = await updateProfileService(req.user.id, req.body);
+    res.status(200).json(result);
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTACT CHANGE (email / mobile)
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const requestContactChange = async (req, res) => {
   try {
-
     const userId = req.user.id;
     const { type, newValue } = req.body;
 
-    if (!type || !newValue) {
-      return res.status(400).json({
-        success: false,
-        message: "type and newValue are required"
-      });
-    }
+    if (!type || !newValue)
+      return res.status(400).json({ success: false, message: "type and newValue are required" });
 
-    if (!["email", "mobile"].includes(type)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid type. Must be email or mobile"
-      });
-    }
+    if (!["email", "mobile"].includes(type))
+      return res.status(400).json({ success: false, message: "Invalid type. Must be email or mobile" });
 
-    const result = await requestContactChangeService(
-      userId,
-      type,
-      newValue
-    );
-
+    const result = await requestContactChangeService(userId, type, newValue);
     res.status(200).json(result);
-
   } catch (err) {
-
-    res.status(400).json({
-      success: false,
-      message: err.message
-    });
-
+    res.status(400).json({ success: false, message: err.message });
   }
 };
-
 
 export const verifyOldContact = async (req, res) => {
   try {
-
-    const userId = req.user.id;
     const { otp } = req.body;
+    if (!otp)
+      return res.status(400).json({ success: false, message: "OTP required" });
 
-    if (!otp) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP required"
-      });
-    }
-
-    const result = await verifyOldContactService(userId, otp);
-
+    const result = await verifyOldContactService(req.user.id, otp);
     res.status(200).json(result);
-
   } catch (err) {
-
-    res.status(400).json({
-      success: false,
-      message: err.message
-    });
-
+    res.status(400).json({ success: false, message: err.message });
   }
 };
-
-/* ================= VERIFY NEW CONTACT ================= */
 
 export const verifyNewContact = async (req, res) => {
   try {
-
-    const userId = req.user.id;
     const { otp } = req.body;
+    if (!otp)
+      return res.status(400).json({ success: false, message: "OTP required" });
 
-    if (!otp) {
-      return res.status(400).json({
-        success: false,
-        message: "OTP required"
-      });
-    }
-
-    const result = await verifyNewContactService(userId, otp);
-
+    const result = await verifyNewContactService(req.user.id, otp);
     res.status(200).json(result);
-
   } catch (err) {
-
-    res.status(400).json({
-      success: false,
-      message: err.message
-    });
-
+    res.status(400).json({ success: false, message: err.message });
   }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LOGOUT
+// Fix: authHeader null guard added
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const logout = async (req, res) => {
   try {
-
     const authHeader = req.headers.authorization;
-    const token = authHeader.split(" ")[1];
 
+    // ✅ Fix: guard against missing header
+    if (!authHeader || !authHeader.startsWith("Bearer "))
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const token   = authHeader.split(" ")[1];
     const decoded = jwt.decode(token);
+
+    if (!decoded?.exp)
+      return res.status(400).json({ success: false, message: "Invalid token" });
 
     const expiry = decoded.exp - Math.floor(Date.now() / 1000);
 
-    await redis.set(`BLACKLIST:${token}`, "logout", { EX: expiry });
+    if (expiry > 0) {
+      await redis.set(`BLACKLIST:${token}`, "logout", { EX: expiry });
+    }
 
-    res.json({
-      success: true,
-      message: "Logged out successfully"
-    });
-
+    res.json({ success: true, message: "Logged out successfully" });
   } catch (err) {
-
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
-
+    res.status(500).json({ success: false, message: err.message });
   }
 };

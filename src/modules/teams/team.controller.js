@@ -174,9 +174,9 @@ export const getPlayerTeamById = async (req, res) => {
   }
 };   
 
+
 export const createTeam = async (req, res) => {
   try {
-
     if (!req.user || !req.user.id) {
       return res.status(401).json({
         success: false,
@@ -219,7 +219,6 @@ export const createTeam = async (req, res) => {
 
   } catch (error) {
 
-    // Known business logic errors
     const knownErrors = [
       "Match not found",
       "Team creation is closed for this match",
@@ -227,13 +226,16 @@ export const createTeam = async (req, res) => {
       "Duplicate team not allowed",
       "One or more players do not belong to this match",
       "One or more players do not exist",
+      "Team must have exactly 1 Goalkeeper",
+      "Team must have 3 to 6 Defenders",
+      "Team must have 2 to 5 Midfielders",
+      "Team must have 1 to 3 Forwards",
     ];
 
     if (knownErrors.includes(error.message)) {
       return res.status(400).json({ success: false, message: error.message });
     }
 
-    // Unknown server error — never leak raw DB errors to client
     console.error("[createTeam]", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
@@ -253,11 +255,12 @@ export const getMyTeams = async (req, res) => {
       contestId
     );
 
-    res.status(200).json({
-      success: true,
-      total: teams.length,
-      data: teams
-    });
+   res.status(200).json({
+  success: true,
+  total: teams.length,
+  data: teams,
+  message: teams.length === 0 ? "No teams found" : undefined
+});
 
   } catch (error) {
     res.status(400).json({
@@ -309,8 +312,16 @@ export const getMyTeamsWithPlayers = async (req, res) => {
   }
 };
 
+
 export const updateTeam = async (req, res) => {
   try {
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({
+        success: false,
+        message: "User not authenticated",
+      });
+    }
 
     const userId = req.user.id;
     const { teamId } = req.params;
@@ -338,14 +349,34 @@ export const updateTeam = async (req, res) => {
     });
 
   } catch (error) {
-    res.status(400).json({
+
+    const knownErrors = [
+      "Team not found or not yours",
+      "Team must have exactly 11 unique players",
+      "Captain/VC must be in selected players",
+      "Captain and Vice Captain cannot be same",
+      "Some players do not belong to this match",
+      "Team must have exactly 1 Goalkeeper",
+      "Team must have 3 to 6 Defenders",
+      "Team must have 2 to 5 Midfielders",
+      "Team must have 1 to 3 Forwards",
+    ];
+
+    if (knownErrors.includes(error.message)) {
+      return res.status(400).json({
+        success: false,
+        message: error.message,
+      });
+    }
+
+    // Unknown server error — never leak raw DB errors to client
+    console.error("[updateTeam]", error);
+    res.status(500).json({
       success: false,
       message: error.message,
     });
   }
 };
-
-
 
 export const getMyTeamsXIStatus = async (req, res) => {
   try {
@@ -359,7 +390,6 @@ export const getMyTeamsXIStatus = async (req, res) => {
     res.status(400).json({ success: false, message: error.message });
   }
 };
-
 
 export const getPlayingXI = async (req, res) => {
   try {
@@ -396,3 +426,4 @@ export const getTeamComparison = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
