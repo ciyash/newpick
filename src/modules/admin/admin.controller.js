@@ -301,6 +301,18 @@ export const getContests = async (req, res) => {
     handleError(res, e);
   }
 };
+export const getContestsbyusers = async (req, res) => {
+  try {
+    const page   = parseInt(req.query.page)           || 1;
+    const limit  = Math.min(parseInt(req.query.limit) || 20, 100);
+    const status = req.query.status                   || null;
+
+    const data = await s.getContestsbyusers({ page, limit, status });
+    res.json({ success: true, ...data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
 
 export const getContestById = async (req, res) => {
   try {
@@ -501,6 +513,19 @@ export const adminWithdrawActionController = async (req, res, next) => {
 };
 
 
+export const getFinancialSummary = async (req, res) => {
+  try {
+    const page  = parseInt(req.query.page)           || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+    const data = await s.getFinancialSummary({ page, limit });
+    res.json({ success: true, ...data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+
 //  Users
 export const getallUsers = async (req, res) => {
   try {
@@ -551,6 +576,20 @@ export const fetchUsersByAccountStatus = async (req, res) => {
 };
 
 
+export const getUsersByType = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const type = req.query.type || null;
+
+    const data = await s.getUsersByType({ page, limit, type });
+
+    res.json({ success: true, ...data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
 export const approveWithdrawal = async (req, res) => {
   try {
     const result = await s.approveWithdrawService(req.admin.id, req.params.withdrawId, req.body);
@@ -583,7 +622,7 @@ export const getAllWithdrawals = async (req, res) => {
 
 export const getWithdrawalDetail = async (req, res) => {
   try {
-    const { withdrawId } = req.params; // ✅ match your route param name
+    const { withdrawId } = req.params; //  match your route param name
     console.log("withdrawId from params:", withdrawId); // verify it's not undefined
     const result = await s.getWithdrawDetailService(withdrawId);
     return res.status(200).json(result);
@@ -593,9 +632,126 @@ export const getWithdrawalDetail = async (req, res) => {
 };
 
 
+//  Expenditure
+
+export const addExpenditure = async (req, res) => {
+  try {
+    const admin_id = req.admin?.id;
+
+    if (!admin_id) {
+      return res.status(401).json({
+        success: false,
+        message: "Admin not authenticated"
+      });
+    }
+
+    const data = await s.addExpenditure({
+      ...req.body,
+      admin_id // ✅ inject from JWT
+    });
+
+    res.json({
+      success: true,
+      message: "Expenditure added successfully",
+      data
+    });
+
+  } catch (e) {
+    res.status(400).json({
+      success: false,
+      message: e.message || "Something went wrong"
+    });
+  }
+};
+export const getExpenditure = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const { startDate, endDate, wallet_type } = req.query;
+
+    const data = await s.getExpenditure({
+      page,
+      limit,
+      startDate,
+      endDate,
+      wallet_type
+    });
+
+    res.json({ success: true, ...data });
+
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+// ✅ Summary Controller
+export const getExpenditureSummary = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    const data = await s.getExpenditureSummary({
+      startDate,
+      endDate
+    });
+
+    res.json({ success: true, data });
+
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+export const getFYExpenditure = async (req, res) => {
+  try {
+    let year = parseInt(req.query.year);
+
+    //If year not provided → calculate current FY
+    if (!year) {
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const month = today.getMonth() + 1; // Jan = 1
+
+      //  If Jan–Mar → previous FY
+      year = month <= 3 ? currentYear - 1 : currentYear;
+    }
+
+    const { startDate, endDate } =
+      s.getFinancialYearDates(year);
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+
+    const data = await s.getExpenditure({
+      page,
+      limit,
+      startDate,
+      endDate
+    });
+
+    const summary = await s.getExpenditureSummary({
+      startDate,
+      endDate
+    });
+
+    res.json({
+      success: true,
+      financialYear: `${year}-${year + 1}`,
+      startDate,
+      endDate,
+      summary,
+      ...data
+    });
+
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+
+
 //========================================================================================
 
-//chandra wrote functions
+//Chandu works
 
 
 export const setMatchLive = async (req, res) => {

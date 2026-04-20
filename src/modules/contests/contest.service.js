@@ -555,6 +555,199 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
   }
 };
 
+export const joinContestServicesudheer = async (userId, { contestId, userTeamId, ip, device }) => {
+  let conn;
+
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+    const [[contest]] = await conn.query(
+      `SELECT id, entry_fee, max_entries, current_entries, status, match_id
+       FROM contest WHERE id = ? FOR UPDATE`,
+      [contestId]
+    );
+
+    if (!contest)
+      throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
+
+    if (contest.status !== "UPCOMING")
+      throw Object.assign(new Error("Contest is not open for joining"), { statusCode: 400 });
+
+    if (contest.current_entries >= contest.max_entries)
+      throw Object.assign(new Error("Contest is full"), { statusCode: 400 });
+
+    const contestEntryFee = Number(contest.entry_fee);
+
+    // ── 2. Normalize team IDs ──
+    const teamIds = Array.isArray(userTeamId)
+      ? userTeamId.map(Number)
+      : [Number(userTeamId)];
+
+    if (!teamIds.length)
+      throw Object.assign(new Error("userTeamId is required"), { statusCode: 400 });
+
+    // ── 3. Validate teams ──
+    const [teamRows] = await conn.query(
+      `SELECT id FROM user_teams
+       WHERE id IN (?) AND user_id = ? AND match_id = ?`,
+      [teamIds, userId, contest.match_id]
+    );
+
+    if (teamRows.length !== teamIds.length)
+      throw Object.assign(new Error("One or more teams are invalid"), { statusCode: 400 });
+
+    // ── 4. Duplicate check ──
+    const [existingEntries] = await conn.query(
+      `SELECT user_team_id FROM contest_entries
+       WHERE contest_id = ? AND user_id = ? AND user_team_id IN (?)`,
+      [contestId, userId, teamIds]
+    );
+
+    if (existingEntries.length > 0)
+      throw Object.assign(new Error("One or more teams already joined this contest"), { statusCode: 400 });
+
+    // ── 5. Check available spots ──
+    const spotsLeft = contest.max_entries - contest.current_entries;
+    if (teamIds.length > spotsLeft)
+      throw Object.assign(new Error("Not enough spots remaining"), { statusCode: 400 });
+
+    // ── 6. Wallet fetch ──
+    const [[wallet]] = await conn.query(
+      `SELECT depositwallet, bonusamount, earnwallet
+       FROM wallets WHERE user_id = ? FOR UPDATE`,
+      [userId]
+    );
+
+    if (!wallet)
+      throw Object.assign(new Error("Wallet not found"), { statusCode: 400 });
+
+    const totalFee   = contestEntryFee * teamIds.length;
+    const depositBal = Number(wallet.depositwallet);
+    const bonusBal   = Number(wallet.bonusamount);
+    const earnBal    = Number(wallet.earnwallet);
+
+    // ── 7. Wallet deduction logic ──
+    const bonusUsable = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
+    const bonusDeduct = Math.min(bonusUsable, bonusBal);
+
+    const remainingAfterBonus = Number((totalFee - bonusDeduct).toFixed(2));
+
+    const earnDeduct  = Math.min(earnBal, remainingAfterBonus);
+    const depositDeduct = Number((remainingAfterBonus - earnDeduct).toFixed(2));
+
+    if (depositBal < depositDeduct)
+      throw Object.assign(new Error("Insufficient balance"), { statusCode: 400 });
+
+    // ── 8. Wallet update ──
+    await conn.query(
+      `UPDATE wallets
+       SET depositwallet = depositwallet - ?,
+           bonusamount   = bonusamount   - ?,
+           earnwallet    = earnwallet    - ?
+       WHERE user_id = ?`,
+      [depositDeduct, bonusDeduct, earnDeduct, userId]
+    );
+
+    // ── 9. Bulk wallet transactions ──
+    const walletTransactions = [];
+
+    if (earnDeduct > 0) {
+      walletTransactions.push([
+        userId, 'winning', 'debit',
+        `Contest join fee (winnings) - Contest #${contestId}`,
+        earnDeduct,
+        earnBal,
+        Number((earnBal - earnDeduct).toFixed(2)),
+        ip || null,
+        device || null
+      ]);
+    }
+
+    if (depositDeduct > 0) {
+      walletTransactions.push([
+        userId, 'deposit', 'debit',
+        `Contest join fee - Contest #${contestId}`,
+        depositDeduct,
+        depositBal,
+        Number((depositBal - depositDeduct).toFixed(2)),
+        ip || null,
+        device || null
+      ]);
+    }
+
+    if (bonusDeduct > 0) {
+      walletTransactions.push([
+        userId, 'bonus', 'debit',
+        `Contest join bonus used - Contest #${contestId}`,
+        bonusDeduct,
+        bonusBal,
+        Number((bonusBal - bonusDeduct).toFixed(2)),
+        ip || null,
+        device || null
+      ]);
+    }
+
+    if (walletTransactions.length) {
+      await conn.query(
+        `INSERT INTO wallet_transactions
+         (user_id, wallettype, transtype, remark, amount,
+          useropeningbalance, userclosingbalance, ip_address, device)
+         VALUES ?`,
+        [walletTransactions]
+      );
+    }
+
+    // ── 10. 🚀 BULK INSERT contest entries ──
+    const entryValues = teamIds.map(teamId => [
+      contestId,
+      userId,
+      teamId,
+      contestEntryFee,
+      'active',
+      new Date()
+    ]);
+
+    await conn.query(
+      `INSERT INTO contest_entries
+       (contest_id, user_id, user_team_id, entry_fee, status, joined_at)
+       VALUES ?`,
+      [entryValues]
+    );
+
+    // ── 11. Update contest count ──
+    await conn.query(
+      `UPDATE contest
+       SET current_entries = current_entries + ?
+       WHERE id = ?`,
+      [teamIds.length, contestId]
+    );
+
+    // ── 12. Referral bonus ──
+    if (contestEntryFee > 0) {
+      await applyReferralContestBonus(userId, contestId, ip, device, conn);
+    }
+
+    await conn.commit();
+
+    return {
+      success: true,
+      message: "Contest joined successfully",
+      entryFee: contestEntryFee,
+      teamsJoined: teamIds.length,
+      totalPaid: totalFee,
+      bonusUsed: bonusDeduct,
+      earningUsed: earnDeduct,
+      depositUsed: depositDeduct,
+    };
+
+  } catch (err) {
+    if (conn) await conn.rollback();
+    throw err;
+  } finally {
+    if (conn) conn.release();
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET MY CONTESTS
 // ─────────────────────────────────────────────────────────────────────────────
