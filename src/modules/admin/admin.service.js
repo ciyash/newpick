@@ -1620,7 +1620,7 @@ if (Array.isArray(data.prize_distribution)) {
       throw new Error("Invalid prize_distribution format");
     }, 0);
 
-    if (coveredRanks !== bonusRanks) {
+    if ((coveredRanks !== bonusRanks)&&(bonusRanks>0)) {
       throw new Error(
         `Distribution mismatch: covers ${coveredRanks}, expected ${bonusRanks}`
       );
@@ -1952,6 +1952,126 @@ export const getContests = async ({ page = 1, limit = 20, status = null } = {}) 
   return {
     data: rows,
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+  };
+};
+
+export const getContestsbyusers = async ({ page = 1, limit = 20, status = null } = {}) => {
+  const offset = (page - 1) * limit;
+
+  if (status && !CONTEST_STATUSES.includes(status)) {
+    throw new Error(`Invalid status. Allowed: ${CONTEST_STATUSES.join(", ")}`);
+  }
+
+  const whereClause = status ? `WHERE c.status = ?` : ``;
+  const params = status ? [status, limit, offset] : [limit, offset];
+
+  // . Get contests with aggregation (STRICT MODE SAFE)
+  const [contests] = await db.query(
+    `
+    SELECT 
+      c.id,
+      ANY_VALUE(c.contest_type) AS name,
+      ANY_VALUE(c.status) AS status,
+      ANY_VALUE(c.entry_fee) AS entry_fee,
+      ANY_VALUE(c.max_entries) AS max_entries,
+      ANY_VALUE(c.current_entries) AS current_entries,
+       ANY_VALUE(c.platform_fee_percentage) AS platform_fee,
+      ANY_VALUE(c.platform_fee_amount) AS platform_fee_amount,
+      ANY_VALUE(c.winner_percentage) AS winner_percentage,
+      ANY_VALUE(c.bonus_ranks) AS winner_ranks,
+      ANY_VALUE(c.net_pool_prize) AS winning_pool_prize,
+      ANY_VALUE(c.refund_start_rank) AS refund_start_rank,
+      ANY_VALUE(c.refund_winners) AS refund_winners,
+      ANY_VALUE(c.refund_total) AS refund_total,
+       ANY_VALUE(c.netpool_amount) AS netpool_amount,
+      ANY_VALUE(c.created_at) AS created_at,
+
+
+
+      COUNT(DISTINCT ce.user_id) AS total_users,
+      COUNT(ce.user_team_id) AS total_teams
+
+    FROM contest c
+
+
+
+    LEFT JOIN contest_entries ce 
+      ON ce.contest_id = c.id
+
+    ${whereClause}
+
+    GROUP BY c.id
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+    `,
+    params
+  );
+
+  //  No contests case
+  if (!contests.length) {
+    return {
+      data: [],
+      pagination: { total: 0, page, limit, totalPages: 0 }
+    };
+  }
+
+  //  2. Get users + teams per contest
+  const contestIds = contests.map(c => c.id);
+
+  const [entries] = await db.query(
+    `
+    SELECT 
+      ce.contest_id,
+      ce.user_id,
+      u.name AS user_name,
+      COUNT(ce.user_team_id) AS team_count
+
+    FROM contest_entries ce
+
+    JOIN users u 
+      ON u.id = ce.user_id
+
+    WHERE ce.contest_id IN (?)
+
+    GROUP BY ce.contest_id, ce.user_id
+    `,
+    [contestIds]
+  );
+
+  //  3. Map users into contests
+  const contestMap = {};
+
+  contests.forEach(contest => {
+    contestMap[contest.id] = {
+      ...contest,
+      users: []
+    };
+  });
+
+  entries.forEach(row => {
+    if (contestMap[row.contest_id]) {
+      contestMap[row.contest_id].users.push({
+        user_id: row.user_id,
+        user_name: row.user_name,
+        team_count: row.team_count
+      });
+    }
+  });
+
+  //  4. Pagination count
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total FROM contest c ${whereClause}`,
+    status ? [status] : []
+  );
+
+  return {
+    data: Object.values(contestMap),
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    }
   };
 };
 
@@ -2379,10 +2499,29 @@ export const getHomeservice = async () => {
   const [[userStats]] = await db.query(`
     SELECT
       COUNT(*)                                          AS totalRegistered,
-      SUM(phoneverify = 1 AND email = 1)                AS activeUsers,
-      SUM(iskycverify = 1)                              AS kycVerified,
-      SUM(iskycverify = 0)                              AS notKycVerified
+      SUM(mobile_verify = 1 AND email_verify = 1)                AS activeUsers,
+       SUM(mobile_verify = 0)                               AS phoneverify,
+        SUM(email_verify = 0)                                AS mailverify,
+      SUM(subscribe = 1)                                      AS subscribe,
+      SUM(kyc_status = 'approved')                              AS kycVerified,
+       SUM(kyc_status = 'pending')                              AS kycPending,
+      SUM(kyc_status = 'not_started')                              AS notKycVerified,
+        SUM(kyc_status = 'rejected')                              AS KycRejected,
+       SUM(issofverify = 1)                              AS SOFVerified,
+      SUM(issofverify = 0)                              AS nonSOFVerified,
+       SUM(bank_verified = 1)                              AS BankVerified,
+      SUM(bank_verified = 0)                              AS notBankVerified,
+      SUM(is_blocked = 1)                                    AS blockeduser,
+       SUM(account_status = 'paused')                              AS gamepaused,
+        SUM(account_status = 'deleted')                              AS deleteusers
     FROM users
+  `);
+  const [[userwalletstat]] = await db.query(`
+    SELECT
+      SUM(earnwallet)                                    AS Earnwallet,
+       SUM(depositwallet)                              AS Depositewallet,
+        SUM(bonusamount)                              AS Bonuswallet
+    FROM wallets
   `);
 
   const [[walletStats]] = await db.query(`
@@ -2444,11 +2583,28 @@ export const getHomeservice = async () => {
       totalRegistered: Number(userStats.totalRegistered),
       activeUsers:     Number(userStats.activeUsers),
       kycVerified:     Number(userStats.kycVerified),
-      notKycVerified:  Number(userStats.notKycVerified),
+      kycPending:  Number(userStats.kycPending),
+       notKycVerified:     Number(userStats.notKycVerified),
+      KycRejected:  Number(userStats.KycRejected),
+       Mobilerynotverify: Number(userStats.phoneverify),
+      Emailnotverify:     Number(userStats.mailverify),
+      Subscribe:     Number(userStats.subscribe),
+      SOFVerified:  Number(userStats.SOFVerified),
+       nonSOFVerified: Number(userStats.nonSOFVerified),
+      BankVerified:     Number(userStats.BankVerified),
+      notBankVerified:     Number(userStats.notBankVerified),
+      blockeduser:  Number(userStats.blockeduser),
+       gamepaused:  Number(userStats.gamepaused),
+        deleteusers:  Number(userStats.deleteusers),
     },
     wallet: {
       totalAmountReceived: Number(walletStats.totalAmountReceived),
       totalWithdrawAmount: Number(walletStats.totalWithdrawAmount),
+    },
+     currentwallet: {
+      totalDeposite: Number(userwalletstat.Earnwallet),
+      totalWinnig: Number(userwalletstat.Depositewallet),
+       totalBonus: Number(userwalletstat.Bonuswallet),
     },
     matches: {
       live:      Number(liveMatches),
@@ -2572,7 +2728,7 @@ export const fetchDepositesSummary = async () => {
 const WITHDRAW_COLUMNS = `
   id, user_id, amount, payment_mode,
   status, transaction_id, phone,
-  createdAt
+  created_at
 `;
 
 export const getallWithdraws = async ({ page = 1, limit = 20 } = {}) => {
@@ -2608,8 +2764,8 @@ export const fetchWithdraws = async (filters = {}, { page = 1, limit = 20 } = {}
   if (transaction_id?.trim()) { conditions.push(`transaction_id = ?`); params.push(transaction_id.trim()); }
   if (minAmount !== undefined && minAmount !== '') { conditions.push(`amount >= ?`); params.push(Number(minAmount)); }
   if (maxAmount !== undefined && maxAmount !== '') { conditions.push(`amount <= ?`); params.push(Number(maxAmount)); }
-  if (startDate?.trim())      { conditions.push(`createdAt >= ?`);     params.push(new Date(startDate.trim())); }
-  if (endDate?.trim())        { conditions.push(`createdAt <= ?`);     params.push(new Date(endDate.trim())); }
+  if (startDate?.trim())      { conditions.push(`created_at >= ?`);     params.push(new Date(startDate.trim())); }
+  if (endDate?.trim())        { conditions.push(`created_at <= ?`);     params.push(new Date(endDate.trim())); }
 
   const offset      = (page - 1) * limit;
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : ``;
@@ -2724,6 +2880,185 @@ export const adminWithdrawActionService = async (withdrawId, data) => {
   } finally {
     conn.release();
   }
+};
+
+export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
+  const offset = (page - 1) * limit;
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const [
+    [withdrawRows],
+    [[withdrawTotal]],
+    [depositRows],
+    [[depositTotal]],
+    [[todaySummary]],
+    [[overallSummary]],
+    [subscriptionRows],
+    [[subscriptionTotal]],
+  ] = await Promise.all([
+
+    // Withdraws paginated
+    db.query(
+      `SELECT ${WITHDRAW_COLUMNS} FROM withdraws 
+       ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [limit, offset]
+    ),
+
+    // Withdraws total count
+    db.query(`SELECT COUNT(*) AS total FROM withdraws`),
+
+    // Deposits paginated
+    db.query(
+      `SELECT ${DEPOSIT_COLUMNS} FROM deposite 
+       ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [limit, offset]
+    ),
+
+    // Deposits total count
+    db.query(`SELECT COUNT(*) AS total FROM deposite`),
+
+    // Today's summary
+    db.query(
+      `SELECT
+        (SELECT COALESCE(SUM(amount), 0) FROM deposite  
+         WHERE createdAt BETWEEN ? AND ?)                    AS today_deposits,
+        (SELECT COALESCE(SUM(amount), 0) FROM withdraws 
+         WHERE created_at BETWEEN ? AND ?)                    AS today_withdraws,
+        (SELECT COUNT(*)                 FROM deposite  
+         WHERE createdAt BETWEEN ? AND ?)                    AS today_deposit_count,
+        (SELECT COUNT(*)                 FROM withdraws 
+         WHERE created_at BETWEEN ? AND ?)                    AS today_withdraw_count,
+        (SELECT COALESCE(SUM(final_amount), 0) FROM subscriptions 
+         WHERE created_at BETWEEN ? AND ?)                    AS today_subscription_revenue,
+        (SELECT COUNT(*)                       FROM subscriptions 
+         WHERE created_at BETWEEN ? AND ?)                    AS today_subscription_count`,
+      [
+        todayStart, todayEnd,   // today_deposits
+        todayStart, todayEnd,   // today_withdraws
+        todayStart, todayEnd,   // today_deposit_count
+        todayStart, todayEnd,   // today_withdraw_count
+        todayStart, todayEnd,   // today_subscription_revenue
+        todayStart, todayEnd,   // today_subscription_count
+      ]
+    ),
+
+    // Overall summary
+    db.query(
+      `SELECT
+        (SELECT COALESCE(SUM(amount), 0)       FROM deposite)              AS total_deposits,
+        (SELECT COALESCE(SUM(amount), 0)       FROM withdraws)             AS total_withdraws,
+        (SELECT COUNT(*)                       FROM deposite)              AS total_deposit_count,
+        (SELECT COUNT(*)                       FROM withdraws)             AS total_withdraw_count,
+        (SELECT COALESCE(SUM(final_amount), 0) FROM subscriptions)         AS total_subscription_revenue,
+        (SELECT COUNT(*)                       FROM subscriptions)         AS total_subscriptions,
+
+        -- Active: today is between subscribeStartDate and subscribeEndDate
+        (SELECT COUNT(*) FROM users
+         WHERE subscribeStartDate <= NOW()
+         AND   subscribeEndDate   >= NOW())                                AS active_subscriptions,
+
+        -- Expired: end date is in the past
+        (SELECT COUNT(*) FROM users
+         WHERE subscribeEndDate < NOW())                                   AS expired_subscriptions,
+
+        -- Never subscribed
+        (SELECT COUNT(*) FROM users
+         WHERE subscribeStartDate IS NULL
+         OR    subscribeEndDate   IS NULL)                                 AS unsubscribed_users`
+    ),
+
+    // Subscriptions paginated with user info + remaining days
+    db.query(
+      `SELECT
+          s.id,
+          s.user_id,
+          u.name              AS user_name,
+          u.mobile            AS user_mobile,
+          s.package_name,
+          s.amount,
+          s.discount,
+          s.final_amount,
+          s.period,
+          s.status,
+          s.renewal_count,
+          s.auto_renew,
+          s.subscription_date,
+          s.subscription_end,
+          s.remark,
+          s.created_at,
+          CASE
+            WHEN s.status = 'active' AND s.subscription_end > NOW()
+            THEN CEIL(TIMESTAMPDIFF(HOUR, NOW(), s.subscription_end) / 24)
+            ELSE 0
+          END                 AS remaining_days
+       FROM subscriptions s
+       LEFT JOIN users u ON u.id = s.user_id
+       ORDER BY s.id DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
+    ),
+
+    // Subscriptions total count
+    db.query(`SELECT COUNT(*) AS total FROM subscriptions`),
+
+  ]);
+
+  return {
+
+    today: {
+      deposits:             Number(todaySummary.today_deposits              || 0),
+      withdraws:            Number(todaySummary.today_withdraws             || 0),
+      deposit_count:        Number(todaySummary.today_deposit_count         || 0),
+      withdraw_count:       Number(todaySummary.today_withdraw_count        || 0),
+      subscription_revenue: Number(todaySummary.today_subscription_revenue  || 0),
+      subscription_count:   Number(todaySummary.today_subscription_count    || 0),
+      net:                  Number(todaySummary.today_deposits || 0) - Number(todaySummary.today_withdraws || 0),
+    },
+
+    overall: {
+      total_deposits:             Number(overallSummary.total_deposits),
+      total_withdraws:            Number(overallSummary.total_withdraws),
+      total_deposit_count:        Number(overallSummary.total_deposit_count),
+      total_withdraw_count:       Number(overallSummary.total_withdraw_count),
+      total_subscription_revenue: Number(overallSummary.total_subscription_revenue),
+      total_subscriptions:        Number(overallSummary.total_subscriptions),
+      active_subscriptions:       Number(overallSummary.active_subscriptions),
+      expired_subscriptions:      Number(overallSummary.expired_subscriptions),
+      unsubscribed_users:         Number(overallSummary.unsubscribed_users),
+      net:                        Number(overallSummary.total_deposits) - Number(overallSummary.total_withdraws),
+    },
+
+    withdraws: {
+      data: withdrawRows,
+      pagination: {
+        total:      Number(withdrawTotal.total),
+        page, limit,
+        totalPages: Math.ceil(withdrawTotal.total / limit),
+      },
+    },
+
+    deposits: {
+      data: depositRows,
+      pagination: {
+        total:      Number(depositTotal.total),
+        page, limit,
+        totalPages: Math.ceil(depositTotal.total / limit),
+      },
+    },
+
+    subscriptions: {
+      data: subscriptionRows,
+      pagination: {
+        total:      Number(subscriptionTotal.total),
+        page, limit,
+        totalPages: Math.ceil(subscriptionTotal.total / limit),
+      },
+    },
+
+  };
 };
 
 // ── Users ─────────────────────────────────────────────────────
@@ -2843,6 +3178,116 @@ export const fetchUsersByAccountStatus = async (filters = {}, { page = 1, limit 
   return {
     data: rows,
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+  };
+};
+
+export const getUsersByType = async ({
+  page = 1,
+  limit = 20,
+  type = null
+} = {}) => {
+  const offset = (page - 1) * limit;
+
+  let where = [];
+  let params = [];
+  switch (type) {
+    case "active":
+      where.push(`mobile_verify = 1 AND email_verify = 1`);
+      break;
+
+    case "mobile_notverifeid":
+      where.push(`mobile_verify = 0`);
+      break;
+
+    case "email_notverified":
+      where.push(`email_verify = 0`);
+      break;
+
+    case "kyc_verified":
+      where.push(`kyc_status = 'approved'`);
+      break;
+
+    case "kyc_pending":
+      where.push(`kyc_status = 'pending'`);
+      break;
+
+    case "kyc_rejected":
+      where.push(`kyc_status = 'rejected'`);
+      break;
+
+    case "kyc_notstart":
+      where.push(`kyc_status = 'not_started'`);
+      break;
+
+    case "sof_verified":
+      where.push(`issofverify = 1`);
+      break;
+
+        case "sof_notverified":
+      where.push(`issofverify = 0`);
+      break;
+
+    case "bank_verified":
+      where.push(`bank_verified = 1`);
+      break;
+
+    case "blocked":
+      where.push(`is_blocked = 1`);
+      break;
+
+    case "game_paused":
+      where.push(`account_status = 'paused'`);
+      break;
+
+    case "deleted":
+      where.push(`account_status = 'deleted'`);
+      break;
+
+    default:
+      break;
+  }
+
+  const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+  //  Get users
+  const [users] = await db.query(
+    `
+    SELECT 
+      id,
+      name,
+      email,
+      mobile,
+      mobile_verify,
+      email_verify,
+      kyc_status,
+      issofverify,
+      bank_verified,
+      is_blocked,
+      account_status,
+      created_at
+
+    FROM users
+    ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+    `,
+    [...params, limit, offset]
+  );
+
+  // Total count
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total FROM users ${whereClause}`,
+    params
+  );
+
+  return {
+    data: users,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    }
   };
 };
 
@@ -2990,7 +3435,7 @@ export const rejectWithdrawService = async (adminId, withdrawId, body) => {
     // 3. Company balance — no fund movement on rejection, just hold & return
     //    opening and closing are the SAME to keep ledger chain intact
     const companyOpening = await getCompanyBalance(conn);
-    const companyClosing = companyOpening; // ✅ no change — money was never sent out
+    const companyClosing = companyOpening; //  no change — money was never sent out
 
     // 4. Mark REJECTED
     const [updateResult] = await conn.query(
@@ -3212,9 +3657,233 @@ export const getWithdrawDetailService = async (withdrawId) => {
   return { success: true, data: row };
 };
 
+
+// ── Expenditure ─────────────────────────────────────────────────────
+
+export const addExpenditure = async (payload = {}) => {
+  const connection = await db.getConnection();
+
+  try {
+    const {
+      admin_id,
+      user_id = null,
+      entity_type = "admin",
+      transaction_type,
+      wallet_type,
+      amount,
+      category,
+      reference_table = null,
+      reference_id = null,
+      remark = "",
+      ip_address = null,
+      device = null,
+    } = payload;
+
+    // Validation
+    if (!admin_id) throw new Error("admin_id is required");
+    if (!["credit", "debit"].includes(transaction_type)) throw new Error("Invalid transaction_type");
+    if (!wallet_type) throw new Error("wallet_type is required");
+    if (!category) throw new Error("category is required");
+
+    const parsedAmount = Number(amount);
+    if (!parsedAmount || parsedAmount <= 0) throw new Error("Valid amount is required");
+
+    const cleanEntity = entity_type?.toLowerCase().trim();
+    if (!["user", "admin", "system"].includes(cleanEntity)) throw new Error("Invalid entity_type");
+
+    const now = new Date();
+
+    await connection.beginTransaction();
+
+    // Get last balance — locked to prevent concurrent reads
+    const [[lastTx]] = await connection.query(
+      `SELECT closing_balance FROM financial_transactions 
+       WHERE status = 'success' 
+       ORDER BY created_at DESC 
+       LIMIT 1 FOR UPDATE`
+    );
+
+    const opening_balance = lastTx ? Number(lastTx.closing_balance) : 0;
+    const closing_balance = transaction_type === "credit"
+      ? opening_balance + parsedAmount
+      : opening_balance - parsedAmount;
+
+    if (closing_balance < 0) throw new Error("Insufficient balance");
+
+    // Insert transaction
+    const [txResult] = await connection.query(
+      `INSERT INTO financial_transactions 
+        (admin_id, user_id, entity_type, transaction_type, wallet_type, amount, 
+         opening_balance, closing_balance, reference_table, reference_id, 
+         transaction_hash, remark, ip_address, device, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UUID(), ?, ?, ?, 'success', ?)`,
+      [admin_id, user_id, cleanEntity, transaction_type, wallet_type, parsedAmount,
+       opening_balance, closing_balance, reference_table, reference_id,
+       remark, ip_address, device, now]
+    );
+
+    // Insert expenditure
+    await connection.query(
+      `INSERT INTO expenditure 
+        (admin_id, user_id, category, transaction_type, amount, 
+         reference_table, reference_id, remark, transaction_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [admin_id, user_id, category, transaction_type, parsedAmount,
+       reference_table, reference_id, remark, txResult.insertId, now]
+    );
+
+    await connection.commit();
+
+    return {
+      success: true,
+      transaction_id: txResult.insertId,
+      opening_balance,
+      closing_balance,
+      transaction_type,
+    };
+
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const getFinancialYearDates = (year) => {
+  return {
+    startDate: `${year}-04-01`,
+    endDate: `${year + 1}-03-31`
+  };
+};
+
+//  Get Transactions (with filters + pagination)
+export const getExpenditure = async ({
+  page = 1,
+  limit = 20,
+  startDate = null,
+  endDate = null,
+  wallet_type = null
+} = {}) => {
+
+  const offset = (page - 1) * limit;
+
+  let where = [`status = 'success'`];
+  let params = [];
+
+  if (startDate && endDate) {
+    where.push(`created_at BETWEEN ? AND ?`);
+    params.push(startDate, endDate);
+  }
+
+  if (wallet_type) {
+    where.push(`wallet_type = ?`);
+    params.push(wallet_type);
+  }
+
+  const whereClause = `WHERE ${where.join(" AND ")}`;
+
+  //  Data Query
+  const [rows] = await db.query(
+    `
+    SELECT 
+      id,
+      transaction_type,
+      category,
+      amount,
+      reference_table,
+      reference_id,
+      remark,
+      created_at
+    FROM expenditure
+    ${whereClause}
+    ORDER BY created_at DESC
+    LIMIT ? OFFSET ?
+    `,
+    [...params, limit, offset]
+  );
+
+  //  Count Query
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total FROM expenditure ${whereClause}`,
+    params
+  );
+
+  return {
+    data: rows,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit)
+    }
+  };
+};
+
+//  Summary (Opening, Credit, Debit, Closing)
+export const getExpenditureSummary = async ({ startDate, endDate } = {}) => {
+
+  let where = [`status = 'success'`];
+  let params = [];
+
+  if (startDate && endDate) {
+    where.push(`created_at BETWEEN ? AND ?`);
+    params.push(startDate, endDate);
+  }
+
+  const whereClause = `WHERE ${where.join(" AND ")}`;
+
+  //  Opening Balance
+  let openingBalance = 0;
+
+  if (startDate) {
+    const [[res]] = await db.query(
+      `
+      SELECT 
+        COALESCE(SUM(
+          CASE 
+            WHEN transaction_type = 'credit' THEN amount
+            ELSE -amount
+          END
+        ), 0) AS balance
+      FROM expenditure
+      WHERE status = 'success'
+      AND created_at < ?
+      `,
+      [startDate]
+    );
+
+    openingBalance = res.balance;
+  }
+
+  //  Credit & Debit
+  const [[totals]] = await db.query(
+    `
+    SELECT 
+      SUM(CASE WHEN transaction_type = 'credit' THEN amount ELSE 0 END) AS total_credit,
+      SUM(CASE WHEN transaction_type = 'debit' THEN amount ELSE 0 END) AS total_debit
+    FROM expenditure
+    ${whereClause}
+    `,
+    params
+  );
+
+  const totalCredit = totals.total_credit || 0;
+  const totalDebit = totals.total_debit || 0;
+
+  const closingBalance = openingBalance + totalCredit - totalDebit;
+
+  return {
+    openingBalance,
+    totalCredit,
+    totalDebit,
+    closingBalance
+  };
+};
+
 //===============================================================================
 
-//chandra wrote by functions
+//Chandu works
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER — Prize for a given rank
