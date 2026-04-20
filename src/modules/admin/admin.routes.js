@@ -48,6 +48,7 @@ router.put("/updatecontest/:id",      adminAuth(), v.updateContest, c.updateCont
 router.get("/getcontestbymatch/:matchId",   adminAuth(),             c.getContestsByMatch);
 router.get("/getcontestbyseries/:seriesId", adminAuth(),             c.getContestsBySeries);
 router.get("/getcontestbyteam/:teamId",     adminAuth(),             c.getContestsByTeam);
+router.get("/getContestsbyusers",            adminAuth(),                   c.getContestsbyusers);
 
 //contest category
 router.post("/createcontestcategory", adminAuth(), v.createContestCategory, c.createContestCategory);
@@ -69,13 +70,23 @@ router.post("/withdraw/:withdrawId/approve", adminAuth(), v.approveWithdraw, c.a
 router.post("/withdraw/:withdrawId/reject",  adminAuth(), v.rejectWithdraw,  c.rejectWithdrawal);
 router.get("/withdraw/list",                 adminAuth(),                     c.getAllWithdrawals);
 router.get("/withdraw/:withdrawId",          adminAuth(),                     c.getWithdrawalDetail);
+router.get("/getFinancialSummary",        adminAuth(), c.getFinancialSummary);
 
 //users
 router.get("/getallusers",            adminAuth(), c.getallUsers);
 router.post("/fetchusers",            adminAuth(), c.fetchUsers);
 router.post("/fetchusersbykyc",       adminAuth(), c.fetchUsersByKycStatus);
 router.post("/fetchusersbyaccount",   adminAuth(), c.fetchUsersByAccountStatus);
+router.get("/getUsersByType",            adminAuth(), c.getUsersByType);
 
+
+//Expenditure
+router.post("/addExpenditure",         adminAuth(),              c.addExpenditure);
+router.get("/getExpenditure",             adminAuth(),   c.getExpenditure);
+router.get("/getExpenditureSummary",             adminAuth(),   c.getExpenditureSummary);
+router.get("/getFYExpenditure",             adminAuth(),   c.getFYExpenditure);
+
+//Chandu works
 
 //entity-sport  
 

@@ -414,6 +414,7 @@ const syncMatchStatuses = async () => {
          AND status IN ('UPCOMING', 'LIVE')
          AND start_time <= DATE_SUB(NOW(), INTERVAL 150 MINUTE)`
     );
+
     console.log(
       `✅ [CRON] Statuses updated | UPCOMING→LIVE: ${upcomingToLive.affectedRows}, LIVE/STUCK→RESULT: ${liveToResult.affectedRows}`
     );
@@ -489,7 +490,7 @@ const cacheLeaderboards = async () => {
       return;
     }
 
-    // ✅ Parallel cache update for all live contests
+    // ✅ Parallel cache update for all live contestsjfg
     await Promise.allSettled(
       liveContests.map(c => computeAndCacheLeaderboard(c.contest_id, c.match_id))
     );

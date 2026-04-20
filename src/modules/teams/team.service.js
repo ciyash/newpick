@@ -552,9 +552,10 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
     params
   );
 
- if (!rows.length) {
-  return [];
-}
+  if (!rows.length) {
+    return [];
+  }
+
   const teams = {};
 
   for (const row of rows) {

@@ -1,10 +1,10 @@
-import express from "express";
-import { savePushToken, testNotification  } from "./notification.controller.js";
+// import express from "express";
+// import { savePushToken, testNotification  } from "./notification.controller.js";
 
-const router = express.Router();
+// const router = express.Router();
 
-router.post("/push-token", savePushToken );
+// router.post("/push-token", savePushToken );
 
-router.get("/test", testNotification);
+// router.get("/test", testNotification);
 
-export default router;
+// export default router;   
