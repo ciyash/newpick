@@ -9,6 +9,7 @@ import {
   getMyAnalyticsService,
   getMyTransactionsServiceYear,
   getMyActivityService,
+  sendTransactionReportService,
 } from "./wallet.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -474,5 +475,33 @@ export const getMyActivity = async (req, res) => {
       success: false,
       message: err.message,
     });
+  }
+};
+
+
+export const sendTransactionReport = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId)
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const { year } = req.body;
+
+    if (!year)
+      return res.status(400).json({ success: false, message: "year is required" });
+
+    if (year < 2020 || year > new Date().getFullYear())
+      return res.status(400).json({ success: false, message: "Invalid year" });
+
+    await sendTransactionReportService(userId, parseInt(year));
+
+    return res.status(200).json({
+      success: true,
+      message: `Transaction report for ${year} sent to your registered email`,
+    });
+
+  } catch (err) {
+    console.error("❌ Transaction report error:", err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -1,5 +1,5 @@
 import express from "express";
-import { addMoney, getMyWallet, getMyTransactions, deleteTransactionsByUser, getMyAnalytics, downloadAnalyticsStatement, getMyTransactionsYear, getMyActivity } from "./wallet.controller.js";
+import { addMoney, getMyWallet, getMyTransactions, deleteTransactionsByUser, getMyAnalytics, downloadAnalyticsStatement, getMyTransactionsYear, getMyActivity, sendTransactionReport } from "./wallet.controller.js";
 import { authenticate } from "../../middlewares/auth.middleware.js";
 
 
@@ -10,6 +10,8 @@ router.post("/add-money", authenticate, addMoney);
 router.get("/my-wallet", getMyWallet);
 
 router.get("/my-transactions", getMyTransactions);
+
+router.post("/transaction-report",  sendTransactionReport);
 
 router.get("/my-transactions/:year", getMyTransactionsYear);
 

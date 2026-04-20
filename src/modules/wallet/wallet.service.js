@@ -1,5 +1,8 @@
 import db from "../../config/db.js";
 
+// ఇది మాత్రమే change చేయి — service top లో
+import { sendMail } from "../../utils/send.mail.js"
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ADD DEPOSIT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -783,4 +786,122 @@ const getNotifIcon = (type) => {
   if (type === "match")  return "⚽";
   if (type === "alert")  return "🔔";
   return "📢";
+};
+
+
+
+
+
+
+export const sendTransactionReportService = async (userId, year) => {
+
+  // ── 1. User details ──
+  const [[user]] = await db.query(
+    `SELECT name, email FROM users WHERE id = ?`,
+    [userId]
+  );
+  if (!user) throw new Error("User not found");
+  if (!user.email) throw new Error("No email found for this user");
+
+  // ── 2. Transactions fetch ──
+  const [rows] = await db.query(
+    `SELECT
+       id, wallettype, transtype, amount, remark,
+       reference_id, useropeningbalance, userclosingbalance, created_at
+     FROM wallet_transactions
+     WHERE user_id = ?
+       AND YEAR(created_at) = ?
+     ORDER BY id DESC`,
+    [userId, year]
+  );
+
+  if (!rows.length)
+    throw new Error(`No transactions found for year ${year}`);
+
+  // ── 3. Summary ──
+  const totalCredit = rows
+    .filter(t => t.transtype === "credit")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+
+  const totalDebit = rows
+    .filter(t => t.transtype === "debit")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+
+  // ── 4. HTML table ──
+  const rows_html = rows.map((txn, i) => `
+    <tr style="background: ${i % 2 === 0 ? '#f9f9f9' : '#ffffff'}">
+      <td style="padding:8px;border:1px solid #ddd">${i + 1}</td>
+      <td style="padding:8px;border:1px solid #ddd">${new Date(txn.created_at).toLocaleDateString("en-GB")}</td>
+      <td style="padding:8px;border:1px solid #ddd">${txn.wallettype || "-"}</td>
+      <td style="padding:8px;border:1px solid #ddd;color:${txn.transtype === 'credit' ? 'green' : 'red'}">
+        ${txn.transtype === 'credit' ? '▲' : '▼'} ${txn.transtype}
+      </td>
+      <td style="padding:8px;border:1px solid #ddd;font-weight:bold">£${Number(txn.amount).toFixed(2)}</td>
+      <td style="padding:8px;border:1px solid #ddd">${txn.remark || "-"}</td>
+      <td style="padding:8px;border:1px solid #ddd">£${Number(txn.useropeningbalance || 0).toFixed(2)}</td>
+      <td style="padding:8px;border:1px solid #ddd">£${Number(txn.userclosingbalance || 0).toFixed(2)}</td>
+    </tr>
+  `).join("");
+
+  // ── 5. Full HTML ──
+  const html = `
+    <div style="font-family:Arial;max-width:900px;margin:auto;padding:20px">
+      <div style="background:#1a1a2e;color:white;padding:20px;border-radius:8px 8px 0 0;text-align:center">
+        <h2 style="margin:0">🏆 Pick2Win</h2>
+        <p style="margin:5px 0;opacity:0.8">Transaction Report — ${year}</p>
+      </div>
+
+      <div style="background:#f0f4ff;padding:15px 20px;border-left:4px solid #4a90e2">
+        <p style="margin:0">Hi <strong>${user.name}</strong>,</p>
+        <p style="margin:5px 0">Here is your complete transaction history for <strong>${year}</strong>.</p>
+      </div>
+
+      <table style="width:100%;border-collapse:collapse;margin:15px 0">
+        <tr>
+          <td style="background:#e8f5e9;padding:15px;border-radius:8px;text-align:center">
+            <div style="font-size:12px;color:#666">Total Credits</div>
+            <div style="font-size:20px;font-weight:bold;color:green">£${totalCredit.toFixed(2)}</div>
+          </td>
+          <td style="width:10px"></td>
+          <td style="background:#fce4ec;padding:15px;border-radius:8px;text-align:center">
+            <div style="font-size:12px;color:#666">Total Debits</div>
+            <div style="font-size:20px;font-weight:bold;color:red">£${totalDebit.toFixed(2)}</div>
+          </td>
+          <td style="width:10px"></td>
+          <td style="background:#e3f2fd;padding:15px;border-radius:8px;text-align:center">
+            <div style="font-size:12px;color:#666">Total Transactions</div>
+            <div style="font-size:20px;font-weight:bold;color:#1565c0">${rows.length}</div>
+          </td>
+        </tr>
+      </table>
+
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#1a1a2e;color:white">
+            <th style="padding:10px;border:1px solid #ddd">#</th>
+            <th style="padding:10px;border:1px solid #ddd">Date</th>
+            <th style="padding:10px;border:1px solid #ddd">Wallet</th>
+            <th style="padding:10px;border:1px solid #ddd">Type</th>
+            <th style="padding:10px;border:1px solid #ddd">Amount</th>
+            <th style="padding:10px;border:1px solid #ddd">Remark</th>
+            <th style="padding:10px;border:1px solid #ddd">Opening</th>
+            <th style="padding:10px;border:1px solid #ddd">Closing</th>
+          </tr>
+        </thead>
+        <tbody>${rows_html}</tbody>
+      </table>
+
+      <div style="background:#f9f9f9;padding:15px;margin-top:20px;border-radius:8px;font-size:12px;color:#666;text-align:center">
+        <p style="margin:0">This is an auto-generated report. Please do not reply to this email.</p>
+        <p style="margin:5px 0">© ${year} Pick2Win. All rights reserved.</p>
+      </div>
+    </div>
+  `;
+
+  // ── 6. sendMail ──
+  await sendMail({
+    to:      user.email,
+    subject: `Pick2Win — Your Transaction Report for ${year}`,
+    html,
+  });
 };
