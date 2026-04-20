@@ -8,6 +8,7 @@ import {
   getScoreBreakdown,
   joinContest,
   compareTeam,
+  getContestHistory,
 } from "./contest.controller.js";
 
 const router = express.Router();
@@ -31,6 +32,9 @@ router.get("/breakdown/:contestId/:userTeamId",   getScoreBreakdown);
 
 // ── General (keep LAST — broad patterns must not shadow specific routes) ──────
 router.get("/",                                   getAllContests);
+// Contest history
+router.get("/history", getContestHistory);
 router.get("/:match_id",                          getContestsByMatchId);
+
 
 export default router;

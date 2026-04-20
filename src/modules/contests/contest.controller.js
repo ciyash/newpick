@@ -1,3 +1,4 @@
+import e from "express";
 import {
   getAllContestsService,
   getContestsService,
@@ -7,6 +8,7 @@ import {
   getMyRankService,
   getScoreBreakdownService,
   compareTeamService,
+  getContestHistoryService,
 } from "./contest.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -222,7 +224,30 @@ export const getScoreBreakdown = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/winnings/:contest_id
-// Prize pool breakdown — powers the "Winnings" tab
-// Returns bonus tiers + refund zone + no-prize zone for the frontend
+// GET /api/contests/history
+// Query: ?year=2026&month=4&status=COMPLETED&page=1&limit=10
 // ─────────────────────────────────────────────────────────────────────────────
+
+
+export const getContestHistory = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const { year, month, page = 1, limit = 10 } = req.query; // status తీసేశాం
+
+    if (!userId)
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const result = await getContestHistoryService(userId, {
+      year:  year  ? parseInt(year)  : null,
+      month: month ? parseInt(month) : null,
+      page:  parseInt(page),
+      limit: parseInt(limit),
+    });
+
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[getContestHistory]", err.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
+  }
+};
+

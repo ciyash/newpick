@@ -421,14 +421,18 @@ export const updateProfileService = async (userId, data) => {
 
 
 
-export const applyReferralContestBonus = async (userId, contestId, ip, device, conn) => {
+export const applyReferralContestBonus = async (userId, contestId, ip, device, conn, teamsJoined = 1) => {
 
   // ── 1. First contest join check ──
+  // ఇప్పుడు insert అయిన teams తీసేసి check చేయాలి
   const [[{ contestCount }]] = await conn.query(
     `SELECT COUNT(*) AS contestCount FROM contest_entries WHERE user_id = ?`,
     [userId]
   );
-  if (contestCount !== 1) return;
+
+  // ఇప్పుడు insert అయినవి తీసేస్తే — ముందు ఎన్ని ఉన్నాయో తెలుస్తుంది
+  const previousCount = Number(contestCount) - Number(teamsJoined);
+  if (previousCount !== 0) return; // ← ముందే join చేశాడు — bonus వద్దు
 
   // ── 2. Fetch referral record with lock ──
   const [[ref]] = await conn.query(
@@ -446,9 +450,9 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device, c
   const [[bonusConfig]] = await conn.query(
     `SELECT refereebonus, firstreferalbonus, secondreferalbonus FROM bonusadd LIMIT 1`
   );
-  const REFERRED_BONUS = Number(bonusConfig?.refereebonus       || 3);
-  const FIRST_BONUS    = Number(bonusConfig?.firstreferalbonus  || 5);
-  const NEXT_BONUS     = Number(bonusConfig?.secondreferalbonus || 3);
+  const REFERRED_BONUS = Number(bonusConfig?.refereebonus      || 3);
+  const FIRST_BONUS    = Number(bonusConfig?.firstreferalbonus || 5);
+  const NEXT_BONUS     = Number(bonusConfig?.secondreferalbonus|| 3);
 
   const [[{ prevCount }]] = await conn.query(
     `SELECT COUNT(*) AS prevCount
@@ -458,7 +462,7 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device, c
   );
   const REFERRER_BONUS = prevCount === 0 ? FIRST_BONUS : NEXT_BONUS;
 
-  // ── 4. Credit referred user → bonusamount (bonus wallet) ──
+  // ── 4. Credit referred user → bonus wallet ──
   const [[userWallet]] = await conn.query(
     `SELECT bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
     [userId]
@@ -470,18 +474,15 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device, c
     `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
     [REFERRED_BONUS, userId]
   );
-
   await conn.query(
     `INSERT INTO wallet_transactions
        (user_id, wallettype, transtype, remark,
-        amount, useropeningbalance, userclosingbalance,
-        ip_address, device)
-     VALUES (?, 'bonus', 'credit', 'Referral join bonus',
-        ?, ?, ?, ?, ?)`,
+        amount, useropeningbalance, userclosingbalance, ip_address, device)
+     VALUES (?, 'bonus', 'credit', 'Referral join bonus', ?, ?, ?, ?, ?)`,
     [userId, REFERRED_BONUS, newUserOpen, newUserClose, ip || null, device || null]
   );
 
-  // ── 5. Credit referrer → bonusamount (bonus wallet) ──
+  // ── 5. Credit referrer → bonus wallet ──
   const [[referrerWallet]] = await conn.query(
     `SELECT bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
     [referrerId]
@@ -493,19 +494,15 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device, c
     `UPDATE wallets SET bonusamount = bonusamount + ? WHERE user_id = ?`,
     [REFERRER_BONUS, referrerId]
   );
-
   await conn.query(
     `UPDATE users SET referral_bonus = referral_bonus + ? WHERE id = ?`,
     [REFERRER_BONUS, referrerId]
   );
-
   await conn.query(
     `INSERT INTO wallet_transactions
        (user_id, wallettype, transtype, remark,
-        amount, useropeningbalance, userclosingbalance,
-        ip_address, device)
-     VALUES (?, 'bonus', 'credit', 'Referral reward',
-        ?, ?, ?, ?, ?)`,
+        amount, useropeningbalance, userclosingbalance, ip_address, device)
+     VALUES (?, 'bonus', 'credit', 'Referral reward', ?, ?, ?, ?, ?)`,
     [referrerId, REFERRER_BONUS, referrerOpen, referrerClose, ip || null, device || null]
   );
 
@@ -900,3 +897,4 @@ export const signupService = async ({ mobile, otp }) => {
   }
 };
 
+ 

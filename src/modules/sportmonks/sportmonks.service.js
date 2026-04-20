@@ -816,127 +816,6 @@ export const syncPlayingXIService = async (matchId) => {
    PLAYER POINTS
 ══════════════════════════════════════════ */
 
-
-
-// export const syncPlayerPointsService = async (matchId) => {
-//   const [[matchRow]] = await db.query(
-//     `SELECT id, provider_match_id, status FROM matches
-//      WHERE provider_match_id = ? LIMIT 1`,
-//     [matchId]
-//   );
-//   if (!matchRow) throw new Error("Match not found: " + matchId);
-
-//   if (matchRow.status !== "RESULT" && matchRow.status !== "LIVE") {
-//     return { count: 0, reason: `Match not started yet (status: ${matchRow.status})` };
-//   }
-
-//   const data = await apiGet(`/fixtures/${matchId}`, { include: "events" });
-//   const fixture = data?.data;
-//   if (!fixture) return { count: 0, reason: "Fixture not found in API" };
-
-//   const events = fixture?.events || [];
-//   if (!events.length) return { count: 0, reason: "No events found" };
-
-//   const statsMap = {};
-//   const init = (pid) => {
-//     if (!statsMap[pid]) statsMap[pid] = {
-//       goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
-//       own_goals: 0, penalties_missed: 0
-//     };
-//   };
-
-//   for (const e of events) {
-//     const pid        = e.player_id         ? String(e.player_id)         : null;
-//     const relatedPid = e.related_player_id ? String(e.related_player_id) : null;
-
-//     if (e.type_id === 14 && pid) {          // Goal
-//       init(pid);
-//       statsMap[pid].goals++;
-//       if (relatedPid) { init(relatedPid); statsMap[relatedPid].assists++; }
-//     } else if (e.type_id === 15 && pid) {   // Own goal
-//       init(pid);
-//       statsMap[pid].own_goals++;
-//     } else if (e.type_id === 19 && pid) {   // Yellow card
-//       init(pid);
-//       statsMap[pid].yellow_cards++;
-//     } else if (e.type_id === 20 && pid) {   // Red card
-//       init(pid);
-//       statsMap[pid].red_cards++;
-//     } else if (e.type_id === 45 && pid) {   // Penalty missed
-//       init(pid);
-//       statsMap[pid].penalties_missed++;
-//     }
-//   }
-
-//   const pids = Object.keys(statsMap);
-//   if (!pids.length) return { count: 0, reason: "No scoreable events found" };
-
-//   const [playerRows] = await db.query(
-//     `SELECT id, provider_player_id FROM players WHERE provider_player_id IN (?)`,
-//     [pids]
-//   );
-//   const playerMap = new Map(playerRows.map((r) => [r.provider_player_id, r.id]));
-// //  const playerMap = new Map(playerRows.map((r) => [String(r.provider_player_id), r.id]));
-//   const POINTS = {
-//     goal: 6, assist: 3, yellow_card: -1, red_card: -3,
-//     own_goal: -2, penalty_missed: -2
-//   };
-
-//   let count = 0;
-
-//   for (const [pid, stats] of Object.entries(statsMap)) {
-//     const internalId = playerMap.get(pid);
-//     if (!internalId) continue;
-
-//     const fantasy_points =
-//       (stats.goals            * POINTS.goal)            +
-//       (stats.assists          * POINTS.assist)           +
-//       (stats.yellow_cards     * POINTS.yellow_card)      +
-//       (stats.red_cards        * POINTS.red_card)         +
-//       (stats.own_goals        * POINTS.own_goal)         +
-//       (stats.penalties_missed * POINTS.penalty_missed);
-
-//     // ✅ player_match_stats insert/update
-//     await db.query(
-//       `INSERT INTO player_match_stats
-//          (match_id, player_id, goals, assists, yellow_cards, red_cards,
-//           own_goals, penalties_missed, fantasy_points)
-//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-//        ON DUPLICATE KEY UPDATE
-//          goals             = VALUES(goals),
-//          assists           = VALUES(assists),
-//          yellow_cards      = VALUES(yellow_cards),
-//          red_cards         = VALUES(red_cards),
-//          own_goals         = VALUES(own_goals),
-//          penalties_missed  = VALUES(penalties_missed),
-//          fantasy_points    = VALUES(fantasy_points)`,
-//       [
-//         matchRow.id, internalId,
-//         stats.goals, stats.assists, stats.yellow_cards, stats.red_cards,
-//         stats.own_goals, stats.penalties_missed, fantasy_points
-//       ]
-//     );
-
-//     // ✅ players.points update
-//     await db.query(
-//       `UPDATE players
-//        SET points = (
-//          SELECT COALESCE(SUM(fantasy_points), 0)
-//          FROM player_match_stats
-//          WHERE player_id = ?
-//        )
-//        WHERE id = ?`,
-//       [internalId, internalId]
-//     );
-
-//     count++;
-//   }
-
-//   console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${matchId}`);
-//   return { count, reason: null };
-// };
-
-
 /* ─── Fetch Fixtures Between Two Dates ─── */
 export const getFixturesBetween = async (fromDate, toDate, page = 1) => {
 
@@ -1254,4 +1133,117 @@ export const syncPlayerPointsService = async (providerMatchId) => {
 
   console.log(`✅ [${matchRow.status}] Points synced: ${count} players for match ${providerMatchId}`);
   return { count, reason: null };
+};
+
+
+
+export const getMatchesByDateRangeService = async (fromDate, toDate) => {
+  // ── All pages fetch ──
+  const first = await (async (page) => {
+    const url = `${BASE_URL}/fixtures/between/${fromDate}/${toDate}` +
+      `?include=participants;league;state;venue;lineups` +
+      `&per_page=50` +
+      `&page=${page}` +
+      `&api_token=${TOKEN}`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (!res.ok || data.errors) throw new Error(data.message || "SportMonks API error");
+    return data;
+  })(1);
+
+  const totalPages  = first.pagination?.last_page || 1;
+  let   allFixtures = [...(first.data || [])];
+
+  if (totalPages > 1) {
+    const promises = [];
+    for (let p = 2; p <= totalPages; p++) {
+      promises.push((async (page) => {
+        const url = `${BASE_URL}/fixtures/between/${fromDate}/${toDate}` +
+          `?include=participants;league;state;venue;lineups` +
+          `&per_page=50` +
+          `&page=${page}` +
+          `&api_token=${TOKEN}`;
+        const res  = await fetch(url);
+        const data = await res.json();
+        return data;
+      })(p));
+    }
+    const rest = await Promise.all(promises);
+    rest.forEach(r => allFixtures.push(...(r.data || [])));
+  }
+
+  // ── Date filter ──
+  const fromDt = new Date(fromDate); fromDt.setHours(0,  0,  0,   0);
+  const toDt   = new Date(toDate);   toDt.setHours(23, 59, 59, 999);
+
+  const dateFiltered = allFixtures.filter(f => {
+    if (!f.starting_at) return false;
+    const d = new Date(f.starting_at);
+    return d >= fromDt && d <= toDt;
+  });
+
+  // ── Lineup filter — Starting XI ఉన్నవి మాత్రమే ──
+  const withLineup = dateFiltered.filter(f => {
+    const lineups = f.lineups || [];
+    return lineups.some(l => l.type_id === 11);
+  });
+
+  // ── Format ──
+  return withLineup.map(f => {
+    const home = f.participants?.find(p => p.meta?.location === "home");
+    const away = f.participants?.find(p => p.meta?.location === "away");
+
+    const homeLineupCount = (f.lineups || []).filter(
+      l => String(l.team_id) === String(home?.id) && l.type_id === 11
+    ).length;
+    const awayLineupCount = (f.lineups || []).filter(
+      l => String(l.team_id) === String(away?.id) && l.type_id === 11
+    ).length;
+
+    return {
+      id:     f.id,
+      name:   f.name,
+      date:   f.starting_at,
+      status: f.state?.name || "Unknown",
+
+      lineup_ready: {
+        home: homeLineupCount >= 11,
+        away: awayLineupCount >= 11,
+        both: homeLineupCount >= 11 && awayLineupCount >= 11,
+      },
+
+      league: {
+        id:      f.league?.id,
+        name:    f.league?.name,
+        country: f.league?.country_id,
+      },
+
+      venue: {
+        id:   f.venue?.id,
+        name: f.venue?.name,
+        city: f.venue?.city_name,
+      },
+
+      home: {
+        id:    home?.id,
+        name:  home?.name,
+        image: home?.image_path,
+      },
+
+      away: {
+        id:    away?.id,
+        name:  away?.name,
+        image: away?.image_path,
+      },
+
+      score: {
+        home: f.scores?.find(
+          s => s.description === "CURRENT" && s.score?.participant === "home"
+        )?.score?.goals ?? null,
+        away: f.scores?.find(
+          s => s.description === "CURRENT" && s.score?.participant === "away"
+        )?.score?.goals ?? null,
+      },
+    };
+  });
 };

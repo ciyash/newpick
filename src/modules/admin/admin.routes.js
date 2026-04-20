@@ -2,7 +2,6 @@ import { Router } from "express";
 import * as c from "./admin.controller.js";
 import * as v from "./admin.validation.js";
 import { adminAuth, adminLimiter } from "../../middlewares/adminAuth.middleware.js";
-// import entitySportRoutes from '../entity-sport/entitysport.routes.js'
 import sportmonksRoutes from '../sportmonks/sportmonks.router.js'
 import testRoutes from '../test/test.routes.js'
 
@@ -90,7 +89,6 @@ router.get("/getFYExpenditure",             adminAuth(),   c.getFYExpenditure);
 
 //entity-sport  
 
-// router.use("/entity",  adminAuth(), entitySportRoutes);
 
 //sportmonks
 router.use("/sportmonks", adminAuth(), sportmonksRoutes);
