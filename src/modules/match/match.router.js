@@ -12,8 +12,6 @@ router.get("/all", getAllMatches);
 
 router.get("/:id", getMatchFullDetails);
 
-
-
 router.get("/matches/:type", getMatchesByType);
   
 
@@ -21,3 +19,4 @@ router.get("/matches/:type", getMatchesByType);
 export default router    
     
 
+   

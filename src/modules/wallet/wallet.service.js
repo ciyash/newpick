@@ -457,3 +457,330 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
     },
   };
 };
+
+
+export const getMyActivityService = async (userId, { page, limit, type }) => {
+  const offset = (page - 1) * limit;
+
+  let allActivities = [];
+
+  // ── 1. Wallet Transactions ──
+  if (!type || type === "wallet") {
+    const [rows] = await db.query(
+      `SELECT
+         wt.id,
+         wt.wallettype,
+         wt.transtype,
+         wt.remark,
+         wt.amount,
+         wt.useropeningbalance,
+         wt.userclosingbalance,
+         wt.created_at
+       FROM wallet_transactions wt
+       WHERE wt.user_id = ?
+       ORDER BY wt.created_at DESC`,
+      [userId]
+    );
+
+    rows.forEach(r => {
+      allActivities.push({
+        activityId:     `wallet_${r.id}`,
+        type:           "wallet",
+        subType:        r.transtype,
+        walletType:     r.wallettype,
+        title:          getWalletTitle(r.transtype, r.wallettype),
+        description:    r.remark || null,
+        amount:         Number(r.amount) || 0,
+        openingBalance: Number(r.useropeningbalance) || 0,
+        closingBalance: Number(r.userclosingbalance) || 0,
+        icon:           getWalletIcon(r.transtype, r.wallettype),
+        createdAt:      r.created_at,
+      });
+    });
+  }
+
+  // ── 2. Deposit History ──
+  if (!type || type === "deposit") {
+    const [rows] = await db.query(
+      `SELECT
+         d.transaction_id,
+         d.amount,
+         d.depositeType,
+         d.status,
+         d.createdAt
+       FROM deposite d
+       WHERE d.userId = ?
+       ORDER BY d.createdAt DESC`,
+      [userId]
+    );
+
+    rows.forEach(r => {
+      allActivities.push({
+        activityId:   `deposit_${r.transaction_id || r.createdAt}`,
+        type:         "deposit",
+        subType:      r.status?.toLowerCase(),
+        title:        getDepositTitle(r.status),
+        description:  r.depositeType || null,
+        amount:       Number(r.amount) || 0,
+        status:       r.status        || null,
+        icon:         "💰",
+        createdAt:    r.createdAt,
+      });
+    });
+  }
+
+  // ── 3. Withdrawal History ──
+  
+if (!type || type === "withdrawal") {
+  const [rows] = await db.query(
+    `SELECT
+       w.id,
+       w.amount,
+       w.transaction_id,
+       w.status,
+       w.snapshot_opening,
+       w.snapshot_closing,
+       w.created_at,
+       w.processed_at,
+       wa.status      AS approval_status,
+       wa.remarks     AS approval_remarks
+     FROM withdraws w
+     LEFT JOIN withdraw_approvals wa ON wa.withdrawal_id = w.id
+     WHERE w.user_id = ?
+     ORDER BY w.created_at DESC`,
+    [userId]
+  );
+
+  rows.forEach(r => {
+    allActivities.push({
+      activityId:      `withdraw_${r.id}`,
+      type:            "withdrawal",
+      subType:         r.status?.toLowerCase(),
+      title:           getWithdrawTitle(r.status),
+      description:     r.approval_remarks || null,
+      amount:          Number(r.amount)   || 0,
+      status:          r.status           || null,
+      approvalStatus:  r.approval_status  || null,
+      processedAt:     r.processed_at     || null,
+      icon:            "🏦",
+      createdAt:       r.created_at,
+    });
+  });
+}
+  // ── 4. Contest History ──
+  if (!type || type === "contest") {
+    const [rows] = await db.query(
+      `SELECT
+         ce.id,
+         ce.contest_id,
+         ce.entry_fee,
+         ce.urank,
+         ce.winning_amount,
+         ce.status,
+         ce.joined_at,
+         c.contest_type,
+         c.prize_pool,
+         c.status        AS contest_status,
+         m.id            AS match_id,
+         m.matchdate,
+         m.status        AS match_status,
+         ht.short_name   AS home_team_short,
+         at.short_name   AS away_team_short,
+         ut.team_name
+       FROM contest_entries ce
+       JOIN contest c   ON c.id  = ce.contest_id
+       JOIN matches m   ON m.id  = c.match_id
+       JOIN teams ht    ON ht.id = m.home_team_id
+       JOIN teams at    ON at.id = m.away_team_id
+       LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+       WHERE ce.user_id = ?
+       ORDER BY ce.joined_at DESC`,
+      [userId]
+    );
+
+    rows.forEach(r => {
+      allActivities.push({
+        activityId:    `contest_${r.id}`,
+        type:          "contest",
+        subType:       r.contest_status === "COMPLETED" ? "completed" : "joined",
+        title:         `${r.home_team_short} vs ${r.away_team_short} — ${r.contest_type || "Contest"}`,
+        description:   r.team_name ? `Team: ${r.team_name}` : null,
+        matchId:       r.match_id,
+        contestId:     r.contest_id,
+        entryFee:      Number(r.entry_fee)      || 0,
+        prizePool:     Number(r.prize_pool)      || 0,
+        rank:          r.urank                   || null,
+        winningAmount: Number(r.winning_amount)  || 0,
+        contestStatus: r.contest_status          || null,
+        matchStatus:   r.match_status            || null,
+        matchDate:     r.matchdate               || null,
+        icon:          r.winning_amount > 0 ? "🏆" : "🎮",
+        createdAt:     r.joined_at,
+      });
+    });
+  }
+
+  // ── 5. KYC History ──
+  if (!type || type === "kyc") {
+    const [rows] = await db.query(
+      `SELECT
+         ka.id,
+         ka.status,
+         ka.remarks,
+         ka.created_at
+       FROM kyc_approvals ka
+       WHERE ka.user_id = ?
+       ORDER BY ka.created_at DESC`,
+      [userId]
+    );
+
+    rows.forEach(r => {
+      allActivities.push({
+        activityId:  `kyc_${r.id}`,
+        type:        "kyc",
+        subType:     r.status?.toLowerCase(),
+        title:       getKycTitle(r.status),
+        description: r.remarks || null,
+        status:      r.status  || null,
+        icon:        r.status === "approved" ? "✅" : "❌",
+        createdAt:   r.created_at,
+      });
+    });
+  }
+
+  // ── 6. Notifications ──
+  if (!type || type === "notification") {
+    const [rows] = await db.query(
+      `SELECT
+         n.id,
+         n.type       AS notif_type,
+         n.title,
+         n.message,
+         n.link,
+         n.is_read,
+         n.created_at
+       FROM notifications n
+       WHERE n.user_id = ?
+       ORDER BY n.created_at DESC`,
+      [userId]
+    );
+
+    rows.forEach(r => {
+      allActivities.push({
+        activityId:  `notif_${r.id}`,
+        type:        "notification",
+        subType:     r.notif_type,
+        title:       r.title   || "Notification",
+        description: r.message || null,
+        link:        r.link    || null,
+        isRead:      r.is_read === 1,
+        icon:        getNotifIcon(r.notif_type),
+        createdAt:   r.created_at,
+      });
+    });
+  }
+
+
+  // ── 7. Referral Rewards ── లో fix
+const [rows] = await db.query(
+  `SELECT
+     rr.id,
+     rr.referred_id,
+     rr.first_bonus_given,
+     rr.bonus_given,
+     rr.join_bonus_given,
+     rr.created_at,
+     u.name   AS referred_name,
+     u.mobile AS referred_mobile
+   FROM referral_rewards rr
+   LEFT JOIN users u ON u.id = rr.referred_id
+   WHERE rr.referrer_id = ?
+   ORDER BY rr.created_at DESC`,
+  [userId]
+);
+
+rows.forEach(r => {
+  allActivities.push({
+    activityId:      `referral_${r.id}`,
+    type:            "referral",
+    subType:         r.bonus_given ? "bonus_earned" : "joined",
+    title:           r.bonus_given ? "Referral Bonus Earned" : "Friend Joined via Referral",
+    description:     r.referred_name || r.referred_mobile || null,  // ← phone → mobile
+    firstBonusGiven: r.first_bonus_given === 1,
+    bonusGiven:      r.bonus_given      === 1,
+    joinBonusGiven:  r.join_bonus_given  === 1,
+    icon:            "🎁",
+    createdAt:       r.created_at,
+  });
+});
+
+  // ── 8. అన్నీ కలిపి sort చేయి ──
+  allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  // ── 9. Pagination ──
+  const total     = allActivities.length;
+  const paginated = allActivities.slice(offset, offset + limit);
+
+  return {
+    data: paginated,
+    pagination: {
+      current_page: page,
+      per_page:     limit,
+      total,
+      total_pages:  Math.ceil(total / limit),
+      has_more:     offset + limit < total,
+    },
+  };
+};
+
+// ── Helpers ──
+const getWalletTitle = (transtype, wallettype) => {
+  if (transtype === "credit") {
+    if (wallettype === "winning") return "Winning Amount Credited";
+    if (wallettype === "bonus")   return "Bonus Credited";
+    if (wallettype === "deposit") return "Amount Deposited";
+    return "Amount Credited";
+  }
+  if (transtype === "debit") {
+    if (wallettype === "winning") return "Contest Fee (Winnings Used)";
+    if (wallettype === "bonus")   return "Bonus Used";
+    if (wallettype === "deposit") return "Contest Fee Paid";
+    return "Amount Debited";
+  }
+  return "Wallet Transaction";
+};
+
+const getWalletIcon = (transtype, wallettype) => {
+  if (transtype === "credit") return "💚";
+  if (wallettype === "winning") return "🏆";
+  if (wallettype === "bonus")   return "🎁";
+  return "💸";
+};
+
+const getDepositTitle = (status) => {
+  if (status === "success")  return "Deposit Successful";
+  if (status === "pending")  return "Deposit Pending";
+  if (status === "failed")   return "Deposit Failed";
+  if (status === "refund")   return "Deposit Refunded";
+  return "Deposit";
+};
+
+const getWithdrawTitle = (status) => {
+  if (status === "APPROVED") return "Withdrawal Approved";
+  if (status === "REJECTED") return "Withdrawal Rejected";
+  if (status === "PENDING")  return "Withdrawal Requested";
+  return "Withdrawal";
+};
+
+const getKycTitle = (status) => {
+  if (status === "approved") return "KYC Verified ✅";
+  if (status === "rejected") return "KYC Rejected";
+  return "KYC Update";
+};
+
+const getNotifIcon = (type) => {
+  if (type === "bonus")  return "🎁";
+  if (type === "match")  return "⚽";
+  if (type === "alert")  return "🔔";
+  return "📢";
+};

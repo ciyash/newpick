@@ -318,7 +318,8 @@ export const getTeamPlayersService = async (teamId) => {
 };
 
 
-// export const getMyTeamsWithPlayersService = async (userId, matchId) => {
+
+// export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) => {
 
 //   const [matchRows] = await db.query(
 //     `SELECT id, lineup_status, lineupavailable, is_active 
@@ -335,6 +336,20 @@ export const getTeamPlayersService = async (teamId) => {
 //         isActive: matchRows[0].is_active
 //       }
 //     : null;
+
+//   // ✅ contestId ఉంటే LEFT JOIN — join కాని teams filter
+//   const contestJoin = contestId
+//     ? `LEFT JOIN contest_entries ce ON ce.user_team_id = ut.id AND ce.contest_id = ?`
+//     : "";
+
+//   const contestWhere = contestId
+//     ? `AND ce.user_team_id IS NULL`
+//     : "";
+
+//   const params = [];
+//   if (contestId) params.push(contestId);  // ← LEFT JOIN కి
+//   params.push(userId);                     // ← WHERE ut.user_id = ?
+//   if (matchId) params.push(matchId);      // ← AND ut.match_id = ?
 
 //   const [rows] = await db.query(
 //     `SELECT 
@@ -363,6 +378,7 @@ export const getTeamPlayersService = async (teamId) => {
 //         END AS is_in_match
 
 //      FROM user_teams ut
+//      ${contestJoin}
 //      JOIN user_team_players utp ON ut.id = utp.user_team_id
 //      JOIN players p ON utp.player_id = p.id
 //      LEFT JOIN teams t ON p.team_id = t.id
@@ -372,13 +388,14 @@ export const getTeamPlayersService = async (teamId) => {
 
 //      WHERE ut.user_id = ?
 //      ${matchId ? "AND ut.match_id = ?" : ""}
+//      ${contestWhere}
 
 //      ORDER BY ut.created_at DESC`,
-//     matchId ? [userId, matchId] : [userId]
+//     params
 //   );
 
 //   if (!rows.length) {
-//     throw new Error("No teams found");
+//     return [];
 //   }
 
 //   const teams = {};
@@ -407,8 +424,8 @@ export const getTeamPlayersService = async (teamId) => {
 //       playerId: row.player_id,
 //       name: row.name,
 //       position: row.position,
-//       points: parseFloat(row.points) || 0,          // ✅ parseFloat
-//       credits: parseFloat(row.credits) || 0,         // ✅ parseFloat
+//       points: parseFloat(row.points) || 0,
+//       credits: parseFloat(row.credits) || 0,
 //       playerType: row.player_type,
 //       image: row.playerimage,
 //       isCaptain: row.is_captain === 1,
@@ -456,10 +473,9 @@ export const getTeamPlayersService = async (teamId) => {
 
 //     team.realTeamsBreakdown = Object.values(team.realTeamsBreakdown);
 
-//     // ✅ toFixed before returning
-//     team.totalPoints   = parseFloat(team.totalPoints.toFixed(2));
-//     team.totalCredits  = parseFloat(team.totalCredits.toFixed(2));
-//     team.creditsLeft   = parseFloat((100 - team.totalCredits).toFixed(2));
+//     team.totalPoints  = parseFloat(team.totalPoints.toFixed(2));
+//     team.totalCredits = parseFloat(team.totalCredits.toFixed(2));
+//     team.creditsLeft  = parseFloat((100 - team.totalCredits).toFixed(2));
 
 //     if (!team.captain && team.players.length) {
 //       team.captain = team.players[0];
@@ -475,6 +491,7 @@ export const getTeamPlayersService = async (teamId) => {
 
 //   return Object.values(teams);
 // };
+
 
 
 export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) => {
@@ -495,7 +512,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
       }
     : null;
 
-  // ✅ contestId ఉంటే LEFT JOIN — join కాని teams filter
   const contestJoin = contestId
     ? `LEFT JOIN contest_entries ce ON ce.user_team_id = ut.id AND ce.contest_id = ?`
     : "";
@@ -505,9 +521,9 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
     : "";
 
   const params = [];
-  if (contestId) params.push(contestId);  // ← LEFT JOIN కి
-  params.push(userId);                     // ← WHERE ut.user_id = ?
-  if (matchId) params.push(matchId);      // ← AND ut.match_id = ?
+  if (contestId) params.push(contestId);
+  params.push(userId);
+  if (matchId) params.push(matchId);
 
   const [rows] = await db.query(
     `SELECT 
@@ -518,7 +534,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
         p.id AS player_id,
         p.name,
         p.position,
-        p.points,
         p.playercredits AS credits,
         p.player_type,
         p.playerimage,
@@ -529,6 +544,8 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
 
         utp.is_captain,
         utp.is_vice_captain,
+
+        COALESCE(pms.fantasy_points, 0) AS base_points,
 
         CASE 
           WHEN mp.player_id IS NOT NULL THEN 1 
@@ -543,6 +560,9 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
      LEFT JOIN match_players mp 
         ON mp.player_id = p.id 
         AND mp.match_id = ut.match_id
+     LEFT JOIN player_match_stats pms
+        ON pms.player_id = p.id
+        AND pms.match_id = ut.match_id
 
      WHERE ut.user_id = ?
      ${matchId ? "AND ut.match_id = ?" : ""}
@@ -552,9 +572,7 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
     params
   );
 
-  if (!rows.length) {
-    return [];
-  }
+  if (!rows.length) return [];
 
   const teams = {};
 
@@ -562,65 +580,61 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
 
     if (!teams[row.team_id]) {
       teams[row.team_id] = {
-        teamId: row.team_id,
-        teamName: row.team_name,
-        matchId: row.match_id,
-        match: matchData,
-        captain: null,
-        viceCaptain: null,
-        players: [],
-        totalPlayers: 0,
-        totalPoints: 0,
-        totalCredits: 0,
-        creditsLeft: 100,
+        teamId:             row.team_id,
+        teamName:           row.team_name,
+        matchId:            row.match_id,
+        match:              matchData,
+        captain:            null,
+        viceCaptain:        null,
+        players:            [],
+        totalPlayers:       0,
+        totalPoints:        0,
+        totalCredits:       0,
+        creditsLeft:        100,
         realTeamsBreakdown: {},
-        playersNotInMatch: 0
+        playersNotInMatch:  0
       };
     }
 
+    const basePoints   = parseFloat(row.base_points)  || 0;
+    const multiplier   = row.is_captain === 1 ? 2 : row.is_vice_captain === 1 ? 1.5 : 1;
+    const effectivePts = parseFloat((basePoints * multiplier).toFixed(2));
+
     const player = {
-      playerId: row.player_id,
-      name: row.name,
-      position: row.position,
-      points: parseFloat(row.points) || 0,
-      credits: parseFloat(row.credits) || 0,
-      playerType: row.player_type,
-      image: row.playerimage,
-      isCaptain: row.is_captain === 1,
-      isViceCaptain: row.is_vice_captain === 1,
-      realTeamId: row.real_team_id,
-      realTeamName: row.real_team_name,
+      playerId:          row.player_id,
+      name:              row.name,
+      position:          row.position,
+      basePoints,
+      effectivePoints:   effectivePts,
+      credits:           parseFloat(row.credits) || 0,
+      playerType:        row.player_type,
+      image:             row.playerimage,
+      isCaptain:         row.is_captain      === 1,
+      isViceCaptain:     row.is_vice_captain === 1,
+      realTeamId:        row.real_team_id,
+      realTeamName:      row.real_team_name,
       realTeamShortName: row.real_team_short_name,
-      isInMatch: row.is_in_match === 1
+      isInMatch:         row.is_in_match     === 1
     };
 
-    if (player.isCaptain) teams[row.team_id].captain = player;
+    if (player.isCaptain)    teams[row.team_id].captain     = player;
     if (player.isViceCaptain) teams[row.team_id].viceCaptain = player;
 
     teams[row.team_id].players.push(player);
     teams[row.team_id].totalPlayers++;
-
-    // ✅ playing XI only points
-    if (player.isInMatch) {
-      teams[row.team_id].totalPoints += player.points;
-    }
-
-    // ✅ all players credits
+    teams[row.team_id].totalPoints  += player.effectivePoints;
     teams[row.team_id].totalCredits += player.credits;
 
-    if (!player.isInMatch) {
-      teams[row.team_id].playersNotInMatch++;
-    }
+    if (!player.isInMatch) teams[row.team_id].playersNotInMatch++;
 
     const rtId = row.real_team_id;
-
     if (rtId) {
       if (!teams[row.team_id].realTeamsBreakdown[rtId]) {
         teams[row.team_id].realTeamsBreakdown[rtId] = {
-          teamId: rtId,
+          teamId:   rtId,
           teamName: row.real_team_name,
           shortName: row.real_team_short_name,
-          count: 0
+          count:    0
         };
       }
       teams[row.team_id].realTeamsBreakdown[rtId].count++;
@@ -628,9 +642,7 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
   }
 
   for (const team of Object.values(teams)) {
-
     team.realTeamsBreakdown = Object.values(team.realTeamsBreakdown);
-
     team.totalPoints  = parseFloat(team.totalPoints.toFixed(2));
     team.totalCredits = parseFloat(team.totalCredits.toFixed(2));
     team.creditsLeft  = parseFloat((100 - team.totalCredits).toFixed(2));
@@ -644,157 +656,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
       const vc = team.players.find(p => !p.isCaptain);
       team.viceCaptain = vc || team.players[1];
       if (team.viceCaptain) team.viceCaptain.isViceCaptain = true;
-    }
-  }
-
-  return Object.values(teams);
-};
-
-
-
-
-export const getMyTeamsWithPlayersServiceold = async (
-  userId,
-  matchId,
-  contestId = null
-) => {
-
-  let filterCondition = `
-    ut.user_id = ?
-    AND ut.match_id = ?
-  `;
-
-  let params = [userId, matchId];
-
-  /* 🔥 Contest filtering */
-  if (contestId) {
-    filterCondition += `
-      AND ut.id NOT IN (
-        SELECT user_team_id
-        FROM contest_entries
-        WHERE contest_id = ?
-        AND user_id = ?
-      )
-    `;
-    params.push(contestId, userId);
-  }
-
-  const [rows] = await db.query(
-    `SELECT 
-        ut.id AS team_id,
-        ut.team_name,
-        ut.match_id,
-
-        p.id AS player_id,
-        p.name,
-        p.position,
-        p.points,
-        p.playercredits,
-        p.player_type,
-        p.playerimage,
-        p.team_id AS real_team_id,
-
-        t.name AS real_team_name,
-        t.short_name AS real_team_short_name,
-
-        utp.is_captain,
-        utp.is_vice_captain
-
-     FROM user_teams ut
-     JOIN user_team_players utp ON ut.id = utp.user_team_id
-     JOIN players p ON utp.player_id = p.id
-     LEFT JOIN teams t ON p.team_id = t.id
-
-     WHERE ${filterCondition}
-
-     ORDER BY ut.created_at DESC`,
-    params
-  );
-
-  if (!rows.length) {
-    return [];
-  }
-
-  const teams = {};
-
-  for (const row of rows) {
-
-    if (!teams[row.team_id]) {
-      teams[row.team_id] = {
-        teamId: row.team_id,
-        teamName: row.team_name,
-        matchId: row.match_id,
-        captain: null,
-        viceCaptain: null,
-        players: [],
-        totalPlayers: 0,
-        realTeamsBreakdown: {}
-      };
-    }
-
-    const player = {
-      playerId: row.player_id,
-      name: row.name,
-      position: row.position,
-      points: row.points,
-      credits: row.playercredits,
-      playerType: row.player_type,
-      image: row.playerimage,
-      isCaptain: row.is_captain === 1,
-      isViceCaptain: row.is_vice_captain === 1,
-      realTeamId: row.real_team_id,
-      realTeamName: row.real_team_name,
-      realTeamShortName: row.real_team_short_name
-    };
-
-    if (player.isCaptain) { 
-      teams[row.team_id].captain = player;
-    }
-
-    if (player.isViceCaptain) {
-      teams[row.team_id].viceCaptain = player;
-    }
-
-    teams[row.team_id].players.push(player);
-    teams[row.team_id].totalPlayers++;
-
-    /* 🔥 Real team breakdown */
-
-    const rtId = row.real_team_id;
-
-    if (rtId) {
-      if (!teams[row.team_id].realTeamsBreakdown[rtId]) {
-        teams[row.team_id].realTeamsBreakdown[rtId] = {
-          teamId: rtId,
-          teamName: row.real_team_name,
-          shortName: row.real_team_short_name,
-          count: 0
-        };
-      }
-
-      teams[row.team_id].realTeamsBreakdown[rtId].count++;
-    }
-  }
-
-  /* 🔥 Convert breakdown object → array */
-
-  for (const team of Object.values(teams)) {
-
-    team.realTeamsBreakdown = Object.values(team.realTeamsBreakdown);
-
-    /* Captain fallback */
-    if (!team.captain && team.players.length) {
-      team.captain = team.players[0];
-      team.captain.isCaptain = true;
-    }
-
-    /* Vice captain fallback */
-    if (!team.viceCaptain) {
-      const vc = team.players.find(p => !p.isCaptain);
-      team.viceCaptain = vc || team.players[1];
-      if (team.viceCaptain) {
-        team.viceCaptain.isViceCaptain = true;
-      }
     }
   }
 

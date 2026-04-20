@@ -8,6 +8,7 @@ import {
   deleteTransactionsByUserCodeService,
   getMyAnalyticsService,
   getMyTransactionsServiceYear,
+  getMyActivityService,
 } from "./wallet.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -418,5 +419,60 @@ export const downloadAnalyticsStatement = async (req, res) => {
   } catch (err) {
     console.error("[downloadAnalyticsStatement]", err.message);
     res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+
+export const getMyActivity = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId)
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const {
+      type  = null,
+      month = null,
+      year  = null,
+    } = req.body;
+
+    const validTypes = [
+      "wallet", "deposit", "withdrawal",
+      "contest", "kyc", "notification", "referral"
+    ];
+
+    if (type && !validTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid type. Valid types: ${validTypes.join(", ")}`,
+      });
+    }
+
+    if (month && (month < 1 || month > 12)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid month. Must be 1–12",
+      });
+    }
+
+    const result = await getMyActivityService(userId, {
+      page:  1,   // ← always default 1
+      limit: 20,  // ← always default 20
+      type,
+      month: month ? parseInt(month) : null,
+      year:  year  ? parseInt(year)  : null,
+    });
+
+    return res.status(200).json({
+      success: true,
+      ...result,
+    });
+
+  } catch (err) {
+    console.error("❌ Activity error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
