@@ -147,7 +147,7 @@ const saveScoreResults = async (contestId, rankedEntries, matchId) => {
     // );
 
     await conn.query(
-  `UPDATE contest SET status = 'IN-REVIEW' WHERE id = ?`,
+  `UPDATE contest SET status = 'INREVIEW' WHERE id = ?`,
   [contestId]
 );
     await conn.commit();

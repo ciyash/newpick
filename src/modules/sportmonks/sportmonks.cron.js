@@ -298,18 +298,18 @@ const syncContestStatuses = async () => {
          AND m.is_active = 1`
     );
 
-    // ── LIVE → IN-REVIEW (match RESULT అయినప్పుడు) ──
+    // ── LIVE → INREVIEW (match RESULT అయినప్పుడు) ──
     const [toReview] = await db.query(
       `UPDATE contest c
        JOIN matches m ON m.id = c.match_id
-       SET c.status = 'IN-REVIEW'
+       SET c.status = 'INREVIEW'
        WHERE c.status = 'LIVE'
          AND m.status = 'RESULT'
          AND m.is_active = 1`
     );
 
     console.log(
-      `✅ [CRON] Contest UPCOMING→LIVE: ${toLive.affectedRows} | LIVE→IN-REVIEW: ${toReview.affectedRows}`
+      `✅ [CRON] Contest UPCOMING→LIVE: ${toLive.affectedRows} | LIVE→INREVIEW: ${toReview.affectedRows}`
     );
 
   } catch (err) {

@@ -4,7 +4,7 @@ import db from "../../config/db.js";
 
 export const getMatchesByTypeService = async (type, userId) => {
 
-  const validTypes = ["LIVE", "RESULT", "COMPLETED", "IN-REVIEW"];
+  const validTypes = ["LIVE", "RESULT", "COMPLETED", "INREVIEW"];
 
   if (!validTypes.includes(type.toUpperCase())) {
     throw new Error("Invalid match type");

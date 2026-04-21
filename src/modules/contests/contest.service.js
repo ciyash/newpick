@@ -1668,11 +1668,11 @@ export const announceWinnersService = async (contestId, adminId) => {
     if (!contest)
       throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
 
-    // ── 2. Only IN-REVIEW contest announce చేయవచ్చు ──
+    // ── 2. Only INREVIEW contest announce చేయవచ్చు ──
     if (contest.status === "COMPLETED")
       throw Object.assign(new Error("Winners already announced"), { statusCode: 400 });
-    if (contest.status !== "IN-REVIEW")
-      throw Object.assign(new Error(`Contest is in '${contest.status}' status. Only IN-REVIEW contests can be announced`), { statusCode: 400 });
+    if (contest.status !== "INREVIEW")
+      throw Object.assign(new Error(`Contest is in '${contest.status}' status. Only INREVIEW contests can be announced`), { statusCode: 400 });
 
     // ── 3. Already scored entries fetch (saveScoreResults లో already save అయ్యాయి) ──
     const [winners] = await conn.query(

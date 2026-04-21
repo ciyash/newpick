@@ -262,7 +262,7 @@ export const getInReviewContests = async (req, res) => {
          m.hometeamname, m.awayteamname, m.matchdate
        FROM contest c
        JOIN matches m ON m.id = c.match_id
-       WHERE c.status = 'IN-REVIEW'
+       WHERE c.status = 'INREVIEW'
        ORDER BY c.id DESC`
     );
 
@@ -294,10 +294,10 @@ export const approveContestResults = async (req, res) => {
     if (!contest)
       return res.status(404).json({ success: false, message: "Contest not found" });
 
-    if (contest.status !== "IN-REVIEW")
+    if (contest.status !== "INREVIEW")
       return res.status(400).json({
         success: false,
-        message: `Contest is '${contest.status}', only IN-REVIEW contests can be approved`,
+        message: `Contest is '${contest.status}', only INREVIEW contests can be approved`,
       });
 
     // ── Credit winnings ──
