@@ -23,6 +23,7 @@ const CACHE_TTL = 120; // 2 minutes
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER — one contest leaderboard compute + cache
 // ─────────────────────────────────────────────────────────────────────────────
+
 export const computeAndCacheLeaderboard = async (contestId, matchId) => {
   const [entries] = await db.query(
     `SELECT
@@ -31,53 +32,99 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
        u.name,
        u.nickname,
        u.image,
-       ut.team_name,
-       COALESCE(
-         (SELECT SUM(
-            CASE
-              WHEN utp.is_captain      = 1 THEN pms.fantasy_points * 2
-              WHEN utp.is_vice_captain = 1 THEN pms.fantasy_points * 1.5
-              ELSE pms.fantasy_points
-            END
-          )
-          FROM user_team_players utp
-          JOIN player_match_stats pms
-            ON pms.player_id = utp.player_id
-           AND pms.match_id  = ?
-          WHERE utp.user_team_id = ce.user_team_id
-         ), 0
-       ) AS total_points
+       ut.team_name
      FROM contest_entries ce
      JOIN users u ON u.id = ce.user_id
      LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
-     WHERE ce.contest_id = ?
-     ORDER BY total_points DESC`,
-    [matchId, contestId]
+     WHERE ce.contest_id = ?`,
+    [contestId]
   );
 
-  // DENSE_RANK
+  if (!entries.length) return [];
+
+  // ── All team IDs ──
+  const teamIds = [...new Set(entries.map(e => e.user_team_id).filter(Boolean))];
+
+  // ── Team players + stats fetch ──
+  const [playerRows] = await db.query(
+    `SELECT
+       utp.user_team_id,
+       utp.player_id,
+       utp.is_captain,
+       utp.is_vice_captain,
+       utp.is_substitude,
+       COALESCE(pms.fantasy_points, 0) AS base_points
+     FROM user_team_players utp
+     LEFT JOIN player_match_stats pms
+       ON pms.player_id = utp.player_id
+      AND pms.match_id  = ?
+     WHERE utp.user_team_id IN (?)`,
+    [matchId, teamIds]
+  );
+
+  // ── Team players group ──
+  const teamPlayersMap = {};
+  playerRows.forEach(r => {
+    if (!teamPlayersMap[r.user_team_id]) teamPlayersMap[r.user_team_id] = [];
+    teamPlayersMap[r.user_team_id].push(r);
+  });
+
+  // ── Points calculate with HS Bonus ──
+  const teamPointsMap = {};
+  for (const teamId of teamIds) {
+    const players = teamPlayersMap[teamId] || [];
+    if (!players.length) { teamPointsMap[teamId] = 0; continue; }
+
+    // Step 1: base points
+    const withBase = players.map(p => ({
+      ...p,
+      basePoints: parseFloat(p.base_points) || 0,
+    }));
+
+    // Step 2: HS Bonus — max base points player కి bonus
+    const maxBase = Math.max(...withBase.map(p => p.basePoints));
+    const withHS = withBase.map(p => {
+      if (p.basePoints !== maxBase || maxBase <= 0) return p;
+      const hsBonus = p.is_substitude ? 8 : 4;
+      return { ...p, basePoints: p.basePoints + hsBonus };
+    });
+
+    // Step 3: Captain/VC multiplier apply
+    const total = withHS.reduce((sum, p) => {
+      const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
+      return sum + parseFloat((p.basePoints * multiplier).toFixed(2));
+    }, 0);
+
+    teamPointsMap[teamId] = parseFloat(total.toFixed(2));
+  }
+
+  // ── DENSE_RANK ──
+  const ranked = entries
+    .map(e => ({
+      user_id:       e.user_id,
+      user_team_id:  e.user_team_id,
+      team_name:     e.team_name    || null,
+      username:      e.nickname     || e.name || `User${e.user_id}`,
+      profile_image: e.image        || null,
+      points:        teamPointsMap[e.user_team_id] || 0,
+    }))
+    .sort((a, b) => b.points - a.points);
+
   let rank = 1, lastPts = null, skip = 0;
-  const ranked = entries.map(e => {
-    const pts = parseFloat(e.total_points) || 0;
+  ranked.forEach((entry, i) => {
+    const pts = entry.points;
     if (lastPts === null)       { lastPts = pts; skip = 1; }
     else if (pts === lastPts)   { skip++; }
     else                        { rank += skip; skip = 1; lastPts = pts; }
-    return {
-      rank,
-      user_id:       e.user_id,
-      username:      e.nickname  || e.name || `User${e.user_id}`,
-      profile_image: e.image     || null,
-      team_name:     e.team_name || null,
-      user_team_id:  e.user_team_id,
-      points:        pts,
-    };
+    entry.rank = rank;
   });
 
- await redis.set(
-  leaderboardCacheKey(contestId),
-  ranked,        // ← JSON.stringify వద్దు
-  { ex: CACHE_TTL }
-);
+  // ── Redis store ──
+  await redis.set(
+    leaderboardCacheKey(contestId),
+    ranked,
+    { ex: CACHE_TTL }
+  );
 
   return ranked;
 };
