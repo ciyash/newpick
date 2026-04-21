@@ -858,26 +858,23 @@ export const getMyContestsService = async (userId, matchId) => {
     : [];
   const allTeamIds   = [...new Set([...myTeamIds, ...otherTeamIds])];
 
-  
-
-
-// ── LIVE → Redis నుండి rank + points ──
-let liveRankMap = {};
-if (isLive) {
-  for (const cid of contestIds) {
-    try {
-      const cached = await redis.get(`LB:${cid}`);
-      // ✅ @upstash/redis already parsed object return చేస్తుంది
-      if (cached && Array.isArray(cached)) {
-        cached.forEach(r => {
-          liveRankMap[r.user_team_id] = { rank: r.rank, points: r.points };
-        });
+  // ── LIVE → Redis నుండి rank + points ──
+  let liveRankMap = {};
+  if (isLive) {
+    for (const cid of contestIds) {
+      try {
+        const cached = await redis.get(`LB:${cid}`);
+        if (cached && Array.isArray(cached)) {
+          cached.forEach(r => {
+            liveRankMap[r.user_team_id] = { rank: r.rank, points: r.points };
+          });
+        }
+      } catch (err) {
+        console.error(`Redis error for ${cid}:`, err.message);
       }
-    } catch (err) {
-      console.error(`Redis error for ${cid}:`, err.message);
     }
   }
-}
+
   // ── Teams + Players build ──
   let teamsMap = {};
 
@@ -915,7 +912,6 @@ if (isLive) {
       [matchId, allTeamIds]
     );
 
-    // teamsMap build
     teamRows.forEach(row => {
       if (!teamsMap[row.team_id]) {
         teamsMap[row.team_id] = {
@@ -970,26 +966,19 @@ if (isLive) {
     });
 
     // ── Highest Scorer Bonus — LIVE/RESULT లో మాత్రమే ──
-    // scoring.engine.js లో Step 10 గా ఉంది
-    // teamsMap లో manually apply చేస్తున్నాం
-    if (isLive || isResult) {
+    if (showAllTeams) {
       Object.values(teamsMap).forEach(team => {
         if (!team.players.length) return;
-
-        // Team లో max basePoints ఎవరికి ఉందో చూడు
         const maxBase = Math.max(...team.players.map(p => p.basePoints));
-        if (maxBase <= 0) return; // అందరూ 0 points అయితే bonus వద్దు
+        if (maxBase <= 0) return;
 
         team.players = team.players.map(p => {
           if (p.basePoints !== maxBase) return p;
-
-          // Starter → +4, Substitute → +8
           const hsBonus      = p.isSubstitute ? 8 : 4;
           const newBase      = p.basePoints + hsBonus;
           const newEffective = parseFloat(
             (newBase * (p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1)).toFixed(2)
           );
-
           return {
             ...p,
             basePoints:         newBase,
@@ -998,7 +987,6 @@ if (isLive) {
           };
         });
 
-        // totalPoints recalculate
         team.totalPoints = parseFloat(
           team.players.reduce((sum, p) => sum + p.effectivePoints, 0).toFixed(2)
         );
@@ -1023,40 +1011,38 @@ if (isLive) {
   }
 
   // ── Format entry ──
-  const formatEntry = (e, isOwn, contest) => {
+  const formatEntry = (e, isOwn, c) => {
     const team    = teamsMap[e.user_team_id] || null;
     let   players = team?.players || [];
 
-    // UPCOMING → other teams కి captain/VC hide చేయి
     if (!isOwn && !showAllTeams) {
       players = players.map(p => ({ ...p, isCaptain: false, isViceCaptain: false }));
     }
 
     // ── Rank ──
     let rank = null;
-    if (isResult)    rank = e.urank || null;           // DB నుండి final rank
-    else if (isLive) rank = liveRankMap[e.user_team_id]?.rank ?? null; // Redis నుండి live rank
-    // UPCOMING → null
+    if (isResult)    rank = e.urank || null;
+    else if (isLive) rank = liveRankMap[e.user_team_id]?.rank ?? null;
 
     // ── Points ──
     let totalPoints = 0;
     if (isResult) {
-      // RESULT → teamsMap లో DB fantasy_points + HS bonus apply అయిన points
       totalPoints = team?.totalPoints || 0;
     } else if (isLive) {
-      // LIVE → Redis లో ఉంటే Redis, లేకపోతే teamsMap fallback
       totalPoints = liveRankMap[e.user_team_id]?.points ?? team?.totalPoints ?? 0;
     }
-    // UPCOMING → 0
 
-    // ── Winning Amount — RESULT లో మాత్రమే ──
-    const winningAmount = isResult
+    // ── Winning Amount — COMPLETED లో మాత్రమే ──
+    const contestStatus = c.status?.toUpperCase();
+    const showWinning   = contestStatus === "COMPLETED";
+
+    const winningAmount = showWinning
       ? (Number(e.winning_amount) || getPrizeForRank(
            e.urank,
-           contest.prize_distribution ?? null,
-           contest.entry_fee,
-           contest.refund_winners,
-           contest.refund_start_rank
+           c.prize_distribution ?? null,
+           c.entry_fee,
+           c.refund_winners,
+           c.refund_start_rank
          ))
       : 0;
 

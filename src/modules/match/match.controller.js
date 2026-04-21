@@ -1,5 +1,7 @@
-import { getJoinedMatchesService, getMatchesByTypeService, getPastMatchesService } from "./match.service.js";
 import  db  from "../../config/db.js";
+
+import {   getMatchesService } from "./match.service.js";
+
 
 export const getAllMatches = async (req, res) => {
   console.log("✅ getAllMatches API HIT");
@@ -47,52 +49,42 @@ export const getAllMatches = async (req, res) => {
   }
 };
 
-
-export const getJoinedMatches = async (req, res) => {
+export const getMatches = async (req, res) => {
   try {
     const userId = req.user?.id;
-
     if (!userId) {
       return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
-    const data = await getJoinedMatchesService(userId);
+  const status = req.params.status
 
-    res.json({
-      success: true,
-      total: data.length,
-      data,
-    });
+    const validTypes = ["LIVE", "UPCOMING", "RESULT"];
 
-  } catch (err) {
-    console.error("getJoinedMatches error:", err.message);
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
-
-export const getMatchesByType = async (req, res) => {
-  try {
-    const { type } = req.params;
-    const userId = req.user?.id; 
-
-    if (!userId) {
-      return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!status || !validTypes.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `status query param required. Valid values: ${validTypes.join(", ")}`,
+      });
     }
 
-    const data = await getMatchesByTypeService(type, userId);
+    const data = await getMatchesService(userId, status);
 
-    res.json({
+    return res.status(200).json({
       success: true,
-      total: data.length,
+      status,
+      count: data.length,
       data,
     });
 
-  } catch (err) {
-    console.error("getMatchesByType error:", err.message);
-    res.status(500).json({ success: false, message: err.message });
+  } catch (error) {
+    console.error("getMatches error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch matches",
+      error: error.message,
+    });
   }
 };
- 
 
 export const getMatchFullDetails = async (req, res) => {
   try {
@@ -308,33 +300,6 @@ console.log("getMatchFullDetails hit with id:", id)
     return res.status(500).json({
       success: false,
       message: "Internal server error",
-      error: error.message,
-    });
-  }
-};
-
-
-
-
-
-
-export const getPastMatches = async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    const data = await getPastMatchesService(userId);
-
-    return res.status(200).json({
-      success: true,
-      count: data.length,
-      data,
-    });
-
-  } catch (error) {
-    console.error("getMyMatches error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch my matches",
       error: error.message,
     });
   }

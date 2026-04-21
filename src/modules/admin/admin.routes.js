@@ -100,4 +100,8 @@ router.get("/match-live/:match_id",   c.setMatchLive);
 // Match RESULT process చేయి (ranks + winnings + wallet credit)
 router.get("/match-result/:match_id", c.processMatchResult);
 
+router.get("/contests/in-review",    c.getInReviewContests);
+
+router.post("/contests/approve/:contestId", c.approveContestResults);
+
 export default router;     
