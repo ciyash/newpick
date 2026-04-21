@@ -42,10 +42,8 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
 
   if (!entries.length) return [];
 
-  // ── All team IDs ──
   const teamIds = [...new Set(entries.map(e => e.user_team_id).filter(Boolean))];
 
-  // ── Team players + stats fetch ──
   const [playerRows] = await db.query(
     `SELECT
        utp.user_team_id,
@@ -62,37 +60,21 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
     [matchId, teamIds]
   );
 
-  // ── Team players group ──
   const teamPlayersMap = {};
   playerRows.forEach(r => {
     if (!teamPlayersMap[r.user_team_id]) teamPlayersMap[r.user_team_id] = [];
     teamPlayersMap[r.user_team_id].push(r);
   });
 
-  // ── Points calculate with HS Bonus ──
+  // ── ✅ LIVE: No captain multiplier, No HS Bonus (document spec) ──
   const teamPointsMap = {};
   for (const teamId of teamIds) {
     const players = teamPlayersMap[teamId] || [];
     if (!players.length) { teamPointsMap[teamId] = 0; continue; }
 
-    // Step 1: base points
-    const withBase = players.map(p => ({
-      ...p,
-      basePoints: parseFloat(p.base_points) || 0,
-    }));
-
-    // Step 2: HS Bonus — max base points player కి bonus
-    const maxBase = Math.max(...withBase.map(p => p.basePoints));
-    const withHS = withBase.map(p => {
-      if (p.basePoints !== maxBase || maxBase <= 0) return p;
-      const hsBonus = p.is_substitude ? 8 : 4;
-      return { ...p, basePoints: p.basePoints + hsBonus };
-    });
-
-    // Step 3: Captain/VC multiplier apply
-    const total = withHS.reduce((sum, p) => {
-      const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
-      return sum + parseFloat((p.basePoints * multiplier).toFixed(2));
+    // Simple sum — NO captain multiplier, NO HS Bonus
+    const total = players.reduce((sum, p) => {
+      return sum + (parseFloat(p.base_points) || 0);
     }, 0);
 
     teamPointsMap[teamId] = parseFloat(total.toFixed(2));
@@ -119,7 +101,6 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
     entry.rank = rank;
   });
 
-  // ── Redis store ──
   await redis.set(
     leaderboardCacheKey(contestId),
     ranked,
@@ -247,14 +228,14 @@ const syncPointsAndCacheLeaderboard = async () => {
       return;
     }
 
-    const [liveContests] = await db.query(
-      `SELECT c.id AS contest_id, c.match_id
-       FROM contest c
-       WHERE c.match_id IN (?)
-         AND c.status != 'COMPLETED'`,
-      [liveMatchIds]
-    );
-
+  
+const [liveContests] = await db.query(
+  `SELECT c.id AS contest_id, c.match_id
+   FROM contest c
+   WHERE c.match_id IN (?)
+     AND c.status = 'LIVE'`,
+  [liveMatchIds]
+);
     if (!liveContests.length) {
       console.log("✅ [CRON] No live contests to cache");
       return;
@@ -274,6 +255,7 @@ const syncPointsAndCacheLeaderboard = async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // JOB 4 — CONTEST SCORING — every 10 mins (RESULT only)
 // ─────────────────────────────────────────────────────────────────────────────
+
 const scoreCompletedMatches = async () => {
   console.log("⏰ [CRON] Contest scoring started:", new Date().toISOString());
   try {
@@ -283,10 +265,10 @@ const scoreCompletedMatches = async () => {
        JOIN matches m ON m.id = c.match_id
        WHERE m.is_active = 1
          AND m.status = 'RESULT'
-         AND c.status NOT IN ('COMPLETED')
+         AND c.status NOT IN ('COMPLETED', 'INREVIEW')  -- ← INREVIEW add చేశాం
          AND m.start_time >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
        ORDER BY c.id ASC`
-    );    
+    );
 
     if (!contests.length) {
       console.log("✅ [CRON] No contests pending scoring");

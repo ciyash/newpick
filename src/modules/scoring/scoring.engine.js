@@ -131,14 +131,15 @@ export const calculatePlayerPoints = (stats) => {
 // ─────────────────────────────────────────────
 // TEAM POINTS (Steps 8, 9, 10)
 // ─────────────────────────────────────────────
-export const calculateTeamPoints = (playerStatsList, captainId, viceCaptainId) => {
+
+export const calculateTeamPoints = (playerStatsList, captainId, viceCaptainId, allMatchMaxPoints = null) => {
   const playerResults = playerStatsList.map(calculatePlayerPoints);
 
-  const starterMap = {};
-  playerStatsList.forEach((s) => { starterMap[s.playerId] = s.started; });
+  // STEP 8: Highest Scorer Bonus — match-level max use చేయి
+  const maxPoints = allMatchMaxPoints !== null
+    ? allMatchMaxPoints                                        // ← match-level max ✅
+    : Math.max(...playerResults.map((r) => r.basePoints));    // ← fallback (single team)
 
-  // STEP 8: Highest Scorer Bonus
-  const maxPoints = Math.max(...playerResults.map((r) => r.basePoints));
   playerResults.forEach((r) => {
     if (r.basePoints === maxPoints) {
       const bonus = starterMap[r.playerId]
@@ -149,6 +150,7 @@ export const calculateTeamPoints = (playerStatsList, captainId, viceCaptainId) =
     } else {
       r.breakdown.highestScorerBonus = 0;
     }
+  
   });
 
   // STEP 9: Captain / VC Multiplier

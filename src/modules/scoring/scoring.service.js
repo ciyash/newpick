@@ -193,12 +193,24 @@ export const scoreContestService = async (contestId, matchId) => {
     entries.flatMap(e => e.players.map(p => p.playerId))
   )];
 
-  // ── 3. Fetch stats from player_match_stats ──
+  // ── 3. Fetch stats ──
   const allStats = await fetchPlayerStats(matchId, allPlayerIds);
   const statsMap = {};
   allStats.forEach(s => { statsMap[s.playerId] = s; });
 
-  // ── 4. Score each team ──
+  // ── ✅ NEW: Match-level max base points calculate చేయి ──
+  // అన్ని players score చేయి (captain/VC లేకుండా) — match లో highest ఎవరో తెలుసుకోవడానికి
+  const { calculatePlayerPoints } = await import("./scoring.engine.js");
+  
+  let allMatchMaxPoints = 0;
+  for (const stat of allStats) {
+    const result = calculatePlayerPoints(stat);
+    if (result.basePoints > allMatchMaxPoints) {
+      allMatchMaxPoints = result.basePoints;
+    }
+  }
+
+  // ── 4. Score each team — allMatchMaxPoints pass చేయి ──
   const scoredEntries = entries.map(entry => {
     const playerStatsList = entry.players
       .map(p => statsMap[p.playerId])
@@ -217,7 +229,8 @@ export const scoreContestService = async (contestId, matchId) => {
     const result = calculateTeamPoints(
       playerStatsList,
       entry.captainId,
-      entry.viceCaptainId
+      entry.viceCaptainId,
+      allMatchMaxPoints  // ← ✅ match-level max pass చేస్తున్నాం
     );
 
     return {
@@ -228,7 +241,6 @@ export const scoreContestService = async (contestId, matchId) => {
       players:    result.players,
     };
   });
-
   // ── 5. Rank teams (DENSE_RANK — same points = same rank) ──
   const ranked = rankTeams(scoredEntries);
 
