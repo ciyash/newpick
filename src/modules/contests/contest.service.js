@@ -1295,73 +1295,61 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   }
 
   // ── LIVE → Redis cache first ──
- // ── LIVE → Redis cache first ──
-if (matchStatus === "LIVE") {
-  try {
-    const cached = await redis.get(lbKey(contestId));
-    // ✅ @upstash/redis already parsed object return చేస్తుంది
-    if (cached && Array.isArray(cached)) {
-      const allRanked  = cached; // ← JSON.parse వద్దు
-      const total      = allRanked.length;
-      const paginated  = allRanked.slice(offset, offset + limit);
-      const leaderboard = paginated.map(e => ({
-        ...e,
-        winning_amount: 0,
-        is_winner:      false,
-        is_me:          userId ? e.user_id === parseInt(userId) : false,
-      }));
-      const myRow = userId ? allRanked.find(e => e.user_id === parseInt(userId)) : null;
-      const my_entry = myRow ? {
-        user_team_id:   myRow.user_team_id,
-        team_name:      myRow.team_name,
-        username:       myRow.username,
-        profile_image:  myRow.profile_image,
-        rank:           myRow.rank,
-        points:         myRow.points,
-        winning_amount: 0,
-        is_winner:      false,
-      } : null;
+  if (matchStatus === "LIVE") {
+    try {
+      const cached = await redis.get(lbKey(contestId));
+      if (cached && Array.isArray(cached)) {
+        const allRanked   = cached;
+        const total       = allRanked.length;
+        const paginated   = allRanked.slice(offset, offset + limit);
+        const leaderboard = paginated.map(e => ({
+          ...e,
+          winning_amount: 0,
+          is_winner:      false,
+          is_me:          userId ? e.user_id === parseInt(userId) : false,
+        }));
+        const myRow = userId
+          ? allRanked.find(e => e.user_id === parseInt(userId))
+          : null;
+        const my_entry = myRow
+          ? {
+              user_team_id:   myRow.user_team_id,
+              team_name:      myRow.team_name,
+              username:       myRow.username,
+              profile_image:  myRow.profile_image,
+              rank:           myRow.rank,
+              points:         myRow.points,
+              winning_amount: 0,
+              is_winner:      false,
+            }
+          : null;
 
-      return buildLeaderboardResponse(contest, matchStatus, leaderboard, my_entry, total, page, limit, offset);
+        return buildLeaderboardResponse(
+          contest, matchStatus, leaderboard, my_entry, total, page, limit, offset
+        );
+      }
+    } catch (err) {
+      console.error("Redis leaderboard error:", err.message);
+      // Redis miss — fall through to DB
     }
-  } catch (err) {
-    console.error(`Redis leaderboard error:`, err.message);
-    // Redis miss — fall through to DB
   }
-}
 
-  // Leaderboard — computed_points uses captain/VC multiplier
+  // ── RESULT → DB నుండి (user_team_players.points — HS Bonus included) ──
   const [entries] = await db.query(
     `SELECT
        ce.id, ce.user_id, ce.user_team_id, ce.urank,
        ce.winning_amount, ce.status,
        u.name, u.nickname, u.image, ut.team_name,
        COALESCE(
-         (SELECT SUM(
-            CASE
-              WHEN utp.is_captain      = 1 THEN pms.fantasy_points * 2
-              WHEN utp.is_vice_captain = 1 THEN pms.fantasy_points * 1.5
-              ELSE pms.fantasy_points
-            END
-          )
+         (SELECT SUM(utp.points)
           FROM user_team_players utp
-          JOIN player_match_stats pms
-            ON pms.player_id = utp.player_id AND pms.match_id = ?
           WHERE utp.user_team_id = ce.user_team_id
          ), 0
        ) AS computed_points,
        DENSE_RANK() OVER (
          ORDER BY COALESCE(
-           (SELECT SUM(
-              CASE
-                WHEN utp2.is_captain      = 1 THEN pms2.fantasy_points * 2
-                WHEN utp2.is_vice_captain = 1 THEN pms2.fantasy_points * 1.5
-                ELSE pms2.fantasy_points
-              END
-            )
+           (SELECT SUM(utp2.points)
             FROM user_team_players utp2
-            JOIN player_match_stats pms2
-              ON pms2.player_id = utp2.player_id AND pms2.match_id = ?
             WHERE utp2.user_team_id = ce.user_team_id
            ), 0
          ) DESC
@@ -1372,7 +1360,7 @@ if (matchStatus === "LIVE") {
      WHERE ce.contest_id = ?
      ORDER BY computed_points DESC
      LIMIT ? OFFSET ?`,
-    [contest.match_id, contest.match_id, contestId, limit, offset]
+    [contestId, limit, offset]
   );
 
   const [[{ total }]] = await db.query(
@@ -1380,26 +1368,18 @@ if (matchStatus === "LIVE") {
     [contestId]
   );
 
-  // Points map with multiplier
+  // ── pointsMap — user_team_players.points (HS Bonus included) ──
   const teamIds = entries.map(e => e.user_team_id).filter(Boolean);
   let pointsMap = {};
   if (teamIds.length > 0) {
     const [pointsRows] = await db.query(
       `SELECT
          utp.user_team_id,
-         SUM(
-           CASE
-             WHEN utp.is_captain      = 1 THEN pms.fantasy_points * 2
-             WHEN utp.is_vice_captain = 1 THEN pms.fantasy_points * 1.5
-             ELSE pms.fantasy_points
-           END
-         ) AS total_points
+         SUM(utp.points) AS total_points
        FROM user_team_players utp
-       JOIN player_match_stats pms
-         ON pms.player_id = utp.player_id AND pms.match_id = ?
        WHERE utp.user_team_id IN (?)
        GROUP BY utp.user_team_id`,
-      [contest.match_id, teamIds]
+      [teamIds]
     );
     pointsRows.forEach(r => {
       pointsMap[r.user_team_id] = parseFloat(r.total_points || 0);
@@ -1411,17 +1391,20 @@ if (matchStatus === "LIVE") {
     const rank   = entry.urank ?? entry.computed_rank;
     const prize  = matchStatus === "RESULT"
       ? (entry.winning_amount || getPrizeForRank(
-           rank, contest.prize_distribution, contest.entry_fee,
-           contest.refund_winners, contest.refund_start_rank
+           rank,
+           contest.prize_distribution,
+           contest.entry_fee,
+           contest.refund_winners,
+           contest.refund_start_rank
          ))
       : 0;
     return {
       rank,
-      user_id:       entry.user_id,
-      username:      entry.nickname  || entry.name || `User${entry.user_id}`,
-      profile_image: entry.image     || null,
-      team_name:     entry.team_name || null,
-      user_team_id:  entry.user_team_id,
+      user_id:        entry.user_id,
+      username:       entry.nickname  || entry.name || `User${entry.user_id}`,
+      profile_image:  entry.image     || null,
+      team_name:      entry.team_name || null,
+      user_team_id:   entry.user_team_id,
       points,
       winning_amount: prize,
       is_winner:      prize > 0,
@@ -1429,7 +1412,7 @@ if (matchStatus === "LIVE") {
     };
   });
 
-  // My best entry
+  // ── My best entry ──
   let my_entry = null;
   if (userId) {
     const [myEntries] = await db.query(
@@ -1442,21 +1425,27 @@ if (matchStatus === "LIVE") {
        WHERE ce.contest_id = ? AND ce.user_id = ?`,
       [contestId, userId]
     );
+
     if (myEntries.length > 0) {
       const best = myEntries.reduce((prev, curr) =>
-        (pointsMap[curr.user_team_id] || 0) > (pointsMap[prev.user_team_id] || 0) ? curr : prev
+        (pointsMap[curr.user_team_id] || 0) > (pointsMap[prev.user_team_id] || 0)
+          ? curr
+          : prev
       );
-      const myPoints = pointsMap[best.user_team_id] !== undefined
-        ? pointsMap[best.user_team_id]
-        : await calcTeamPoints(best.user_team_id, contest.match_id);
+
+      const myPoints  = pointsMap[best.user_team_id] ?? 0;
       const myLbEntry = leaderboard.find(l => l.user_team_id === best.user_team_id);
       const myRank    = best.urank ?? myLbEntry?.rank ?? null;
       const myPrize   = matchStatus === "RESULT"
         ? (best.winning_amount || getPrizeForRank(
-             myRank, contest.prize_distribution, contest.entry_fee,
-             contest.refund_winners, contest.refund_start_rank
+             myRank,
+             contest.prize_distribution,
+             contest.entry_fee,
+             contest.refund_winners,
+             contest.refund_start_rank
            ))
         : 0;
+
       my_entry = {
         user_team_id:   best.user_team_id,
         team_name:      best.team_name || null,
@@ -1470,7 +1459,9 @@ if (matchStatus === "LIVE") {
     }
   }
 
-  return buildLeaderboardResponse(contest, matchStatus, leaderboard, my_entry, parseInt(total), page, limit, offset);
+  return buildLeaderboardResponse(
+    contest, matchStatus, leaderboard, my_entry, parseInt(total), page, limit, offset
+  );
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
