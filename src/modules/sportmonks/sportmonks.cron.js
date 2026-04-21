@@ -282,6 +282,42 @@ const cleanupOldInactiveMatches = async () => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CONTEST STATUS SYNC — match status బట్టి contest status update
+// ─────────────────────────────────────────────────────────────────────────────
+const syncContestStatuses = async () => {
+  console.log("⏰ [CRON] Contest status sync started:", new Date().toISOString());
+  try {
+
+    // ── UPCOMING → LIVE (match LIVE అయినప్పుడు) ──
+    const [toLive] = await db.query(
+      `UPDATE contest c
+       JOIN matches m ON m.id = c.match_id
+       SET c.status = 'LIVE'
+       WHERE c.status = 'UPCOMING'
+         AND m.status = 'LIVE'
+         AND m.is_active = 1`
+    );
+
+    // ── LIVE → IN-REVIEW (match RESULT అయినప్పుడు) ──
+    const [toReview] = await db.query(
+      `UPDATE contest c
+       JOIN matches m ON m.id = c.match_id
+       SET c.status = 'IN-REVIEW'
+       WHERE c.status = 'LIVE'
+         AND m.status = 'RESULT'
+         AND m.is_active = 1`
+    );
+
+    console.log(
+      `✅ [CRON] Contest UPCOMING→LIVE: ${toLive.affectedRows} | LIVE→IN-REVIEW: ${toReview.affectedRows}`
+    );
+
+  } catch (err) {
+    console.error("❌ [CRON] syncContestStatuses failed:", err.message);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 // REGISTER ALL CRON JOBS
 // ─────────────────────────────────────────────────────────────────────────────
 export const startCronJobs = () => {
@@ -292,6 +328,9 @@ export const startCronJobs = () => {
   // Status — every 5 mins
   cron.schedule("*/5 * * * *",  syncMatchStatuses,              { scheduled: true, timezone: "UTC" });
 
+   // ✅ Contest Status — every 5 mins 
+  cron.schedule("*/5 * * * *",  syncContestStatuses,            { scheduled: true, timezone: "UTC" })
+ 
   // Points + Leaderboard — every 2 mins (combined, order guaranteed)
   cron.schedule("*/2 * * * *",  syncPointsAndCacheLeaderboard,  { scheduled: true, timezone: "UTC" });
 

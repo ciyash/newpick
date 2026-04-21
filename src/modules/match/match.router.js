@@ -9,6 +9,7 @@ router.get("/all", getAllMatches);
 
 // ✅ Dynamic routes AFTER
 router.get("/match-status/:status", getMatches);
+
 router.get("/:id", getMatchFullDetails);
 
 

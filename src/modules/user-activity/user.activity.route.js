@@ -13,8 +13,7 @@ const router = express.Router();
 // User routes
 router.get("/my-activity", authenticate,checkAccountActive, getMyActivity);
 
-router.post("/request-full",authenticate,checkAccountActive, requestFullHistory);  
-
+router.get("/request-full",authenticate,checkAccountActive, requestFullHistory);  
 
 
 // Admin routes
@@ -27,4 +26,4 @@ router.get("/admin/full-history-requests",adminAuth(), getFullHistoryRequests);
 router.post("/admin/approve", adminAuth(), approveFullHistory);
 
 
-export default router;
+export default router; 

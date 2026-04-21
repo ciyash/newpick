@@ -9,6 +9,7 @@ import {
   getScoreBreakdownService,
   compareTeamService,
   getContestHistoryService,
+  announceWinnersService,
 } from "./contest.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -322,5 +323,30 @@ export const approveContestResults = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   } finally {
     if (conn) conn.release();
+  }
+};
+
+
+
+
+// controllers/admin/contestController.js
+
+export const announceWinners = async (req, res) => {
+  try {
+    const { contestId } = req.params;
+    const adminId = req.admin?.id;
+
+    if (!contestId)
+      return res.status(400).json({ success: false, message: "contestId is required" });
+
+    const result = await announceWinnersService(Number(contestId), adminId);
+    return res.status(200).json(result);
+
+  } catch (err) {
+    console.error("AnnounceWinners Error:", err.message);
+    return res.status(err.statusCode || 500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };

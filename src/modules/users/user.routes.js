@@ -37,7 +37,7 @@ app.post("/create-feedback", authenticate, checkAccountActive, createFeedback);
 app.get("/get-feedback", authenticate, getMyFeedbacks);
 app.post("/pause-account", authenticate, checkAccountActive, pauseAccount);
 app.delete("/delete-account", authenticate, checkAccountActive, deleteAccount);
-app.use("/contest", authenticate, checkAccountActive, contestRoutes)
+app.use("/contest", contestRoutes)
 app.use("/series", authenticate, checkAccountActive, seriesRoutes)  
 app.use("/matches", authenticate, checkAccountActive, matchesRoutes)
 app.use("/teams", authenticate, checkAccountActive, teamRoutes)
