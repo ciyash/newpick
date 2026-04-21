@@ -141,11 +141,15 @@ const saveScoreResults = async (contestId, rankedEntries, matchId) => {
       }
     }
 
-    await conn.query(
-      `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
-      [contestId]
-    );
+    // await conn.query(
+    //   `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
+    //   [contestId]
+    // );
 
+    await conn.query(
+  `UPDATE contest SET status = 'IN-REVIEW' WHERE id = ?`,
+  [contestId]
+);
     await conn.commit();
   } catch (err) {
     await conn.rollback();
