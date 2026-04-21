@@ -318,186 +318,10 @@ export const getTeamPlayersService = async (teamId) => {
 };
 
 
-
-// export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) => {
-
-//   const [matchRows] = await db.query(
-//     `SELECT id, lineup_status, lineupavailable, is_active 
-//      FROM matches 
-//      WHERE id = ?`,
-//     [matchId]
-//   );
-
-//   const matchData = matchRows.length
-//     ? {
-//         matchId: matchRows[0].id,
-//         lineupStatus: matchRows[0].lineup_status,
-//         lineupAvailable: matchRows[0].lineupavailable,
-//         isActive: matchRows[0].is_active
-//       }
-//     : null;
-
-//   // ✅ contestId ఉంటే LEFT JOIN — join కాని teams filter
-//   const contestJoin = contestId
-//     ? `LEFT JOIN contest_entries ce ON ce.user_team_id = ut.id AND ce.contest_id = ?`
-//     : "";
-
-//   const contestWhere = contestId
-//     ? `AND ce.user_team_id IS NULL`
-//     : "";
-
-//   const params = [];
-//   if (contestId) params.push(contestId);  // ← LEFT JOIN కి
-//   params.push(userId);                     // ← WHERE ut.user_id = ?
-//   if (matchId) params.push(matchId);      // ← AND ut.match_id = ?
-
-//   const [rows] = await db.query(
-//     `SELECT 
-//         ut.id AS team_id,
-//         ut.team_name,
-//         ut.match_id,
-
-//         p.id AS player_id,
-//         p.name,
-//         p.position,
-//         p.points,
-//         p.playercredits AS credits,
-//         p.player_type,
-//         p.playerimage,
-//         p.team_id AS real_team_id,
-
-//         t.name AS real_team_name,
-//         t.short_name AS real_team_short_name,
-
-//         utp.is_captain,
-//         utp.is_vice_captain,
-
-//         CASE 
-//           WHEN mp.player_id IS NOT NULL THEN 1 
-//           ELSE 0 
-//         END AS is_in_match
-
-//      FROM user_teams ut
-//      ${contestJoin}
-//      JOIN user_team_players utp ON ut.id = utp.user_team_id
-//      JOIN players p ON utp.player_id = p.id
-//      LEFT JOIN teams t ON p.team_id = t.id
-//      LEFT JOIN match_players mp 
-//         ON mp.player_id = p.id 
-//         AND mp.match_id = ut.match_id
-
-//      WHERE ut.user_id = ?
-//      ${matchId ? "AND ut.match_id = ?" : ""}
-//      ${contestWhere}
-
-//      ORDER BY ut.created_at DESC`,
-//     params
-//   );
-
-//   if (!rows.length) {
-//     return [];
-//   }
-
-//   const teams = {};
-
-//   for (const row of rows) {
-
-//     if (!teams[row.team_id]) {
-//       teams[row.team_id] = {
-//         teamId: row.team_id,
-//         teamName: row.team_name,
-//         matchId: row.match_id,
-//         match: matchData,
-//         captain: null,
-//         viceCaptain: null,
-//         players: [],
-//         totalPlayers: 0,
-//         totalPoints: 0,
-//         totalCredits: 0,
-//         creditsLeft: 100,
-//         realTeamsBreakdown: {},
-//         playersNotInMatch: 0
-//       };
-//     }
-
-//     const player = {
-//       playerId: row.player_id,
-//       name: row.name,
-//       position: row.position,
-//       points: parseFloat(row.points) || 0,
-//       credits: parseFloat(row.credits) || 0,
-//       playerType: row.player_type,
-//       image: row.playerimage,
-//       isCaptain: row.is_captain === 1,
-//       isViceCaptain: row.is_vice_captain === 1,
-//       realTeamId: row.real_team_id,
-//       realTeamName: row.real_team_name,
-//       realTeamShortName: row.real_team_short_name,
-//       isInMatch: row.is_in_match === 1
-//     };
-
-//     if (player.isCaptain) teams[row.team_id].captain = player;
-//     if (player.isViceCaptain) teams[row.team_id].viceCaptain = player;
-
-//     teams[row.team_id].players.push(player);
-//     teams[row.team_id].totalPlayers++;
-
-//     // ✅ playing XI only points
-//     if (player.isInMatch) {
-//       teams[row.team_id].totalPoints += player.points;
-//     }
-
-//     // ✅ all players credits
-//     teams[row.team_id].totalCredits += player.credits;
-
-//     if (!player.isInMatch) {
-//       teams[row.team_id].playersNotInMatch++;
-//     }
-
-//     const rtId = row.real_team_id;
-
-//     if (rtId) {
-//       if (!teams[row.team_id].realTeamsBreakdown[rtId]) {
-//         teams[row.team_id].realTeamsBreakdown[rtId] = {
-//           teamId: rtId,
-//           teamName: row.real_team_name,
-//           shortName: row.real_team_short_name,
-//           count: 0
-//         };
-//       }
-//       teams[row.team_id].realTeamsBreakdown[rtId].count++;
-//     }
-//   }
-
-//   for (const team of Object.values(teams)) {
-
-//     team.realTeamsBreakdown = Object.values(team.realTeamsBreakdown);
-
-//     team.totalPoints  = parseFloat(team.totalPoints.toFixed(2));
-//     team.totalCredits = parseFloat(team.totalCredits.toFixed(2));
-//     team.creditsLeft  = parseFloat((100 - team.totalCredits).toFixed(2));
-
-//     if (!team.captain && team.players.length) {
-//       team.captain = team.players[0];
-//       team.captain.isCaptain = true;
-//     }
-
-//     if (!team.viceCaptain) {
-//       const vc = team.players.find(p => !p.isCaptain);
-//       team.viceCaptain = vc || team.players[1];
-//       if (team.viceCaptain) team.viceCaptain.isViceCaptain = true;
-//     }
-//   }
-
-//   return Object.values(teams);
-// };
-
-
-
 export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) => {
 
   const [matchRows] = await db.query(
-    `SELECT id, lineup_status, lineupavailable, is_active 
+    `SELECT id, lineup_status, lineupavailable, is_active, status
      FROM matches 
      WHERE id = ?`,
     [matchId]
@@ -505,12 +329,18 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
 
   const matchData = matchRows.length
     ? {
-        matchId: matchRows[0].id,
-        lineupStatus: matchRows[0].lineup_status,
+        matchId:         matchRows[0].id,
+        lineupStatus:    matchRows[0].lineup_status,
         lineupAvailable: matchRows[0].lineupavailable,
-        isActive: matchRows[0].is_active
+        isActive:        matchRows[0].is_active,
+        status:          matchRows[0].status,
       }
     : null;
+
+  const matchStatus  = matchData?.status?.toUpperCase();
+  const isLive       = matchStatus === "LIVE";
+  const isResult     = matchStatus === "RESULT";
+  const applyHSBonus = isLive || isResult;
 
   const contestJoin = contestId
     ? `LEFT JOIN contest_entries ce ON ce.user_team_id = ut.id AND ce.contest_id = ?`
@@ -544,6 +374,7 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
 
         utp.is_captain,
         utp.is_vice_captain,
+        utp.is_substitude,
 
         COALESCE(pms.fantasy_points, 0) AS base_points,
 
@@ -596,28 +427,30 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
       };
     }
 
-    const basePoints   = parseFloat(row.base_points)  || 0;
+    const basePoints   = parseFloat(row.base_points) || 0;
     const multiplier   = row.is_captain === 1 ? 2 : row.is_vice_captain === 1 ? 1.5 : 1;
     const effectivePts = parseFloat((basePoints * multiplier).toFixed(2));
 
     const player = {
-      playerId:          row.player_id,
-      name:              row.name,
-      position:          row.position,
+      playerId:           row.player_id,
+      name:               row.name,
+      position:           row.position,
       basePoints,
-      effectivePoints:   effectivePts,
-      credits:           parseFloat(row.credits) || 0,
-      playerType:        row.player_type,
-      image:             row.playerimage,
-      isCaptain:         row.is_captain      === 1,
-      isViceCaptain:     row.is_vice_captain === 1,
-      realTeamId:        row.real_team_id,
-      realTeamName:      row.real_team_name,
-      realTeamShortName: row.real_team_short_name,
-      isInMatch:         row.is_in_match     === 1
+      effectivePoints:    effectivePts,
+      highestScorerBonus: 0,
+      credits:            parseFloat(row.credits) || 0,
+      playerType:         row.player_type,
+      image:              row.playerimage,
+      isCaptain:          row.is_captain      === 1,
+      isViceCaptain:      row.is_vice_captain === 1,
+      isSubstitute:       row.is_substitude   === 1,
+      realTeamId:         row.real_team_id,
+      realTeamName:       row.real_team_name,
+      realTeamShortName:  row.real_team_short_name,
+      isInMatch:          row.is_in_match     === 1
     };
 
-    if (player.isCaptain)    teams[row.team_id].captain     = player;
+    if (player.isCaptain)     teams[row.team_id].captain     = player;
     if (player.isViceCaptain) teams[row.team_id].viceCaptain = player;
 
     teams[row.team_id].players.push(player);
@@ -631,10 +464,10 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
     if (rtId) {
       if (!teams[row.team_id].realTeamsBreakdown[rtId]) {
         teams[row.team_id].realTeamsBreakdown[rtId] = {
-          teamId:   rtId,
-          teamName: row.real_team_name,
+          teamId:    rtId,
+          teamName:  row.real_team_name,
           shortName: row.real_team_short_name,
-          count:    0
+          count:     0
         };
       }
       teams[row.team_id].realTeamsBreakdown[rtId].count++;
@@ -646,6 +479,41 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
     team.totalPoints  = parseFloat(team.totalPoints.toFixed(2));
     team.totalCredits = parseFloat(team.totalCredits.toFixed(2));
     team.creditsLeft  = parseFloat((100 - team.totalCredits).toFixed(2));
+
+    // ── Highest Scorer Bonus — LIVE/RESULT లో మాత్రమే ──
+    if (applyHSBonus && team.players.length) {
+      const maxBase = Math.max(...team.players.map(p => p.basePoints));
+
+      if (maxBase > 0) {
+        team.players = team.players.map(p => {
+          if (p.basePoints !== maxBase) return p;
+
+          const hsBonus      = p.isSubstitute ? 8 : 4;
+          const newBase      = p.basePoints + hsBonus;
+          const newEffective = parseFloat(
+            (newBase * (p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1)).toFixed(2)
+          );
+
+          // captain/viceCaptain reference కూడా update చేయి
+          const updated = {
+            ...p,
+            basePoints:         newBase,
+            effectivePoints:    newEffective,
+            highestScorerBonus: hsBonus,
+          };
+
+          if (p.isCaptain)     team.captain     = updated;
+          if (p.isViceCaptain) team.viceCaptain  = updated;
+
+          return updated;
+        });
+
+        // totalPoints recalculate
+        team.totalPoints = parseFloat(
+          team.players.reduce((sum, p) => sum + p.effectivePoints, 0).toFixed(2)
+        );
+      }
+    }
 
     if (!team.captain && team.players.length) {
       team.captain = team.players[0];
@@ -661,7 +529,6 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
 
   return Object.values(teams);
 };
-
 
 
 export const updateTeamService = async (
