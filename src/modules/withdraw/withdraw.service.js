@@ -1,5 +1,6 @@
 import db from "../../config/db.js";
 import crypto from "crypto";
+import { logActivity } from "../../utils/activity.logger.js";
 
 /* ======================================================
    🟢 USER REQUEST WITHDRAW
@@ -152,6 +153,15 @@ export const requestWithdrawService = async (userId, data) => {
 
     await conn.commit();
 
+    logActivity({
+      userId,
+      type:        "withdrawal",
+      title:       "Withdrawal Requested",
+      description: `₹${withdrawAmount} withdrawal request submitted`,
+      amount:      withdrawAmount,
+      icon:        "withdraw",
+    });
+
     return {
       success:    true,
       message:    "Withdrawal request submitted successfully",
@@ -250,6 +260,17 @@ export const approveWithdrawService = async (adminId, withdrawId) => {
 
     await conn.commit();
 
+    logActivity({
+      userId:      withdraw.user_id,
+      type:        "withdrawal",
+      sub_type:    "approved",
+      title:       "Withdrawal Approved",
+      description: `₹${withdraw.amount} withdrawal approved`,
+      amount:      withdraw.amount,
+      icon:        "withdraw",
+      meta:        { withdrawId },
+    });
+
     return {
       success: true,
       message: "Withdraw approved successfully"
@@ -278,7 +299,7 @@ export const rejectWithdrawService = async (
     await conn.beginTransaction();
 
     const [[withdraw]] = await conn.query(
-      `SELECT id FROM withdraws
+      `SELECT id, user_id, amount FROM withdraws
        WHERE id = ?
        AND status = 'PENDING'
        FOR UPDATE`,
@@ -304,6 +325,17 @@ export const rejectWithdrawService = async (
     );
 
     await conn.commit();
+
+    logActivity({
+      userId:      withdraw.user_id,
+      type:        "withdrawal",
+      sub_type:    "rejected",
+      title:       "Withdrawal Rejected",
+      description: `₹${withdraw.amount} withdrawal request rejected`,
+      amount:      withdraw.amount,
+      icon:        "withdraw",
+      meta:        { withdrawId, remarks: remarks || null },
+    });
 
     return {
       success: true,

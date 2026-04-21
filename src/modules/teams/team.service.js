@@ -1,4 +1,5 @@
 import db from "../../config/db.js";
+import { logActivity } from "../../utils/activity.logger.js";
 
 
 export const createTeamService = async (
@@ -172,6 +173,16 @@ export const createTeamService = async (
     }
 
     await conn.commit();
+
+    logActivity({
+      userId,
+      type:        "contest",
+      sub_type:    "team_created",
+      title:       "Team Created",
+      description: `${teamName} created for Match #${matchId}`,
+      icon:        "team",
+      meta:        { matchId, teamId, teamName },
+    });
 
     return {
       success: true,

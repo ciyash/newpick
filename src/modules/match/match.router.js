@@ -5,20 +5,15 @@ import { getAllMatches,  getMatches,  getMatchFullDetails } from "./match.contro
 const router = express.Router();
 
 
+router.get("/:id", getMatchFullDetails);
 
 router.get("/all", getAllMatches);
 
 router.get('/:status', getMatches);
 
-router.get("/:id", getMatchFullDetails);
-
-
-
-
-  
 
 
 export default router    
-    
+      
 
    

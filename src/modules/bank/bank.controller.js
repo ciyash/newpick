@@ -1,5 +1,6 @@
 import db from "../../config/db.js";
 import { createOnboardingLinkService, createStripeAccountService } from "./bank.service.js";
+import { logActivity } from "../../utils/activity.logger.js";
 
 
 export const startBankVerification = async (req, res) => {
@@ -28,6 +29,15 @@ export const startBankVerification = async (req, res) => {
     }
 
     const url = await createOnboardingLinkService(accountId);
+
+    logActivity({
+      userId,
+      type:        "profile",
+      sub_type:    "bank_verification_started",
+      title:       "Bank Verification Started",
+      description: "Stripe bank onboarding link generated",
+      icon:        "bank",
+    });
 
     res.json({
       success: true,
@@ -77,6 +87,22 @@ export const stripeWebhook = async (req, res) => {
         `UPDATE users SET bank_verified = 1 WHERE stripe_account_id = ?`,
         [account.id]
       );
+
+      const [[user]] = await db.query(
+        `SELECT id FROM users WHERE stripe_account_id = ? LIMIT 1`,
+        [account.id]
+      );
+
+      if (user) {
+        logActivity({
+          userId:      user.id,
+          type:        "profile",
+          sub_type:    "bank_verified",
+          title:       "Bank Account Verified",
+          description: "Stripe bank account verified — payouts enabled",
+          icon:        "bank",
+        });
+      }
 
     }
 

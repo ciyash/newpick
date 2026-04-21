@@ -9,7 +9,10 @@ import {
   joinContest,
   compareTeam,
   getContestHistory,
+  getInReviewContests,
+  approveContestResults,
 } from "./contest.controller.js";
+import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 
 const router = express.Router();
 
@@ -35,6 +38,13 @@ router.get("/",                                   getAllContests);
 // Contest history
 router.get("/history", getContestHistory);
 router.get("/:match_id",                          getContestsByMatchId);
+
+
+//admin routees accessible by admin only
+
+router.get("/contests/in-review",     adminAuth(), getInReviewContests);
+
+router.post("/contests/approve/:contestId", adminAuth(), approveContestResults);
 
 
 export default router;

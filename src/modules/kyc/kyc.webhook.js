@@ -1,4 +1,5 @@
 import db from "../../config/db.js";
+import { logActivity } from "../../utils/activity.logger.js";
 
 export const sumsubWebhook = async (req, res) => {
 
@@ -10,6 +11,22 @@ export const sumsubWebhook = async (req, res) => {
       "UPDATE kyc_sessions SET age_verified=1 WHERE mobile=?",
       [externalUserId]
     );
+
+    const [[user]] = await db.query(
+      `SELECT id FROM users WHERE mobile = ? LIMIT 1`,
+      [externalUserId]
+    );
+
+    if (user) {
+      logActivity({
+        userId:      user.id,
+        type:        "kyc",
+        sub_type:    "age_verified",
+        title:       "KYC Verified",
+        description: "Age verification completed successfully",
+        icon:        "kyc",
+      });
+    }
 
   }
   res.send("ok");

@@ -141,7 +141,8 @@
 
 
 
-import db from "../../config/db.js";  
+import db from "../../config/db.js";
+import { logActivity } from "../../utils/activity.logger.js";
 
 const teamToBinary = (teamPlayers, allPlayerIds) => {
   return allPlayerIds.map(id => (teamPlayers.includes(id) ? "1" : "0")).join("");
@@ -338,6 +339,16 @@ export const generateUCTTeamsService = async (userId, data) => {
     );
 
     await conn.commit();
+
+    logActivity({
+      userId,
+      type:        "contest",
+      sub_type:    "uct_generated",
+      title:       "UCT Teams Generated",
+      description: `${savedTeams.length} UCT teams generated for Match #${matchId}`,
+      icon:        "team",
+      meta:        { matchId, totalTeams: savedTeams.length, generationsUsed: genCount.total + 1 },
+    });
 
     return {
       success: true,

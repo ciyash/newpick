@@ -1,10 +1,11 @@
 
-import db    from "../../config/db.js";
+import db from "../../config/db.js";
 import redis from "../../config/redis.js";
-import { calculateTeamPoints }       from "../scoring/scoring.engine.js";
-import { fetchPlayerStats }           from "../scoring/scoring.service.js";
+import { calculateTeamPoints } from "../scoring/scoring.engine.js";
+import { fetchPlayerStats } from "../scoring/scoring.service.js";
 import { applyReferralContestBonus } from "../auth/auth.service.js";
 import { leaderboardCacheKey as lbKey } from '../sportmonks/sportmonks.cron.js';
+import { logActivity } from "../../utils/activity.logger.js";
 // Redis cache key for leaderboard
 
 
@@ -24,7 +25,7 @@ const BONUS_MAX_PCT = 0.05; // max 5% of entry fee from bonus wallet
 
 export const getPrizeForRank = (rank, prizeDistribution, entryFee, refundWinners, refundStartRank) => {
   if (!rank || rank <= 0) return 0;
-  if (rank > refundWinners)    return 0;                     // Zone 3
+  if (rank > refundWinners) return 0;                     // Zone 3
   if (rank >= refundStartRank) return Number(entryFee) || 0; // Zone 2
 
   if (!prizeDistribution) return 0;
@@ -78,26 +79,26 @@ export const getAllContestsService = async () => {
   const [rows] = await db.query(`SELECT * FROM contest ORDER BY entry_fee ASC`);
 
   return rows.map(c => ({
-    id:                    c.id,
-    matchId:               c.match_id,
-    entryFee:              Number(c.entry_fee)               || 0,
-    prizePool:             Number(c.prize_pool)              || 0,
-    netPoolPrize:          Number(c.net_pool_prize)          || 0,
-    maxEntries:            c.max_entries                     || 0,
-    minEntries:            c.min_entries                     || 0,
-    currentEntries:        c.current_entries                 || 0,
-    contestType:           c.contest_type                    || null,
-    isGuaranteed:          c.is_guaranteed === 1,
-    winnerPercentage:      Number(c.winner_percentage)       || 0,
-    totalWinners:          c.total_winners                   || 0,
-    refundStartRank:       c.refund_start_rank               || 0,
-    bonusRanks:            c.bonus_ranks                     || 0,
-    firstPrize:            Number(c.first_prize)             || 0,
-    prizeDistribution:     c.prize_distribution              || null,
+    id: c.id,
+    matchId: c.match_id,
+    entryFee: Number(c.entry_fee) || 0,
+    prizePool: Number(c.prize_pool) || 0,
+    netPoolPrize: Number(c.net_pool_prize) || 0,
+    maxEntries: c.max_entries || 0,
+    minEntries: c.min_entries || 0,
+    currentEntries: c.current_entries || 0,
+    contestType: c.contest_type || null,
+    isGuaranteed: c.is_guaranteed === 1,
+    winnerPercentage: Number(c.winner_percentage) || 0,
+    totalWinners: c.total_winners || 0,
+    refundStartRank: c.refund_start_rank || 0,
+    bonusRanks: c.bonus_ranks || 0,
+    firstPrize: Number(c.first_prize) || 0,
+    prizeDistribution: c.prize_distribution || null,
     platformFeePercentage: Number(c.platform_fee_percentage) || 0,
-    platformFeeAmount:     Number(c.platform_fee_amount)     || 0,
-    status:                c.status                          || null,
-    createdAt:             c.created_at                      || null,
+    platformFeeAmount: Number(c.platform_fee_amount) || 0,
+    status: c.status || null,
+    createdAt: c.created_at || null,
   }));
 };
 
@@ -107,7 +108,7 @@ export const getAllContestsService = async () => {
 
 export const getContestsService = async (matchId, userId) => {
   if (!matchId) throw new Error("matchId is required");
-  if (!userId)  throw new Error("userId is required");
+  if (!userId) throw new Error("userId is required");
 
   const [rows] = await db.query(
     `SELECT
@@ -134,28 +135,28 @@ export const getContestsService = async (matchId, userId) => {
     const myTeamCount = Number(c.my_team_count) || 0;
 
     return {
-      id:                    c.id,
-      matchId:               c.match_id,
-      entryFee:              Number(c.entry_fee)               || 0,
-      prizePool:             Number(c.prize_pool)              || 0,
-      netPoolPrize:          Number(c.net_pool_prize)          || 0,
-      maxEntries:            c.max_entries                     || 0,
-      minEntries:            c.min_entries                     || 0,
-      currentEntries:        c.current_entries                 || 0,
-      remainingSpots:        Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+      id: c.id,
+      matchId: c.match_id,
+      entryFee: Number(c.entry_fee) || 0,
+      prizePool: Number(c.prize_pool) || 0,
+      netPoolPrize: Number(c.net_pool_prize) || 0,
+      maxEntries: c.max_entries || 0,
+      minEntries: c.min_entries || 0,
+      currentEntries: c.current_entries || 0,
+      remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
       myTeamCount,
-      isJoined:              myTeamCount > 0,
-      contestType:           c.contest_type                    || null,
-      isGuaranteed:          c.is_guaranteed === 1,
-      winnerPercentage:      Number(c.winner_percentage)       || 0,
-      totalWinners:          c.total_winners                   || 0,
-      refundStartRank:       c.refund_start_rank               || 0,
-      bonusRanks:            c.bonus_ranks                     || 0,
-      firstPrize:            Number(c.first_prize)             || 0,
+      isJoined: myTeamCount > 0,
+      contestType: c.contest_type || null,
+      isGuaranteed: c.is_guaranteed === 1,
+      winnerPercentage: Number(c.winner_percentage) || 0,
+      totalWinners: c.total_winners || 0,
+      refundStartRank: c.refund_start_rank || 0,
+      bonusRanks: c.bonus_ranks || 0,
+      firstPrize: Number(c.first_prize) || 0,
       prizeDistribution,
       platformFeePercentage: Number(c.platform_fee_percentage) || 0,
-      status:                c.status                          || null,
-      createdAt:             c.created_at                      || null,
+      status: c.status || null,
+      createdAt: c.created_at || null,
     };
   });
 };
@@ -172,184 +173,6 @@ export const getContestsService = async (matchId, userId) => {
 //   7. Calls applyReferralContestBonus with same conn (inside transaction)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// export const joinContestService = async (userId, { contestId, userTeamId, ip, device }) => {
-//   let conn;
-//   try {
-//     conn = await db.getConnection();
-//     await conn.beginTransaction();
-
-//     // ── 1. Contest exists & open? ──
-//     const [[contest]] = await conn.query(
-//       `SELECT id, entry_fee, max_entries, current_entries, status
-//        FROM contest WHERE id = ? FOR UPDATE`,
-//       [contestId]
-//     );
-//     if (!contest)
-//       throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
-//     if (contest.status !== "UPCOMING")
-//       throw Object.assign(new Error("Contest is not open for joining"), { statusCode: 400 });
-//     if (contest.current_entries >= contest.max_entries)
-//       throw Object.assign(new Error("Contest is full"), { statusCode: 400 });
-
-//     const contestEntryFee = Number(contest.entry_fee);
-
-//     // ── 2. Normalise userTeamId — support single or array ──
-//     const teamIds = Array.isArray(userTeamId)
-//       ? userTeamId.map(Number)
-//       : [Number(userTeamId)];
-
-//     if (!teamIds.length)
-//       throw Object.assign(new Error("userTeamId is required"), { statusCode: 400 });
-
-//     // ── 3. Validate all teams belong to this user & correct match ──
-//     const matchId = (await conn.query(
-//       `SELECT match_id FROM contest WHERE id = ?`, [contestId]
-//     ))[0][0]?.match_id;
-
-//     const [teamRows] = await conn.query(
-//       `SELECT id FROM user_teams
-//        WHERE id IN (?) AND user_id = ? AND match_id = ?`,
-//       [teamIds, userId, matchId]
-//     );
-//     if (teamRows.length !== teamIds.length)
-//       throw Object.assign(new Error("One or more teams are invalid"), { statusCode: 400 });
-
-//     // ── 4. Duplicate entry check per team ──
-//     const [existingEntries] = await conn.query(
-//       `SELECT user_team_id FROM contest_entries
-//        WHERE contest_id = ? AND user_id = ? AND user_team_id IN (?)`,
-//       [contestId, userId, teamIds]
-//     );
-//     if (existingEntries.length > 0)
-//       throw Object.assign(new Error("One or more teams already joined this contest"), { statusCode: 400 });
-
-//     // ── 5. Enough spots? ──
-//     const spotsLeft = contest.max_entries - contest.current_entries;
-//     if (teamIds.length > spotsLeft)
-//       throw Object.assign(new Error("Not enough spots remaining"), { statusCode: 400 });
-
-//     // ── 6. Wallet fetch — all 3 wallets ──
-//     const [[wallet]] = await conn.query(
-//       `SELECT depositwallet, bonusamount, earnwallet
-//        FROM wallets WHERE user_id = ? FOR UPDATE`,
-//       [userId]
-//     );
-//     if (!wallet)
-//       throw Object.assign(new Error("Wallet not found"), { statusCode: 400 });
-
-//     const totalFee   = contestEntryFee * teamIds.length;
-//     const depositBal = Number(wallet.depositwallet);
-//     const bonusBal   = Number(wallet.bonusamount);
-//     const earnBal    = Number(wallet.earnwallet);
-
-//     // ── 7. Wallet deduction priority ──
-//     // Step A: max 5% from bonus wallet
-//     const bonusUsable = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
-//     const bonusDeduct = Math.min(bonusUsable, bonusBal);
-//     // Step B: remaining after bonus
-//     const remainingAfterBonus = Number((totalFee - bonusDeduct).toFixed(2));
-//     // Step C: winning wallet (earnwallet) first for remaining
-//     const earnDeduct  = Math.min(earnBal, remainingAfterBonus);
-//     // Step D: rest from deposit
-//     const depositDeduct = Number((remainingAfterBonus - earnDeduct).toFixed(2));
-
-//     if (depositBal < depositDeduct)
-//       throw Object.assign(new Error("Insufficient balance"), { statusCode: 400 });
-
-//     // ── 8. Deduct from all 3 wallets ──
-//     await conn.query(
-//       `UPDATE wallets
-//        SET depositwallet = depositwallet - ?,
-//            bonusamount   = bonusamount   - ?,
-//            earnwallet    = earnwallet    - ?
-//        WHERE user_id = ?`,
-//       [depositDeduct, bonusDeduct, earnDeduct, userId]
-//     );
-
-//     // ── 9. Wallet transaction — winning debit ──
-//     if (earnDeduct > 0) {
-//       const eOpen  = earnBal;
-//       const eClose = Number((earnBal - earnDeduct).toFixed(2));
-//       await conn.query(
-//         `INSERT INTO wallet_transactions
-//          (user_id, wallettype, transtype, remark, amount,
-//           useropeningbalance, userclosingbalance, ip_address, device)
-//          VALUES (?, 'winning', 'debit', ?, ?, ?, ?, ?, ?)`,
-//         [userId, `Contest join fee (winnings) - Contest #${contestId}`,
-//          earnDeduct, eOpen, eClose, ip || null, device || null]
-//       );
-//     }
-
-//     // ── 10. Wallet transaction — deposit debit ──
-//     if (depositDeduct > 0) {
-//       const dOpen  = depositBal;
-//       const dClose = Number((depositBal - depositDeduct).toFixed(2));
-//       await conn.query(
-//         `INSERT INTO wallet_transactions
-//          (user_id, wallettype, transtype, remark, amount,
-//           useropeningbalance, userclosingbalance, ip_address, device)
-//          VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?)`,
-//         [userId, `Contest join fee - Contest #${contestId}`,
-//          depositDeduct, dOpen, dClose, ip || null, device || null]
-//       );
-//     }
-
-//     // ── 11. Wallet transaction — bonus debit ──
-//     if (bonusDeduct > 0) {
-//       const bOpen  = bonusBal;
-//       const bClose = Number((bonusBal - bonusDeduct).toFixed(2));
-//       await conn.query(
-//         `INSERT INTO wallet_transactions
-//          (user_id, wallettype, transtype, remark, amount,
-//           useropeningbalance, userclosingbalance, ip_address, device)
-//          VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?, ?)`,
-//         [userId, `Contest join bonus used - Contest #${contestId}`,
-//          bonusDeduct, bOpen, bClose, ip || null, device || null]
-//       );
-//     }
-
-//     // ── 12. Insert into contest_entries for each team ──
-//     for (const teamId of teamIds) {
-//       await conn.query(
-//         `INSERT INTO contest_entries
-//          (contest_id, user_id, user_team_id, entry_fee, status, joined_at)
-//          VALUES (?, ?, ?, ?, 'active', NOW())`,
-//         [contestId, userId, teamId, contestEntryFee]
-//       );
-//     }
-
-//     // ── 13. Increment current_entries ──
-//     await conn.query(
-//       `UPDATE contest SET current_entries = current_entries + ? WHERE id = ?`,
-//       [teamIds.length, contestId]
-//     );
-
-//     // ── 14. Referral bonus — first paid contest join only, same conn ──
-//     if (contestEntryFee > 0) {
-//       await applyReferralContestBonus(userId, contestId, ip, device, conn);
-//        teamIds.length 
-//     }
-
-//     await conn.commit();
-
-//     return {
-//       success:      true,
-//       message:      "Contest joined successfully",
-//       entryFee:     contestEntryFee,
-//       teamsJoined:  teamIds.length,
-//       totalPaid:    totalFee,
-//       bonusUsed:    bonusDeduct,
-//       earningUsed:  earnDeduct,
-//       depositUsed:  depositDeduct,
-//     };
-
-//   } catch (err) {
-//     if (conn) await conn.rollback();
-//     throw err;
-//   } finally {
-//     if (conn) conn.release();
-//   }
-// };
 
 export const joinContestService = async (userId, { contestId, userTeamId, ip, device }) => {
   let conn;
@@ -386,26 +209,36 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     ))[0][0]?.match_id;
 
     // ── 3.1. Per match 20 teams limit check ──
+    // const [[{ existingTeamCount }]] = await conn.query(
+    //   `SELECT COUNT(DISTINCT ce.user_team_id) AS existingTeamCount
+    //    FROM contest_entries ce
+    //    JOIN contest c ON c.id = ce.contest_id
+    //    WHERE ce.user_id = ?
+    //      AND c.match_id = ?`,
+    //   [userId, matchId]
+    // );
+
+
+    // ── 3.1. Per contest 20 teams limit check ──
     const [[{ existingTeamCount }]] = await conn.query(
-      `SELECT COUNT(DISTINCT ce.user_team_id) AS existingTeamCount
-       FROM contest_entries ce
-       JOIN contest c ON c.id = ce.contest_id
-       WHERE ce.user_id = ?
-         AND c.match_id = ?`,
-      [userId, matchId]
+      `SELECT COUNT(DISTINCT user_team_id) AS existingTeamCount
+   FROM contest_entries
+   WHERE user_id = ? AND contest_id = ?`,
+      [userId, contestId]
     );
 
     const remaining = 20 - Number(existingTeamCount);
     if (remaining <= 0)
       throw Object.assign(
-        new Error("Maximum 20 teams per match limit reached"),
+        new Error("Maximum 20 teams per contest limit reached"),
         { statusCode: 400 }
       );
     if (teamIds.length > remaining)
       throw Object.assign(
-        new Error(`Only ${remaining} more team(s) allowed for this match. Maximum 20 teams per match`),
+        new Error(`Only ${remaining} more team(s) allowed for this contest. Maximum 20 teams per contest`),
         { statusCode: 400 }
       );
+
 
     // ── 3.2. Validate all teams belong to this user & correct match ──
     const [teamRows] = await conn.query(
@@ -439,21 +272,21 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     if (!wallet)
       throw Object.assign(new Error("Wallet not found"), { statusCode: 400 });
 
-    const totalFee   = contestEntryFee * teamIds.length;
+    const totalFee = contestEntryFee * teamIds.length;
     const depositBal = Number(wallet.depositwallet);
-    const bonusBal   = Number(wallet.bonusamount);
-    const earnBal    = Number(wallet.earnwallet);
+    const bonusBal = Number(wallet.bonusamount);
+    const earnBal = Number(wallet.earnwallet);
 
     // ── 7. Wallet deduction priority ──
     // Step A: max 5% from bonus wallet
-    const bonusUsable         = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
-    const bonusDeduct         = Math.min(bonusUsable, bonusBal);
+    const bonusUsable = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
+    const bonusDeduct = Math.min(bonusUsable, bonusBal);
     // Step B: remaining after bonus
     const remainingAfterBonus = Number((totalFee - bonusDeduct).toFixed(2));
     // Step C: winning wallet first for remaining
-    const earnDeduct          = Math.min(earnBal, remainingAfterBonus);
+    const earnDeduct = Math.min(earnBal, remainingAfterBonus);
     // Step D: rest from deposit
-    const depositDeduct       = Number((remainingAfterBonus - earnDeduct).toFixed(2));
+    const depositDeduct = Number((remainingAfterBonus - earnDeduct).toFixed(2));
 
     if (depositBal < depositDeduct)
       throw Object.assign(new Error("Insufficient balance"), { statusCode: 400 });
@@ -470,7 +303,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
 
     // ── 9. Wallet transaction — winning debit ──
     if (earnDeduct > 0) {
-      const eOpen  = earnBal;
+      const eOpen = earnBal;
       const eClose = Number((earnBal - earnDeduct).toFixed(2));
       await conn.query(
         `INSERT INTO wallet_transactions
@@ -478,13 +311,13 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
           useropeningbalance, userclosingbalance, ip_address, device)
          VALUES (?, 'winning', 'debit', ?, ?, ?, ?, ?, ?)`,
         [userId, `Contest join fee (winnings) - Contest #${contestId}`,
-         earnDeduct, eOpen, eClose, ip || null, device || null]
+          earnDeduct, eOpen, eClose, ip || null, device || null]
       );
     }
 
     // ── 10. Wallet transaction — deposit debit ──
     if (depositDeduct > 0) {
-      const dOpen  = depositBal;
+      const dOpen = depositBal;
       const dClose = Number((depositBal - depositDeduct).toFixed(2));
       await conn.query(
         `INSERT INTO wallet_transactions
@@ -492,13 +325,13 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
           useropeningbalance, userclosingbalance, ip_address, device)
          VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?)`,
         [userId, `Contest join fee - Contest #${contestId}`,
-         depositDeduct, dOpen, dClose, ip || null, device || null]
+          depositDeduct, dOpen, dClose, ip || null, device || null]
       );
     }
 
     // ── 11. Wallet transaction — bonus debit ──
     if (bonusDeduct > 0) {
-      const bOpen  = bonusBal;
+      const bOpen = bonusBal;
       const bClose = Number((bonusBal - bonusDeduct).toFixed(2));
       await conn.query(
         `INSERT INTO wallet_transactions
@@ -506,7 +339,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
           useropeningbalance, userclosingbalance, ip_address, device)
          VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?, ?)`,
         [userId, `Contest join bonus used - Contest #${contestId}`,
-         bonusDeduct, bOpen, bClose, ip || null, device || null]
+          bonusDeduct, bOpen, bClose, ip || null, device || null]
       );
     }
 
@@ -536,15 +369,25 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
 
     await conn.commit();
 
+    logActivity({
+      userId,
+      type: "contest",
+      title: "Contest Joined",
+      description: `Joined Contest #${contestId} with ${teamIds.length} team(s)`,
+      amount: totalFee,
+      icon: "contest",
+      meta: { contestId, teamsJoined: teamIds.length },
+    });
+
     return {
-      success:      true,
-      message:      "Contest joined successfully",
-      entryFee:     contestEntryFee,
-      teamsJoined:  teamIds.length,
-      totalPaid:    totalFee,
-      bonusUsed:    bonusDeduct,
-      earningUsed:  earnDeduct,
-      depositUsed:  depositDeduct,
+      success: true,
+      message: "Contest joined successfully",
+      entryFee: contestEntryFee,
+      teamsJoined: teamIds.length,
+      totalPaid: totalFee,
+      bonusUsed: bonusDeduct,
+      earningUsed: earnDeduct,
+      depositUsed: depositDeduct,
     };
 
   } catch (err) {
@@ -621,10 +464,10 @@ export const joinContestServicesudheer = async (userId, { contestId, userTeamId,
     if (!wallet)
       throw Object.assign(new Error("Wallet not found"), { statusCode: 400 });
 
-    const totalFee   = contestEntryFee * teamIds.length;
+    const totalFee = contestEntryFee * teamIds.length;
     const depositBal = Number(wallet.depositwallet);
-    const bonusBal   = Number(wallet.bonusamount);
-    const earnBal    = Number(wallet.earnwallet);
+    const bonusBal = Number(wallet.bonusamount);
+    const earnBal = Number(wallet.earnwallet);
 
     // ── 7. Wallet deduction logic ──
     const bonusUsable = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
@@ -632,7 +475,7 @@ export const joinContestServicesudheer = async (userId, { contestId, userTeamId,
 
     const remainingAfterBonus = Number((totalFee - bonusDeduct).toFixed(2));
 
-    const earnDeduct  = Math.min(earnBal, remainingAfterBonus);
+    const earnDeduct = Math.min(earnBal, remainingAfterBonus);
     const depositDeduct = Number((remainingAfterBonus - earnDeduct).toFixed(2));
 
     if (depositBal < depositDeduct)
@@ -729,6 +572,16 @@ export const joinContestServicesudheer = async (userId, { contestId, userTeamId,
 
     await conn.commit();
 
+    logActivity({
+      userId,
+      type: "contest",
+      title: "Contest Joined",
+      description: `Joined Contest #${contestId} with ${teamIds.length} team(s)`,
+      amount: totalFee,
+      icon: "contest",
+      meta: { contestId, teamsJoined: teamIds.length },
+    });
+
     return {
       success: true,
       message: "Contest joined successfully",
@@ -753,7 +606,7 @@ export const joinContestServicesudheer = async (userId, { contestId, userTeamId,
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const getMyContestsService = async (userId, matchId) => {
-  if (!userId)  throw new Error("userId is required");
+  if (!userId) throw new Error("userId is required");
   if (!matchId) throw new Error("matchId is required");
 
   // ── Match details ──
@@ -772,9 +625,9 @@ export const getMyContestsService = async (userId, matchId) => {
   );
   if (!match) throw new Error("Match not found");
 
-  const matchStatus  = match.status?.toUpperCase();
-  const isLive       = matchStatus === "LIVE";
-  const isResult     = matchStatus === "RESULT";
+  const matchStatus = match.status?.toUpperCase();
+  const isLive = matchStatus === "LIVE";
+  const isResult = matchStatus === "RESULT";
   const showAllTeams = isLive || isResult;
 
   // ── User join అయిన contests ──
@@ -852,11 +705,11 @@ export const getMyContestsService = async (userId, matchId) => {
   }
 
   // ── Team IDs collect ──
-  const myTeamIds    = [...new Set(myEntryRows.map(e => e.user_team_id).filter(Boolean))];
+  const myTeamIds = [...new Set(myEntryRows.map(e => e.user_team_id).filter(Boolean))];
   const otherTeamIds = showAllTeams
     ? [...new Set(allEntryRows.map(e => e.user_team_id).filter(Boolean))]
     : [];
-  const allTeamIds   = [...new Set([...myTeamIds, ...otherTeamIds])];
+  const allTeamIds = [...new Set([...myTeamIds, ...otherTeamIds])];
 
   // ── LIVE → Redis నుండి rank + points ──
   let liveRankMap = {};
@@ -915,54 +768,54 @@ export const getMyContestsService = async (userId, matchId) => {
     teamRows.forEach(row => {
       if (!teamsMap[row.team_id]) {
         teamsMap[row.team_id] = {
-          teamId:        row.team_id,
-          teamOwnerId:   row.team_owner_id,
-          teamName:      row.team_name   || null,
-          teamRank:      row.team_rank   || null,
-          locked:        row.locked === 1,
-          createdAt:     row.created_at  || null,
-          totalPoints:   0,
-          totalCredits:  0,
-          creditsLeft:   100,
-          players:       [],
+          teamId: row.team_id,
+          teamOwnerId: row.team_owner_id,
+          teamName: row.team_name || null,
+          teamRank: row.team_rank || null,
+          locked: row.locked === 1,
+          createdAt: row.created_at || null,
+          totalPoints: 0,
+          totalCredits: 0,
+          creditsLeft: 100,
+          players: [],
         };
       }
 
       if (row.player_entry_id) {
-        const credits      = parseFloat(row.playercredits) || 0;
-        const basePoints   = parseFloat(row.player_points) || 0;
-        const multiplier   = row.is_captain ? 2 : row.is_vice_captain ? 1.5 : 1;
+        const credits = parseFloat(row.playercredits) || 0;
+        const basePoints = parseFloat(row.player_points) || 0;
+        const multiplier = row.is_captain ? 2 : row.is_vice_captain ? 1.5 : 1;
         const effectivePts = parseFloat((basePoints * multiplier).toFixed(2));
 
         teamsMap[row.team_id].players.push({
-          playerEntryId:      row.player_entry_id,
-          playerId:           row.player_id,
-          playerName:         row.player_name          || null,
-          playerImage:        row.player_image         || null,
-          position:           row.position             || null,
+          playerEntryId: row.player_entry_id,
+          playerId: row.player_id,
+          playerName: row.player_name || null,
+          playerImage: row.player_image || null,
+          position: row.position || null,
           credits,
-          flagImage:          row.flag_image           || null,
-          country:            row.country              || null,
-          realTeamShortName:  row.real_team_short_name || null,
-          role:               row.role                 || null,
-          isCaptain:          row.is_captain      === 1,
-          isViceCaptain:      row.is_vice_captain === 1,
-          isSubstitute:       row.is_substitude   === 1,
+          flagImage: row.flag_image || null,
+          country: row.country || null,
+          realTeamShortName: row.real_team_short_name || null,
+          role: row.role || null,
+          isCaptain: row.is_captain === 1,
+          isViceCaptain: row.is_vice_captain === 1,
+          isSubstitute: row.is_substitude === 1,
           basePoints,
-          effectivePoints:    effectivePts,
+          effectivePoints: effectivePts,
           highestScorerBonus: 0,
         });
 
-        teamsMap[row.team_id].totalPoints  += effectivePts;
+        teamsMap[row.team_id].totalPoints += effectivePts;
         teamsMap[row.team_id].totalCredits += credits;
       }
     });
 
     // Credits finalize
     Object.values(teamsMap).forEach(team => {
-      team.totalPoints  = parseFloat(team.totalPoints.toFixed(2));
+      team.totalPoints = parseFloat(team.totalPoints.toFixed(2));
       team.totalCredits = parseFloat(team.totalCredits.toFixed(2));
-      team.creditsLeft  = parseFloat((100 - team.totalCredits).toFixed(2));
+      team.creditsLeft = parseFloat((100 - team.totalCredits).toFixed(2));
     });
 
     // ── Highest Scorer Bonus — LIVE/RESULT లో మాత్రమే ──
@@ -974,15 +827,15 @@ export const getMyContestsService = async (userId, matchId) => {
 
         team.players = team.players.map(p => {
           if (p.basePoints !== maxBase) return p;
-          const hsBonus      = p.isSubstitute ? 8 : 4;
-          const newBase      = p.basePoints + hsBonus;
+          const hsBonus = p.isSubstitute ? 8 : 4;
+          const newBase = p.basePoints + hsBonus;
           const newEffective = parseFloat(
             (newBase * (p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1)).toFixed(2)
           );
           return {
             ...p,
-            basePoints:         newBase,
-            effectivePoints:    newEffective,
+            basePoints: newBase,
+            effectivePoints: newEffective,
             highestScorerBonus: hsBonus,
           };
         });
@@ -995,7 +848,7 @@ export const getMyContestsService = async (userId, matchId) => {
   }
 
   // ── Entries group by contest ──
-  const myEntriesByContest    = {};
+  const myEntriesByContest = {};
   const otherEntriesByContest = {};
 
   myEntryRows.forEach(e => {
@@ -1012,8 +865,8 @@ export const getMyContestsService = async (userId, matchId) => {
 
   // ── Format entry ──
   const formatEntry = (e, isOwn, c) => {
-    const team    = teamsMap[e.user_team_id] || null;
-    let   players = team?.players || [];
+    const team = teamsMap[e.user_team_id] || null;
+    let players = team?.players || [];
 
     if (!isOwn && !showAllTeams) {
       players = players.map(p => ({ ...p, isCaptain: false, isViceCaptain: false }));
@@ -1021,7 +874,7 @@ export const getMyContestsService = async (userId, matchId) => {
 
     // ── Rank ──
     let rank = null;
-    if (isResult)    rank = e.urank || null;
+    if (isResult) rank = e.urank || null;
     else if (isLive) rank = liveRankMap[e.user_team_id]?.rank ?? null;
 
     // ── Points ──
@@ -1034,71 +887,71 @@ export const getMyContestsService = async (userId, matchId) => {
 
     // ── Winning Amount — COMPLETED లో మాత్రమే ──
     const contestStatus = c.status?.toUpperCase();
-    const showWinning   = contestStatus === "COMPLETED";
+    const showWinning = contestStatus === "COMPLETED";
 
     const winningAmount = showWinning
       ? (Number(e.winning_amount) || getPrizeForRank(
-           e.urank,
-           c.prize_distribution ?? null,
-           c.entry_fee,
-           c.refund_winners,
-           c.refund_start_rank
-         ))
+        e.urank,
+        c.prize_distribution ?? null,
+        c.entry_fee,
+        c.refund_winners,
+        c.refund_start_rank
+      ))
       : 0;
 
     return {
-      entryId:       e.entry_id,
-      userId:        e.user_id,
-      userName:      e.user_name      || null,
-      userNickname:  e.user_nickname  || null,
-      isMyEntry:     isOwn,
-      entryFee:      Number(e.entry_fee) || 0,
+      entryId: e.entry_id,
+      userId: e.user_id,
+      userName: e.user_name || null,
+      userNickname: e.user_nickname || null,
+      isMyEntry: isOwn,
+      entryFee: Number(e.entry_fee) || 0,
       rank,
       totalPoints,
       winningAmount,
-      entryStatus:   e.entry_status   || null,
-      joinedAt:      e.joined_at      || null,
-      teamId:        team?.teamId     || null,
-      teamName:      team?.teamName   || null,
-      teamRank:      team?.teamRank   || null,
-      locked:        team?.locked     ?? null,
-      totalCredits:  team?.totalCredits  || 0,
-      creditsLeft:   team?.creditsLeft   ?? 100,
+      entryStatus: e.entry_status || null,
+      joinedAt: e.joined_at || null,
+      teamId: team?.teamId || null,
+      teamName: team?.teamName || null,
+      teamRank: team?.teamRank || null,
+      locked: team?.locked ?? null,
+      totalCredits: team?.totalCredits || 0,
+      creditsLeft: team?.creditsLeft ?? 100,
       players,
     };
   };
 
   // ── Final response ──
   return contestRows.map(c => {
-    const myEntries    = (myEntriesByContest[c.contest_id]    || []).map(e => formatEntry(e, true,  c));
+    const myEntries = (myEntriesByContest[c.contest_id] || []).map(e => formatEntry(e, true, c));
     const otherEntries = (otherEntriesByContest[c.contest_id] || []).map(e => formatEntry(e, false, c));
 
     return {
-      contest_id:              c.contest_id,
-      match_id:                c.match_id,
-      match_status:            matchStatus,
-      match_date:              match.matchdate               || null,
-      home_team_name:          match.home_team_name          || null,
-      home_team_short_name:    match.home_team_short_name    || null,
-      away_team_name:          match.away_team_name          || null,
-      away_team_short_name:    match.away_team_short_name    || null,
-      entry_fee:               Number(c.entry_fee)               || 0,
-      prize_pool:              Number(c.prize_pool)              || 0,
-      net_pool_prize:          Number(c.net_pool_prize)          || 0,
-      max_entries:             c.max_entries                     || 0,
-      current_entries:         c.current_entries                 || 0,
-      remaining_spots:         Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
-      contest_type:            c.contest_type                    || null,
-      status:                  c.status                          || null,
-      first_prize:             Number(c.first_prize)             || 0,
-      total_winners:           c.total_winners                   || 0,
-      refund_start_rank:       c.refund_start_rank               || 0,
-      bonus_ranks:             c.bonus_ranks                     || 0,
-      winner_percentage:       Number(c.winner_percentage)       || 0,
+      contest_id: c.contest_id,
+      match_id: c.match_id,
+      match_status: matchStatus,
+      match_date: match.matchdate || null,
+      home_team_name: match.home_team_name || null,
+      home_team_short_name: match.home_team_short_name || null,
+      away_team_name: match.away_team_name || null,
+      away_team_short_name: match.away_team_short_name || null,
+      entry_fee: Number(c.entry_fee) || 0,
+      prize_pool: Number(c.prize_pool) || 0,
+      net_pool_prize: Number(c.net_pool_prize) || 0,
+      max_entries: c.max_entries || 0,
+      current_entries: c.current_entries || 0,
+      remaining_spots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+      contest_type: c.contest_type || null,
+      status: c.status || null,
+      first_prize: Number(c.first_prize) || 0,
+      total_winners: c.total_winners || 0,
+      refund_start_rank: c.refund_start_rank || 0,
+      bonus_ranks: c.bonus_ranks || 0,
+      winner_percentage: Number(c.winner_percentage) || 0,
       platform_fee_percentage: Number(c.platform_fee_percentage) || 0,
-      my_team_count:           Number(c.my_team_count)           || 0,
-      my_teams:                myEntries,
-      other_teams:             showAllTeams ? otherEntries : [],
+      my_team_count: Number(c.my_team_count) || 0,
+      my_teams: myEntries,
+      other_teams: showAllTeams ? otherEntries : [],
     };
   });
 };
@@ -1127,15 +980,15 @@ const getTeamPlayers = async (userTeamId, matchId) => {
   return rows.map(r => {
     const multiplier = r.is_captain ? 2 : r.is_vice_captain ? 1.5 : 1;
     return {
-      player_id:        r.player_id,
-      player_name:      r.player_name,
-      player_image:     r.player_image    || null,
-      player_role:      r.player_role     || null,
-      player_credits:   r.player_credits  || null,
-      team_short:       r.team_short      || null,
-      is_captain:       !!r.is_captain,
-      is_vice_captain:  !!r.is_vice_captain,
-      base_points:      parseFloat(r.base_points),
+      player_id: r.player_id,
+      player_name: r.player_name,
+      player_image: r.player_image || null,
+      player_role: r.player_role || null,
+      player_credits: r.player_credits || null,
+      team_short: r.team_short || null,
+      is_captain: !!r.is_captain,
+      is_vice_captain: !!r.is_vice_captain,
+      base_points: parseFloat(r.base_points),
       multiplier,
       effective_points: parseFloat((r.base_points * multiplier).toFixed(2)),
     };
@@ -1161,54 +1014,54 @@ export const compareTeamService = async (contestId, myTeamId, oppTeamId, userId)
     [contestId, [myTeamId, oppTeamId]]
   );
 
-  const myMeta  = teamRows.find(r => r.user_team_id === parseInt(myTeamId));
+  const myMeta = teamRows.find(r => r.user_team_id === parseInt(myTeamId));
   const oppMeta = teamRows.find(r => r.user_team_id === parseInt(oppTeamId));
   if (!myMeta || !oppMeta)
     return { success: false, message: "One or both teams not found in this contest" };
 
   const [myPlayers, oppPlayers] = await Promise.all([
-    getTeamPlayers(myTeamId,  contest.match_id),
+    getTeamPlayers(myTeamId, contest.match_id),
     getTeamPlayers(oppTeamId, contest.match_id),
   ]);
 
-  const myIds  = new Set(myPlayers.map(p => p.player_id));
+  const myIds = new Set(myPlayers.map(p => p.player_id));
   const oppIds = new Set(oppPlayers.map(p => p.player_id));
 
-  const myOnlyPlayers   = myPlayers.filter(p => !oppIds.has(p.player_id));
-  const oppOnlyPlayers  = oppPlayers.filter(p => !myIds.has(p.player_id));
+  const myOnlyPlayers = myPlayers.filter(p => !oppIds.has(p.player_id));
+  const oppOnlyPlayers = oppPlayers.filter(p => !myIds.has(p.player_id));
   const commonPlayerIds = [...myIds].filter(id => oppIds.has(id));
 
   const commonPlayers = commonPlayerIds.map(pid => {
-    const mine   = myPlayers.find(p => p.player_id === pid);
+    const mine = myPlayers.find(p => p.player_id === pid);
     const theirs = oppPlayers.find(p => p.player_id === pid);
     return {
       player_id: pid,
-      player_name:          mine.player_name,
-      player_image:         mine.player_image,
-      player_role:          mine.player_role,
-      team_short:           mine.team_short,
-      base_points:          mine.base_points,
-      my_is_captain:        mine.is_captain,
-      my_is_vice_captain:   mine.is_vice_captain,
-      my_multiplier:        mine.multiplier,
-      my_effective_points:  mine.effective_points,
-      opp_is_captain:       theirs.is_captain,
-      opp_is_vice_captain:  theirs.is_vice_captain,
-      opp_multiplier:       theirs.multiplier,
+      player_name: mine.player_name,
+      player_image: mine.player_image,
+      player_role: mine.player_role,
+      team_short: mine.team_short,
+      base_points: mine.base_points,
+      my_is_captain: mine.is_captain,
+      my_is_vice_captain: mine.is_vice_captain,
+      my_multiplier: mine.multiplier,
+      my_effective_points: mine.effective_points,
+      opp_is_captain: theirs.is_captain,
+      opp_is_vice_captain: theirs.is_vice_captain,
+      opp_multiplier: theirs.multiplier,
       opp_effective_points: theirs.effective_points,
-      caps_differ:          mine.multiplier !== theirs.multiplier,
+      caps_differ: mine.multiplier !== theirs.multiplier,
     };
   });
 
-  const commonSameCaps   = commonPlayers.filter(p => !p.caps_differ);
-  const commonDiffCaps   = commonPlayers.filter(p =>  p.caps_differ);
-  const myTotal          = myPlayers.reduce((s, p) => s + p.effective_points, 0);
-  const oppTotal         = oppPlayers.reduce((s, p) => s + p.effective_points, 0);
-  const myDiffTotal      = myOnlyPlayers.reduce((s, p) => s + p.effective_points, 0);
-  const oppDiffTotal     = oppOnlyPlayers.reduce((s, p) => s + p.effective_points, 0);
-  const myDiffCapsTotal  = commonDiffCaps.reduce((s, p) => s + p.my_effective_points,  0);
+  const commonSameCaps = commonPlayers.filter(p => !p.caps_differ);
+  const commonDiffCaps = commonPlayers.filter(p => p.caps_differ);
+  const myTotal = myPlayers.reduce((s, p) => s + p.effective_points, 0);
+  const oppTotal = oppPlayers.reduce((s, p) => s + p.effective_points, 0);
+  const myDiffTotal = myOnlyPlayers.reduce((s, p) => s + p.effective_points, 0);
+  const oppDiffTotal = oppOnlyPlayers.reduce((s, p) => s + p.effective_points, 0);
+  const myDiffCapsTotal = commonDiffCaps.reduce((s, p) => s + p.my_effective_points, 0);
   const oppDiffCapsTotal = commonDiffCaps.reduce((s, p) => s + p.opp_effective_points, 0);
-  const commonSameTotal  = commonSameCaps.reduce((s, p) => s + p.my_effective_points,  0);
+  const commonSameTotal = commonSameCaps.reduce((s, p) => s + p.my_effective_points, 0);
 
   return {
     success: true,
@@ -1225,13 +1078,13 @@ export const compareTeamService = async (contestId, myTeamId, oppTeamId, userId)
     point_diff: parseFloat((oppTotal - myTotal).toFixed(2)),
     different_players: {
       my_players: myOnlyPlayers, opp_players: oppOnlyPlayers,
-      my_diff_total:  parseFloat(myDiffTotal.toFixed(2)),
+      my_diff_total: parseFloat(myDiffTotal.toFixed(2)),
       opp_diff_total: parseFloat(oppDiffTotal.toFixed(2)),
       diff_point_gap: parseFloat((oppDiffTotal - myDiffTotal).toFixed(2)),
     },
     common_diff_caps: {
       players: commonDiffCaps,
-      my_caps_total:  parseFloat(myDiffCapsTotal.toFixed(2)),
+      my_caps_total: parseFloat(myDiffCapsTotal.toFixed(2)),
       opp_caps_total: parseFloat(oppDiffCapsTotal.toFixed(2)),
       diff_point_gap: parseFloat((myDiffCapsTotal - oppDiffCapsTotal).toFixed(2)),
     },
@@ -1272,11 +1125,11 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
 
   if (matchStatus === "UPCOMING") {
     return {
-      success:     true,
-      contest:     { id: contest.id, match_status: matchStatus, status: contest.status || null },
+      success: true,
+      contest: { id: contest.id, match_status: matchStatus, status: contest.status || null },
       leaderboard: [],
-      my_entry:    null,
-      message:     "Match has not started yet",
+      my_entry: null,
+      message: "Match has not started yet",
     };
   }
 
@@ -1285,29 +1138,29 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
     try {
       const cached = await redis.get(lbKey(contestId));
       if (cached && Array.isArray(cached)) {
-        const allRanked   = cached;
-        const total       = allRanked.length;
-        const paginated   = allRanked.slice(offset, offset + limit);
+        const allRanked = cached;
+        const total = allRanked.length;
+        const paginated = allRanked.slice(offset, offset + limit);
         const leaderboard = paginated.map(e => ({
           ...e,
           winning_amount: 0,
-          is_winner:      false,
-          is_me:          userId ? e.user_id === parseInt(userId) : false,
+          is_winner: false,
+          is_me: userId ? e.user_id === parseInt(userId) : false,
         }));
         const myRow = userId
           ? allRanked.find(e => e.user_id === parseInt(userId))
           : null;
         const my_entry = myRow
           ? {
-              user_team_id:   myRow.user_team_id,
-              team_name:      myRow.team_name,
-              username:       myRow.username,
-              profile_image:  myRow.profile_image,
-              rank:           myRow.rank,
-              points:         myRow.points,
-              winning_amount: 0,
-              is_winner:      false,
-            }
+            user_team_id: myRow.user_team_id,
+            team_name: myRow.team_name,
+            username: myRow.username,
+            profile_image: myRow.profile_image,
+            rank: myRow.rank,
+            points: myRow.points,
+            winning_amount: 0,
+            is_winner: false,
+          }
           : null;
 
         return buildLeaderboardResponse(
@@ -1374,27 +1227,27 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
 
   const leaderboard = entries.map(entry => {
     const points = parseFloat(entry.computed_points) || 0;
-    const rank   = entry.urank ?? entry.computed_rank;
-    const prize  = matchStatus === "RESULT"
+    const rank = entry.urank ?? entry.computed_rank;
+    const prize = matchStatus === "RESULT"
       ? (entry.winning_amount || getPrizeForRank(
-           rank,
-           contest.prize_distribution,
-           contest.entry_fee,
-           contest.refund_winners,
-           contest.refund_start_rank
-         ))
+        rank,
+        contest.prize_distribution,
+        contest.entry_fee,
+        contest.refund_winners,
+        contest.refund_start_rank
+      ))
       : 0;
     return {
       rank,
-      user_id:        entry.user_id,
-      username:       entry.nickname  || entry.name || `User${entry.user_id}`,
-      profile_image:  entry.image     || null,
-      team_name:      entry.team_name || null,
-      user_team_id:   entry.user_team_id,
+      user_id: entry.user_id,
+      username: entry.nickname || entry.name || `User${entry.user_id}`,
+      profile_image: entry.image || null,
+      team_name: entry.team_name || null,
+      user_team_id: entry.user_team_id,
       points,
       winning_amount: prize,
-      is_winner:      prize > 0,
-      is_me:          userId ? entry.user_id === parseInt(userId) : false,
+      is_winner: prize > 0,
+      is_me: userId ? entry.user_id === parseInt(userId) : false,
     };
   });
 
@@ -1419,28 +1272,28 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
           : prev
       );
 
-      const myPoints  = pointsMap[best.user_team_id] ?? 0;
+      const myPoints = pointsMap[best.user_team_id] ?? 0;
       const myLbEntry = leaderboard.find(l => l.user_team_id === best.user_team_id);
-      const myRank    = best.urank ?? myLbEntry?.rank ?? null;
-      const myPrize   = matchStatus === "RESULT"
+      const myRank = best.urank ?? myLbEntry?.rank ?? null;
+      const myPrize = matchStatus === "RESULT"
         ? (best.winning_amount || getPrizeForRank(
-             myRank,
-             contest.prize_distribution,
-             contest.entry_fee,
-             contest.refund_winners,
-             contest.refund_start_rank
-           ))
+          myRank,
+          contest.prize_distribution,
+          contest.entry_fee,
+          contest.refund_winners,
+          contest.refund_start_rank
+        ))
         : 0;
 
       my_entry = {
-        user_team_id:   best.user_team_id,
-        team_name:      best.team_name || null,
-        username:       best.nickname  || best.name || `User${userId}`,
-        profile_image:  best.image     || null,
-        rank:           myRank,
-        points:         myPoints,
+        user_team_id: best.user_team_id,
+        team_name: best.team_name || null,
+        username: best.nickname || best.name || `User${userId}`,
+        profile_image: best.image || null,
+        rank: myRank,
+        points: myPoints,
         winning_amount: myPrize,
-        is_winner:      myPrize > 0,
+        is_winner: myPrize > 0,
       };
     }
   }
@@ -1465,49 +1318,49 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entry, t
   return {
     success: true,
     contest: {
-      id:                contest.id,
-      prize_pool:        Number(contest.prize_pool)        || 0,
-      net_pool_prize:    Number(contest.net_pool_prize)    || 0,
-      first_prize:       Number(contest.first_prize)       || 0,
-      entry_fee:         Number(contest.entry_fee)         || 0,
-      total_entries:     contest.current_entries           || 0,
-      total_spots:       contest.max_entries               || 0,
-      min_entries:       contest.min_entries               || 0,
-      is_guaranteed:     contest.is_guaranteed === 1,
-      total_winners:     contest.refund_winners            || 0,
-      refund_start_rank: contest.refund_start_rank         || 0,
-      bonus_ranks:       contest.bonus_ranks               || 0,
+      id: contest.id,
+      prize_pool: Number(contest.prize_pool) || 0,
+      net_pool_prize: Number(contest.net_pool_prize) || 0,
+      first_prize: Number(contest.first_prize) || 0,
+      entry_fee: Number(contest.entry_fee) || 0,
+      total_entries: contest.current_entries || 0,
+      total_spots: contest.max_entries || 0,
+      min_entries: contest.min_entries || 0,
+      is_guaranteed: contest.is_guaranteed === 1,
+      total_winners: contest.refund_winners || 0,
+      refund_start_rank: contest.refund_start_rank || 0,
+      bonus_ranks: contest.bonus_ranks || 0,
       winner_percentage: Number(contest.winner_percentage) || 0,
-      contest_type:      contest.contest_type              || null,
-      status:            contest.status                    || null,
-      match_status:      matchStatus,
-      series_name:       contest.seriesname                || null,
-      home_team:         contest.hometeamname              || null,
-      away_team:         contest.awayteamname              || null,
-      match_date:        contest.matchdate                 || null,
-      start_time:        contest.start_time                || null,
-      prize_tiers:       prizeTiers,
+      contest_type: contest.contest_type || null,
+      status: contest.status || null,
+      match_status: matchStatus,
+      series_name: contest.seriesname || null,
+      home_team: contest.hometeamname || null,
+      away_team: contest.awayteamname || null,
+      match_date: contest.matchdate || null,
+      start_time: contest.start_time || null,
+      prize_tiers: prizeTiers,
     },
     refund_zone: {
       rank_from: contest.refund_start_rank || 0,
-      rank_to:   contest.refund_winners    || 0,
-      prize:     Number(contest.entry_fee) || 0,
-      label:     "Entry fee return",
+      rank_to: contest.refund_winners || 0,
+      prize: Number(contest.entry_fee) || 0,
+      label: "Entry fee return",
     },
     no_prize_zone: {
       rank_from: (contest.refund_winners || 0) + 1,
-      rank_to:   contest.max_entries    || 0,
-      prize:     0,
-      label:     "No prize",
+      rank_to: contest.max_entries || 0,
+      prize: 0,
+      label: "No prize",
     },
     my_entry,
     leaderboard,
     pagination: {
-      current_page:  page,
-      per_page:      limit,
+      current_page: page,
+      per_page: limit,
       total_entries: totalEntries,
-      total_pages:   Math.ceil(totalEntries / limit),
-      has_more:      offset + limit < totalEntries,
+      total_pages: Math.ceil(totalEntries / limit),
+      has_more: offset + limit < totalEntries,
     },
   };
 };
@@ -1544,16 +1397,16 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
   );
 
   return {
-    success:        true,
-    user_id:        parseInt(userId),
-    username:       entry.nickname || entry.name || `User${userId}`,
-    profile_image:  entry.image    || null,
-    user_team_id:   entry.user_team_id,
-    rank:           entry.urank,
+    success: true,
+    user_id: parseInt(userId),
+    username: entry.nickname || entry.name || `User${userId}`,
+    profile_image: entry.image || null,
+    user_team_id: entry.user_team_id,
+    rank: entry.urank,
     points,
     winning_amount: prize,
-    is_winner:      prize > 0,
-    total_entries:  contest.current_entries,
+    is_winner: prize > 0,
+    total_entries: contest.current_entries,
   };
 };
 
@@ -1578,29 +1431,29 @@ export const getScoreBreakdownService = async (contestId, userTeamId, matchId) =
   );
   if (!teamPlayers.length) throw new Error("Team not found");
 
-  const playerIds      = teamPlayers.map(p => p.playerId);
-  const allStats       = await fetchPlayerStats(matchId, playerIds);
-  const statsMap       = {};
+  const playerIds = teamPlayers.map(p => p.playerId);
+  const allStats = await fetchPlayerStats(matchId, playerIds);
+  const statsMap = {};
   allStats.forEach(s => { statsMap[s.playerId] = s; });
 
-  const captainId     = teamPlayers.find(p => p.isCaptain)?.playerId     || null;
+  const captainId = teamPlayers.find(p => p.isCaptain)?.playerId || null;
   const viceCaptainId = teamPlayers.find(p => p.isViceCaptain)?.playerId || null;
 
   const playerStatsList = teamPlayers.map(p => statsMap[p.playerId]).filter(Boolean);
-  const result          = calculateTeamPoints(playerStatsList, captainId, viceCaptainId);
+  const result = calculateTeamPoints(playerStatsList, captainId, viceCaptainId);
 
   const playersWithInfo = result.players.map(scored => {
     const info = teamPlayers.find(p => p.playerId === scored.playerId) || {};
     return {
-      playerId:      scored.playerId,
-      name:          info.name          || null,
-      image:         info.image         || null,
-      position:      info.position      || null,
-      isCaptain:     info.isCaptain     === 1,
+      playerId: scored.playerId,
+      name: info.name || null,
+      image: info.image || null,
+      position: info.position || null,
+      isCaptain: info.isCaptain === 1,
       isViceCaptain: info.isViceCaptain === 1,
-      basePoints:    scored.basePoints,
-      finalPoints:   scored.finalPoints,
-      breakdown:     scored.breakdown,
+      basePoints: scored.basePoints,
+      finalPoints: scored.finalPoints,
+      breakdown: scored.breakdown,
     };
   });
 
@@ -1615,7 +1468,7 @@ export const getContestHistoryService = async (userId, { year, month, page, limi
   const offset = (page - 1) * limit;
 
   const conditions = [`ce.user_id = ?`];
-  const params     = [userId];
+  const params = [userId];
 
   if (year) {
     conditions.push(`YEAR(m.matchdate) = ?`);
@@ -1693,12 +1546,12 @@ export const getContestHistoryService = async (userId, { year, month, page, limi
       filters: { year, month },
       summary: {
         total_contests: 0,
-        total_won:      0,
-        total_spent:    0,
+        total_won: 0,
+        total_spent: 0,
         total_earnings: 0,
-        net_profit:     0,
+        net_profit: 0,
       },
-      data:       [],
+      data: [],
       pagination: { current_page: page, per_page: limit, total: 0, has_more: false },
     };
   }
@@ -1739,40 +1592,40 @@ export const getContestHistoryService = async (userId, { year, month, page, limi
   entryRows.forEach(e => {
     if (!entriesByContest[e.contest_id]) entriesByContest[e.contest_id] = [];
     entriesByContest[e.contest_id].push({
-      team_name:      e.team_name      || null,
-      my_rank:        e.my_rank        || null,
-      my_points:      parseFloat(e.my_points)      || 0,
-      winning_amount: Number(e.winning_amount)      || 0,
+      team_name: e.team_name || null,
+      my_rank: e.my_rank || null,
+      my_points: parseFloat(e.my_points) || 0,
+      winning_amount: Number(e.winning_amount) || 0,
     });
   });
 
   // ── Build response ──
   const data = contestRows.map(c => {
-    const myTeams    = entriesByContest[c.contest_id] || [];
+    const myTeams = entriesByContest[c.contest_id] || [];
     const totalSpent = myTeams.length * Number(c.entry_fee);
-    const totalWon   = myTeams.reduce((s, t) => s + t.winning_amount, 0);
+    const totalWon = myTeams.reduce((s, t) => s + t.winning_amount, 0);
 
     return {
-      contest_id:    c.contest_id,
+      contest_id: c.contest_id,
       match: {
-        id:              c.match_id,
-        home_team:       c.home_team,
+        id: c.match_id,
+        home_team: c.home_team,
         home_team_short: c.home_team_short,
-        away_team:       c.away_team,
+        away_team: c.away_team,
         away_team_short: c.away_team_short,
-        match_date:      c.match_date   || null,
-        status:          c.match_status || null,
+        match_date: c.match_date || null,
+        status: c.match_status || null,
       },
-      contest_type:  c.contest_type   || null,
-      entry_fee:     Number(c.entry_fee)   || 0,
-      prize_pool:    Number(c.prize_pool)  || 0,
-      first_prize:   Number(c.first_prize) || 0,
-      total_entries: c.total_entries       || 0,
-      my_teams:      myTeams,
-      total_spent:   totalSpent,
-      total_won:     totalWon,
-      net:           parseFloat((totalWon - totalSpent).toFixed(2)),
-      status:        c.status || null,
+      contest_type: c.contest_type || null,
+      entry_fee: Number(c.entry_fee) || 0,
+      prize_pool: Number(c.prize_pool) || 0,
+      first_prize: Number(c.first_prize) || 0,
+      total_entries: c.total_entries || 0,
+      my_teams: myTeams,
+      total_spent: totalSpent,
+      total_won: totalWon,
+      net: parseFloat((totalWon - totalSpent).toFixed(2)),
+      status: c.status || null,
     };
   });
 
@@ -1780,19 +1633,18 @@ export const getContestHistoryService = async (userId, { year, month, page, limi
     success: true,
     filters: { year, month },
     summary: {
-      total_contests: parseInt(summary.total_contests)   || 0,
-      total_won:      parseInt(summary.total_won)        || 0,
-      total_spent:    parseFloat(summary.total_spent)    || 0,
+      total_contests: parseInt(summary.total_contests) || 0,
+      total_won: parseInt(summary.total_won) || 0,
+      total_spent: parseFloat(summary.total_spent) || 0,
       total_earnings: parseFloat(summary.total_earnings) || 0,
-      net_profit:     parseFloat(summary.net_profit)     || 0,
+      net_profit: parseFloat(summary.net_profit) || 0,
     },
     data,
     pagination: {
       current_page: page,
-      per_page:     limit,
-      total:        parseInt(total),
-      has_more:     offset + limit < parseInt(total),
+      per_page: limit,
+      total: parseInt(total),
+      has_more: offset + limit < parseInt(total),
     },
   };
 };
-  

@@ -3,6 +3,7 @@ import db from "../../config/db.js"
 import { createSumsubHeaders,  sumsubPost } from "../../utils/sumsub.js";
 
 import { createApplicantService, generateAddressKycTokenService } from "./kyc.service.js";
+import { logActivity } from "../../utils/activity.logger.js";
  
 
 export const startKyc = async (req, res) => {
@@ -99,6 +100,22 @@ export const kycComplete = async (req, res) => {
       `UPDATE users SET age_verified = 1 WHERE mobile = ?`,
       [mobile]
     );
+
+    const [[user]] = await db.query(
+      `SELECT id FROM users WHERE mobile = ? LIMIT 1`,
+      [mobile]
+    );
+
+    if (user) {
+      logActivity({
+        userId:      user.id,
+        type:        "kyc",
+        sub_type:    "kyc_complete",
+        title:       "KYC Completed",
+        description: "KYC marked as completed",
+        icon:        "kyc",
+      });
+    }
 
     res.json({
       success: true,

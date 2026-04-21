@@ -431,21 +431,17 @@ export const getMyActivity = async (req, res) => {
     if (!userId)
       return res.status(401).json({ success: false, message: "Unauthorized" });
 
-    const {
-      type  = null,
-      month = null,
-      year  = null,
-    } = req.body;
+    const { type = null, month = null, year = null } = req.query;
 
     const validTypes = [
-      "wallet", "deposit", "withdrawal",
-      "contest", "kyc", "notification", "referral"
+      "wallet", "deposit", "withdrawal", "contest",
+      "kyc", "notification", "referral", "login", "profile"
     ];
 
     if (type && !validTypes.includes(type)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid type. Valid types: ${validTypes.join(", ")}`,
+        message: `Invalid type. Valid: ${validTypes.join(", ")}`,
       });
     }
 
@@ -457,24 +453,16 @@ export const getMyActivity = async (req, res) => {
     }
 
     const result = await getMyActivityService(userId, {
-      page:  1,   // ← always default 1
-      limit: 20,  // ← always default 20
       type,
       month: month ? parseInt(month) : null,
       year:  year  ? parseInt(year)  : null,
     });
 
-    return res.status(200).json({
-      success: true,
-      ...result,
-    });
+    return res.status(200).json({ success: true, ...result });
 
   } catch (err) {
-    console.error("❌ Activity error:", err.message);
-    return res.status(500).json({
-      success: false,
-      message: err.message,
-    });
+    console.error("Activity error:", err.message);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 

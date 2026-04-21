@@ -251,3 +251,76 @@ export const getContestHistory = async (req, res) => {
   }
 };
 
+// ── GET /admin/contests/in-review ──
+export const getInReviewContests = async (req, res) => {
+  try {
+    const [contests] = await db.query(
+      `SELECT
+         c.id, c.match_id, c.contest_type, c.entry_fee,
+         c.prize_pool, c.current_entries, c.status,
+         m.hometeamname, m.awayteamname, m.matchdate
+       FROM contest c
+       JOIN matches m ON m.id = c.match_id
+       WHERE c.status = 'IN-REVIEW'
+       ORDER BY c.id DESC`
+    );
+
+    return res.status(200).json({
+      success: true,
+      total:   contests.length,
+      data:    contests,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// ── POST /admin/contests/:contestId/approve ──
+export const approveContestResults = async (req, res) => {
+  const { contestId } = req.params;
+  let conn;
+
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    // ── Validate contest ──
+    const [[contest]] = await conn.query(
+      `SELECT id, status FROM contest WHERE id = ? FOR UPDATE`,
+      [contestId]
+    );
+
+    if (!contest)
+      return res.status(404).json({ success: false, message: "Contest not found" });
+
+    if (contest.status !== "IN-REVIEW")
+      return res.status(400).json({
+        success: false,
+        message: `Contest is '${contest.status}', only IN-REVIEW contests can be approved`,
+      });
+
+    // ── Credit winnings ──
+    const winnersCount = await creditWinningsToWallets(contestId, conn);
+
+    // ── COMPLETED గా mark చేయి ──
+    await conn.query(
+      `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
+      [contestId]
+    );
+
+    await conn.commit();
+
+    return res.status(200).json({
+      success:      true,
+      message:      `Contest #${contestId} approved successfully`,
+      contestId:    parseInt(contestId),
+      winnersCount,
+    });
+
+  } catch (err) {
+    if (conn) await conn.rollback();
+    return res.status(500).json({ success: false, message: err.message });
+  } finally {
+    if (conn) conn.release();
+  }
+};

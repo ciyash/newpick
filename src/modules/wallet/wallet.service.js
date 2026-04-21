@@ -2,6 +2,7 @@ import db from "../../config/db.js";
 
 // ఇది మాత్రమే change చేయి — service top లో
 import { sendMail } from "../../utils/send.mail.js"
+import { logActivity } from "../../utils/activity.logger.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ADD DEPOSIT
@@ -124,6 +125,15 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
 
     await conn.commit();
     await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
+
+    logActivity({
+      userId,
+      type:        "deposit",
+      title:       "Deposit Successful",
+      description: `₹${sanitizedAmount} deposited via Stripe`,
+      amount:      sanitizedAmount,
+      icon:        "wallet",
+    });
 
     return {
       success:               true,

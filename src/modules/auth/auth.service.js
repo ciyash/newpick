@@ -6,6 +6,7 @@ import generateUserCode from "../../utils/usercode.js";
 import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
 import { sendOtpEmail } from '../../utils/send.otp.mails.js';
 import { getSubscriptionStatusService } from '../users/subscription.service.js';
+import { logActivity } from "../../utils/activity.logger.js";
 
 //* =================== ADMIN SERVICES =================== */
 
@@ -336,6 +337,14 @@ export const loginService = async ({ email, mobile, otp }, ipAddress) => {
    /* ─── Fetch Subscription Status ─── */
   const subscription = await getSubscriptionStatusService(user.id);
 
+  logActivity({
+    userId:      user.id,
+    type:        "login",
+    title:       "Login Successful",
+    description: `Logged in from IP: ${ipAddress || "unknown"}`,
+    icon:        "login",
+    meta:        { ip: ipAddress || null },
+  });
 
   /* ─── Return User ─── */
   return {
