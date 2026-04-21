@@ -130,7 +130,7 @@ const syncLineups = async () => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// JOB 2 — MATCH STATUS — every 5 mins
+// JOB 2 — MATCH STATUS — every 5 mins lll
 // ─────────────────────────────────────────────────────────────────────────────
 const syncMatchStatuses = async () => {
   console.log("⏰ [CRON] Status sync started:", new Date().toISOString());
