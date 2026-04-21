@@ -3,6 +3,7 @@ import { chmodSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import db from "../../config/db.js";
+import { logActivity } from "../../utils/activity.logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BINARY_NAME = process.platform === "win32" ? "UCT.exe" : "UCT.5";
@@ -207,6 +208,16 @@ export const generateTeamsService = async (userId, { matchId, teamA, teamB }) =>
 
     // 7. BACKGROUND UPDATE (NON-BLOCKING)
     updatePlayerPercentages(allPlayerIds, matchId).catch(console.error);
+
+    logActivity({
+      userId,
+      type:        "contest",
+      sub_type:    "teams_generated",
+      title:       "Teams Generated",
+      description: `${teamMeta.length} teams generated for Match #${matchId}`,
+      icon:        "team",
+      meta:        { matchId, totalTeams: teamMeta.length },
+    });
 
     return {
       success: true,

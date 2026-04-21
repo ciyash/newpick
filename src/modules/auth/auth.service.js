@@ -409,6 +409,15 @@ export const updateProfileService = async (userId, data) => {
     return { success: true, message: "No changes were made — values are identical" };
   }
 
+  logActivity({
+    userId,
+    type:        "profile",
+    sub_type:    "profile_updated",
+    title:       "Profile Updated",
+    description: `Updated fields: ${Object.keys(sanitized).join(", ")}`,
+    icon:        "profile",
+  });
+
   return { success: true, message: "Profile updated successfully" };
 };
 
@@ -697,6 +706,15 @@ export const verifyNewContactService = async (userId, otp) => {
   await redis.del(`CHANGE_CONTACT_NEW_OTP:${userId}`);
 
   console.log("✅ Contact updated successfully");
+
+  logActivity({
+    userId,
+    type:        "profile",
+    sub_type:    type === "email" ? "email_changed" : "mobile_changed",
+    title:       type === "email" ? "Email Changed" : "Mobile Changed",
+    description: `${type === "email" ? "Email" : "Mobile"} updated successfully`,
+    icon:        "profile",
+  });
 
   return {
     success: true,

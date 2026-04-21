@@ -2,6 +2,7 @@ import { getUserProfileService, reduceMonthlyLimitService,  createFeedbackServic
   getMyFeedbacksService } from "./user.service.js";
 import { feedbackSchema } from "./user.validation.js";
 import db from "../../config/db.js";
+import { logActivity } from "../../utils/activity.logger.js";
 
   
 export const getUserProfile = async (req, res) => {
@@ -120,6 +121,16 @@ export const pauseAccount = async (req, res) => {
       [start, end, userId]
     );
 
+    logActivity({
+      userId,
+      type:        "profile",
+      sub_type:    "account_paused",
+      title:       "Account Paused",
+      description: `Account paused for ${durationMap[duration]} days`,
+      icon:        "profile",
+      meta:        { duration, pausedTill: end },
+    });
+
     return res.status(200).json({
       success: true,
       message: "Account paused successfully",
@@ -148,6 +159,15 @@ export const deleteAccount = async (req, res) => {
        WHERE id = ?`,
       [userId]
     );
+
+    logActivity({
+      userId,
+      type:        "profile",
+      sub_type:    "account_deleted",
+      title:       "Account Deleted",
+      description: "User account deleted",
+      icon:        "profile",
+    });
 
     res.status(200).json({
       success: true,

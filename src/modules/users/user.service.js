@@ -1,6 +1,7 @@
 import db from "../../config/db.js";
 
 import { getSubscriptionStatusService } from "./subscription.service.js";
+import { logActivity } from "../../utils/activity.logger.js";
 
 
 export const getUserProfileService = async (userId) => {
@@ -253,6 +254,16 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
      WHERE user_id = ?`,
     [newLimit, userId]
   );
+
+  logActivity({
+    userId,
+    type:        "profile",
+    sub_type:    "limit_reduced",
+    title:       "Deposit Limit Reduced",
+    description: `Monthly deposit limit reduced to £${newLimit}`,
+    icon:        "profile",
+    meta:        { newLimit },
+  });
 };
 
    
@@ -274,6 +285,15 @@ export const createFeedbackService = async (userId, data) => {
       description || null
     ]
   );
+
+  logActivity({
+    userId,
+    type:        "profile",
+    sub_type:    "feedback_submitted",
+    title:       "Feedback Submitted",
+    description: subject,
+    icon:        "feedback",
+  });
 
   return {
     success: true,

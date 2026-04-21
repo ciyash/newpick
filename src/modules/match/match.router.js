@@ -4,12 +4,15 @@ import { getAllMatches,  getMatches,  getMatchFullDetails } from "./match.contro
 
 const router = express.Router();
 
-
-router.get("/:id", getMatchFullDetails);
-
+// ✅ Specific/static routes FIRST
 router.get("/all", getAllMatches);
 
-router.get('/:status', getMatches);
+// ✅ Dynamic routes AFTER
+router.get("/match-status/:status", getMatches);
+router.get("/:id", getMatchFullDetails);
+
+
+
 
 
 

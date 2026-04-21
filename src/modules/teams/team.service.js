@@ -672,6 +672,17 @@ export const updateTeamService = async (
       }
 
       await conn.commit();
+
+      logActivity({
+        userId,
+        type:        "contest",
+        sub_type:    "team_updated",
+        title:       "Team Updated",
+        description: `Captain/VC updated for Team #${teamId}`,
+        icon:        "team",
+        meta:        { teamId },
+      });
+
       return { message: "Team updated successfully" };
     }
 
@@ -806,6 +817,17 @@ export const updateTeamService = async (
     }
 
     await conn.commit();
+
+    logActivity({
+      userId,
+      type:        "contest",
+      sub_type:    "team_updated",
+      title:       "Team Updated",
+      description: `Players updated for Team #${teamId}`,
+      icon:        "team",
+      meta:        { teamId },
+    });
+
     return { message: "Team updated successfully" };
 
   } catch (error) {
