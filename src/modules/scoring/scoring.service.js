@@ -1,5 +1,5 @@
 import db from "../../config/db.js";
-import { calculateTeamPoints, rankTeams } from "./scoring.engine.js";
+import { calculateTeamPoints, rankTeams,calculatePlayerPoints  } from "./scoring.engine.js";
 import { getPrizeForRank } from '../contests/contest.service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,9 +180,13 @@ export const scoreContestService = async (contestId, matchId) => {
     [contestId]
   );
   if (!contest) throw new Error(`Contest ${contestId} not found`);
-  if (contest.status === "COMPLETED") {
-    return { success: true, message: "Already scored", contestId, totalEntries: 0 };
-  }
+  // if (contest.status === "COMPLETED") {
+  //   return { success: true, message: "Already scored", contestId, totalEntries: 0 };
+  // }
+
+  if (contest.status === "COMPLETED" || contest.status === "INREVIEW") {
+  return { success: true, message: "Already scored", contestId, totalEntries: 0 };
+}
 
   // ── 1. Fetch entries ──
   const entries = await fetchContestEntries(contestId);
@@ -200,7 +204,7 @@ export const scoreContestService = async (contestId, matchId) => {
 
   // ── ✅ NEW: Match-level max base points calculate చేయి ──
   // అన్ని players score చేయి (captain/VC లేకుండా) — match లో highest ఎవరో తెలుసుకోవడానికి
-  const { calculatePlayerPoints } = await import("./scoring.engine.js");
+
   
   let allMatchMaxPoints = 0;
   for (const stat of allStats) {

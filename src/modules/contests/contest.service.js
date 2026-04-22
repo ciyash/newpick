@@ -1362,34 +1362,38 @@ export const getMyContestsService = async (userId, matchId) => {
       team.creditsLeft  = parseFloat((100 - team.totalCredits).toFixed(2));
     });
 
-    // ── Highest Scorer Bonus — RESULT లో మాత్రమే (document spec) ──
+  
     // LIVE లో HS Bonus వద్దు
-    if (isResult) {
-      Object.values(teamsMap).forEach(team => {
-        if (!team.players.length) return;
-        const maxBase = Math.max(...team.players.map(p => p.basePoints));
-        if (maxBase <= 0) return;
+   // తర్వాత: ✅ match-level max — అన్ని teams players లో max
+if (isResult) {
+  // ── Match-level max calculate చేయి ──
+  let matchMaxBase = 0;
+  Object.values(teamsMap).forEach(team => {
+    team.players.forEach(p => {
+      if (p.basePoints > matchMaxBase) matchMaxBase = p.basePoints;
+    });
+  });
 
-        team.players = team.players.map(p => {
-          if (p.basePoints !== maxBase) return p;
-          const hsBonus      = p.isSubstitute ? 8 : 4;
-          const newBase      = p.basePoints + hsBonus;
-          const newEffective = parseFloat(
-            (newBase * (p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1)).toFixed(2)
-          );
-          return {
-            ...p,
-            basePoints:         newBase,
-            effectivePoints:    newEffective,
-            highestScorerBonus: hsBonus,
-          };
-        });
+  // ── అన్ని teams లో apply చేయి ──
+  Object.values(teamsMap).forEach(team => {
+    if (!team.players.length) return;
+    if (matchMaxBase <= 0) return;
 
-        team.totalPoints = parseFloat(
-          team.players.reduce((sum, p) => sum + p.effectivePoints, 0).toFixed(2)
-        );
-      });
-    }
+    team.players = team.players.map(p => {
+      if (p.basePoints !== matchMaxBase) return p;
+      const hsBonus      = p.isSubstitute ? 8 : 4;
+      const newBase      = p.basePoints + hsBonus;
+      const newEffective = parseFloat(
+        (newBase * (p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1)).toFixed(2)
+      );
+      return { ...p, basePoints: newBase, effectivePoints: newEffective, highestScorerBonus: hsBonus };
+    });
+
+    team.totalPoints = parseFloat(
+      team.players.reduce((sum, p) => sum + p.effectivePoints, 0).toFixed(2)
+    );
+  });
+}
   }
 
   // ── Entries group by contest ──
@@ -1435,7 +1439,8 @@ export const getMyContestsService = async (userId, matchId) => {
     // ── Winning Amount — COMPLETED లో మాత్రమే ──
     const contestStatus = c.status?.toUpperCase();
     const showWinning   = contestStatus === "COMPLETED";
-
+ console.log(`Contest ${c.contest_id} status: ${c.status}, contestStatus: ${contestStatus}, showWinning: ${showWinning}`);
+  // ...
     const winningAmount = showWinning
       ? (Number(e.winning_amount) || getPrizeForRank(
            e.urank,

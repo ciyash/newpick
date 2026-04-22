@@ -135,28 +135,31 @@ export const calculatePlayerPoints = (stats) => {
 export const calculateTeamPoints = (playerStatsList, captainId, viceCaptainId, allMatchMaxPoints = null) => {
   const playerResults = playerStatsList.map(calculatePlayerPoints);
 
+  // ── starterMap — player started గా వచ్చాడా substitute గా వచ్చాడా ──
+  const starterMap = {};
+  playerStatsList.forEach((s) => { starterMap[s.playerId] = s.started; });
+
   // STEP 8: Highest Scorer Bonus — match-level max use చేయి
   const maxPoints = allMatchMaxPoints !== null
-    ? allMatchMaxPoints                                        // ← match-level max ✅
-    : Math.max(...playerResults.map((r) => r.basePoints));    // ← fallback (single team)
+    ? allMatchMaxPoints                                      // ← match-level max ✅
+    : Math.max(...playerResults.map((r) => r.basePoints));  // ← fallback (single team)
 
   playerResults.forEach((r) => {
     if (r.basePoints === maxPoints) {
       const bonus = starterMap[r.playerId]
-        ? RULES.highestScorer.starter
-        : RULES.highestScorer.substitute;
+        ? RULES.highestScorer.starter      // starter → +4
+        : RULES.highestScorer.substitute;  // substitute → +8
       r.breakdown.highestScorerBonus = bonus;
       r.basePoints += bonus;
     } else {
       r.breakdown.highestScorerBonus = 0;
     }
-  
   });
 
   // STEP 9: Captain / VC Multiplier
   playerResults.forEach((r) => {
     let multiplier = 1;
-    if      (r.playerId === captainId)    multiplier = RULES.captain;
+    if      (r.playerId === captainId)     multiplier = RULES.captain;
     else if (r.playerId === viceCaptainId) multiplier = RULES.viceCaptain;
 
     r.breakdown.multiplier = multiplier;

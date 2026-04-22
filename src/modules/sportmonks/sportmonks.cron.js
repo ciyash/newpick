@@ -265,7 +265,7 @@ const scoreCompletedMatches = async () => {
        JOIN matches m ON m.id = c.match_id
        WHERE m.is_active = 1
          AND m.status = 'RESULT'
-         AND c.status NOT IN ('COMPLETED', 'INREVIEW')  -- ← INREVIEW add చేశాం
+         AND c.status NOT IN ('COMPLETED')
          AND m.start_time >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
        ORDER BY c.id ASC`
     );
