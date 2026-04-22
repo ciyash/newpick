@@ -1,5 +1,4 @@
 
-import db from "../../config/db.js";
 
 import express from "express";
 import {
@@ -18,7 +17,7 @@ import {
 } from "./contest.controller.js";
 import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
-import { scoreContestService } from "../scoring/scoring.service.js";
+
 
 const router = express.Router();
 
@@ -55,27 +54,7 @@ router.post("/contests/approve/:contestId", adminAuth(), approveContestResults);
 
 router.get("/contests/announce-winners/:contestId", adminAuth(), announceWinners);
 
-router.get("/test/score/:contestId/:matchId", async (req, res) => {
-  try {
-    const { contestId, matchId } = req.params;
-    
-    // Force status reset చేయి
-    await db.query(
-      `UPDATE contest SET status = 'LIVE' WHERE id = ?`,
-      [contestId]
-    );
-    await db.query(
-      `UPDATE contest_entries SET status = 'active', urank = NULL, winning_amount = NULL 
-       WHERE contest_id = ?`,
-      [contestId]
-    );
-    
-    const result = await scoreContestService(contestId, matchId);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+
 
 
 export default router;  
