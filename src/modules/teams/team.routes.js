@@ -1,5 +1,5 @@
 import express from "express";
-import { getAllTeams, getTeamById, getAllPlayers, getPlayerById, getPlayerTeamById, createTeam, getMyTeams, getTeamPlayers, getMyTeamsWithPlayers, updateTeam, getMyTeamsXIStatus, getPlayingXI, getTeamComparison } from "./team.controller.js";
+import { getAllTeams, getTeamById, getAllPlayers, getPlayerById, getPlayerTeamById, createTeam, getMyTeams, getTeamPlayers, getMyTeamsWithPlayers, updateTeam, getMyTeamsXIStatus, getPlayingXI, getTeamComparison, getTeamComparisonBulk } from "./team.controller.js";
 import { generateTeams } from "./generateTeams.controller.js";
 import { createTeamRateLimit, updateTeamRateLimit } from "../../middlewares/rateLimit.middleware.js";
 
@@ -36,5 +36,6 @@ router.get("/my-teams/xi-status/:matchId/:homeTeamId", getMyTeamsXIStatus);
 router.get("/playing-xi/:match_id", getPlayingXI);
 
 router.get("/team-comparison/:team_id", getTeamComparison);
+router.post("/team-comparison/bulk", getTeamComparisonBulk);
 
 export default router;                

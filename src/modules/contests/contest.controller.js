@@ -4,6 +4,7 @@ import express from "express";
 import {
   getAllContestsService,
   getContestsService,
+  getFantasyDashboardService,
   joinContestService,
   getMyContestsService,
   getLeaderboardService,
@@ -112,6 +113,29 @@ export const getMyContests = async (req, res) => {
     message: err.message  // now shows real error in response too
   });
 }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/contests/dashboard/:match_id
+// Aggregated payload for fantasy page (contests + my-contests + my-teams)
+// ─────────────────────────────────────────────────────────────────────────────
+export const getFantasyDashboard = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const match_id = req.params.match_id?.trim();
+
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!match_id) return res.status(400).json({ success: false, message: "match_id is required" });
+
+    const result = await getFantasyDashboardService(userId, match_id);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[getFantasyDashboard]", err.message);
+    return res.status(err.statusCode || 500).json({
+      success: false,
+      message: err.message || "Internal server error",
+    });
+  }
 };
 
 

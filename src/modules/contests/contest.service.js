@@ -4,6 +4,7 @@ import redis from "../../config/redis.js";
 import { calculateTeamPoints } from "../scoring/scoring.engine.js";
 import { fetchPlayerStats } from "../scoring/scoring.service.js";
 import { applyReferralContestBonus } from "../auth/auth.service.js";
+import { getMyTeamsWithPlayersService } from "../teams/team.service.js";
 import { leaderboardCacheKey as lbKey } from '../sportmonks/sportmonks.cron.js';
 import { logActivity } from "../../utils/activity.logger.js";
 
@@ -347,6 +348,32 @@ export const getContestsService = async (matchId, userId) => {
       createdAt: c.created_at || null,
     };
   });
+};
+
+export const getFantasyDashboardService = async (userId, matchId) => {
+  if (!userId) throw new Error("userId is required");
+  if (!matchId) throw new Error("matchId is required");
+
+  const [contests, myContests, myTeams] = await Promise.all([
+    getContestsService(matchId, userId),
+    getMyContestsService(userId, matchId),
+    getMyTeamsWithPlayersService(userId, matchId),
+  ]);
+
+  return {
+    success: true,
+    match_id: Number(matchId),
+    data: {
+      contests,
+      my_contests: myContests,
+      my_teams: myTeams,
+    },
+    meta: {
+      contests_count: contests.length,
+      my_contests_count: myContests.length,
+      my_teams_count: myTeams.length,
+    },
+  };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2195,4 +2222,3 @@ const handleFullRefund = async (conn, contestId, contest) => {
     );
   }
 };
-

@@ -1,5 +1,5 @@
 import db from "../../config/db.js";
-import { createTeamService,  getMyTeamsWithPlayersService, getMyTeamsXIStatusService, getPlayingXIService, getTeamComparisonService, getTeamPlayersService, updateTeamService } from "./team.service.js";
+import { createTeamService,  getMyTeamsWithPlayersService, getMyTeamsXIStatusService, getPlayingXIService, getTeamComparisonService, getTeamComparisonBulkService, getTeamPlayersService, updateTeamService } from "./team.service.js";
 import { createTeamSchema, updateTeamSchema } from "./team.validation.js";
 
 export const getAllTeams = async (req, res) => {
@@ -427,3 +427,25 @@ export const getTeamComparison = async (req, res) => {
   }
 };
 
+export const getTeamComparisonBulk = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const teamIds = req.body?.team_ids;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: "Unauthorized" });
+    }
+    if (!Array.isArray(teamIds) || teamIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "team_ids array is required",
+      });
+    }
+
+    const result = await getTeamComparisonBulkService(teamIds, userId);
+    return res.status(200).json(result);
+  } catch (err) {
+    console.error("[getTeamComparisonBulk]", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
