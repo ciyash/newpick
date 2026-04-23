@@ -225,6 +225,7 @@ const getUpcomingMatches = async (userId) => {
 };
 
 // ✅ RESULT — completed matches (status = 'RESULT')
+
 const getPastMatches = async (userId) => {
   const [matches] = await db.query(
     `SELECT 
@@ -275,6 +276,23 @@ const getPastMatches = async (userId) => {
         [userId, match.matchId]
       );
 
+      // ✅ Contests info add చేయి
+      const [contests] = await db.query(
+        `SELECT 
+           c.id            AS contestId,
+           c.contest_type  AS contestType,
+           c.status        AS contestStatus,
+           c.prize_pool    AS prizePool,
+           c.first_prize   AS firstPrize,
+           ce.urank,
+           ce.winning_amount AS winningAmount
+         FROM contest_entries ce
+         JOIN contest c ON c.id = ce.contest_id
+         JOIN user_teams ut ON ut.id = ce.user_team_id
+         WHERE ut.user_id = ? AND ut.match_id = ?`,
+        [userId, match.matchId]
+      );
+
       return {
         matchId:      match.matchId,
         seriesId:     match.seriesId,
@@ -295,6 +313,16 @@ const getPastMatches = async (userId) => {
         teamCount:    match.teamCount,
         contestCount: match.contestCount,
         teams:        teams.map(t => ({ teamId: t.teamId, teamName: t.teamName })),
+        // ✅ contests info
+        contests:     contests.map(c => ({
+          contestId:     c.contestId,
+          contestType:   c.contestType,
+          contestStatus: c.contestStatus,  // INREVIEW or COMPLETED
+          prizePool:     Number(c.prizePool) || 0,
+          firstPrize:    Number(c.firstPrize) || 0,
+          urank:         c.urank || null,
+          winningAmount: Number(c.winningAmount) || 0,
+        })),
       };
     })
   );
