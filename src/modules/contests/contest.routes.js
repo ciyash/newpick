@@ -4,6 +4,7 @@ import express from "express";
 import {
   getAllContests,
   getContestsByMatchId,
+  getFantasyDashboard,
   getLeaderboard,
   getMyContests,
   getMyRank,
@@ -25,6 +26,7 @@ const router = express.Router();
 router.post("/join", authenticate, checkAccountActive, joinContest);
 
 // ── Authenticated user's contests ────────────────────────────────────────────
+router.get("/dashboard/:match_id", authenticate, checkAccountActive, getFantasyDashboard);
 router.get("/my-contests/:match_id", authenticate, checkAccountActive, getMyContests);
 
 // ── Leaderboard + Winnings (two tabs in the UI) ───────────────────────────────
@@ -53,6 +55,8 @@ router.get("/contests/in-review", adminAuth(), getInReviewContests);
 router.post("/contests/approve/:contestId", adminAuth(), approveContestResults);
 
 router.get("/contests/announce-winners/:contestId", adminAuth(), announceWinners);
+
+
 
 
 export default router;  

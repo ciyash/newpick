@@ -1395,4 +1395,148 @@ export const getTeamComparisonService = async (userTeamId, userId) => {
   };
 };
 
+export const getTeamComparisonBulkService = async (teamIds = [], userId) => {
+  const normalizedTeamIds = [...new Set(
+    (Array.isArray(teamIds) ? teamIds : [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  )];
+
+  if (!userId) throw new Error("Unauthorized");
+  if (normalizedTeamIds.length === 0) {
+    return { success: true, total: 0, data: {}, skipped_team_ids: [] };
+  }
+
+  const [teams] = await db.query(
+    `SELECT id, user_id, match_id, team_name, locked, created_at
+     FROM user_teams
+     WHERE user_id = ? AND id IN (?)`,
+    [userId, normalizedTeamIds]
+  );
+
+  const validTeamIds = teams.map((t) => t.id);
+  const validTeamIdSet = new Set(validTeamIds);
+  const skippedTeamIds = normalizedTeamIds.filter((id) => !validTeamIdSet.has(id));
+
+  if (validTeamIds.length === 0) {
+    return { success: true, total: 0, data: {}, skipped_team_ids: skippedTeamIds };
+  }
+
+  const [teamPlayersRows] = await db.query(
+    `SELECT
+       ut.id             AS user_team_id,
+       ut.match_id       AS match_id,
+       utp.player_id,
+       utp.is_captain,
+       utp.is_vice_captain,
+       utp.is_substitude,
+       utp.role,
+       utp.points,
+       p.name            AS player_name,
+       p.position,
+       p.playerimage     AS player_image,
+       p.flag_image,
+       p.playercredits,
+       p.country,
+       t.name            AS team_name,
+       t.id              AS team_id
+     FROM user_teams ut
+     JOIN user_team_players utp ON utp.user_team_id = ut.id
+     JOIN players p ON p.id = utp.player_id
+     JOIN teams t ON t.id = p.team_id
+     WHERE ut.user_id = ?
+       AND ut.id IN (?)`,
+    [userId, validTeamIds]
+  );
+
+  const matchIds = [...new Set(teams.map((t) => t.match_id).filter(Boolean))];
+  let lineupRows = [];
+  if (matchIds.length > 0) {
+    const [rows] = await db.query(
+      `SELECT
+         mp.match_id,
+         mp.player_id,
+         mp.is_playing,
+         mp.is_substitute,
+         mp.team_id,
+         p.name          AS player_name,
+         p.position,
+         p.playerimage   AS player_image,
+         p.flag_image,
+         p.playercredits,
+         p.country,
+         t.name          AS team_name
+       FROM match_players mp
+       JOIN players p ON p.id = mp.player_id
+       JOIN teams t ON t.id = mp.team_id
+       WHERE mp.match_id IN (?)
+         AND (mp.is_playing = 1 OR mp.is_substitute = 1)`,
+      [matchIds]
+    );
+    lineupRows = rows;
+  }
+
+  const playersByTeam = {};
+  teamPlayersRows.forEach((row) => {
+    if (!playersByTeam[row.user_team_id]) playersByTeam[row.user_team_id] = [];
+    playersByTeam[row.user_team_id].push(row);
+  });
+
+  const lineupByMatch = {};
+  lineupRows.forEach((row) => {
+    if (!lineupByMatch[row.match_id]) lineupByMatch[row.match_id] = [];
+    lineupByMatch[row.match_id].push(row);
+  });
+
+  const responseMap = {};
+
+  teams.forEach((team) => {
+    const teamPlayers = playersByTeam[team.id] || [];
+    const lineupPlayers = lineupByMatch[team.match_id] || [];
+
+    const userPlayerIds = new Set(teamPlayers.map((p) => p.player_id));
+    const lineupPlayerIds = new Set(lineupPlayers.map((p) => p.player_id));
+
+    const myTeamNotInLineup = teamPlayers.filter(
+      (p) => !lineupPlayerIds.has(p.player_id)
+    );
+    const lineupNotInMyTeam = lineupPlayers.filter(
+      (p) => !userPlayerIds.has(p.player_id)
+    );
+
+    responseMap[team.id] = {
+      team_id: team.id,
+      team_name: team.team_name,
+      match_id: team.match_id,
+      locked: team.locked === 1,
+      my_team_not_in_lineup: myTeamNotInLineup.map((p) => ({
+        player_id: p.player_id,
+        player_name: p.player_name,
+        position: p.position,
+        player_image: p.player_image,
+        team_name: p.team_name,
+      })),
+      lineup_not_in_my_team: lineupNotInMyTeam.map((p) => ({
+        player_id: p.player_id,
+        player_name: p.player_name,
+        position: p.position,
+        player_image: p.player_image,
+        team_name: p.team_name,
+        is_playing: p.is_playing === 1,
+        is_substitute: p.is_substitute === 1,
+      })),
+      counts: {
+        my_team_not_in_lineup: myTeamNotInLineup.length,
+        lineup_not_in_my_team: lineupNotInMyTeam.length,
+      },
+    };
+  });
+
+  return {
+    success: true,
+    total: Object.keys(responseMap).length,
+    data: responseMap,
+    skipped_team_ids: skippedTeamIds,
+  };
+};
 
