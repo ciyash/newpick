@@ -184,9 +184,23 @@ export const scoreContestService = async (contestId, matchId) => {
   //   return { success: true, message: "Already scored", contestId, totalEntries: 0 };
   // }
 
-  if (contest.status === "COMPLETED" || contest.status === "INREVIEW") {
-  return { success: true, message: "Already scored", contestId, totalEntries: 0 };
-}
+  if (contest.status === "COMPLETED") {
+    return { success: true, message: "Already scored", contestId, totalEntries: 0 };
+  }
+
+  // If contest is INREVIEW but ranks are already saved, skip re-score.
+  const [[scoreState]] = await db.query(
+    `SELECT
+       COUNT(*) AS total_entries,
+       SUM(CASE WHEN urank IS NOT NULL THEN 1 ELSE 0 END) AS ranked_entries
+     FROM contest_entries
+     WHERE contest_id = ?`,
+    [contestId]
+  );
+  const rankedEntriesCount = Number(scoreState?.ranked_entries || 0);
+  if (contest.status === "INREVIEW" && rankedEntriesCount > 0) {
+    return { success: true, message: "Already scored", contestId, totalEntries: 0 };
+  }
 
   // ── 1. Fetch entries ──
   const entries = await fetchContestEntries(contestId);
