@@ -1455,15 +1455,15 @@ const showWinnings = matchStatus === "RESULT" && contest.status?.toUpperCase() =
   const leaderboard = entries.map(entry => {
     const points = parseFloat(entry.computed_points) || 0;
     const rank = entry.urank ?? entry.computed_rank;
-    const prize = matchStatus === "RESULT"
-      ? (entry.winning_amount || getPrizeForRank(
-        rank,
-        contest.prize_distribution,
-        contest.entry_fee,
-        contest.refund_winners,
-        contest.refund_start_rank
-      ))
-      : 0;
+ const prize = showWinnings
+  ? (entry.winning_amount || getPrizeForRank(
+    rank,
+    contest.prize_distribution,
+    contest.entry_fee,
+    contest.refund_winners,
+    contest.refund_start_rank
+  ))
+  : 0;
     return {
       rank,
       user_id: entry.user_id,
