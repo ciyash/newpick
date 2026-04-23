@@ -92,7 +92,7 @@ export const getMatchesService = async (userId, status) => {
   switch (status) {
     case "LIVE":      return getLiveMatches(userId);
     case "UPCOMING":  return getUpcomingMatches(userId);
-    case "RESULT":    return getPastMatches(userId, 'INREVIEW');  // ✅ RESULT = INREVIEW
+    case "INREVIEW":  return getPastMatches(userId, 'INREVIEW');
     case "COMPLETED": return getPastMatches(userId, 'COMPLETED');
     default: throw new Error("Invalid status");
   }
