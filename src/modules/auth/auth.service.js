@@ -183,7 +183,7 @@ export const requestSignupOtpService = async (data) => {
         name, email, nickname,
         mobile: normalizedMobile,
         region, address, dob, category,
-        referralid: referralid || null   // ✅ "AAAAA1111" default తీసేశాం
+        referralid: referralid || null   
       }),
       { ex: 300 }
     ),
@@ -442,15 +442,15 @@ export const updateProfileService = async (userId, data) => {
 export const applyReferralContestBonus = async (userId, contestId, ip, device, conn, teamsJoined = 1) => {
 
   // ── 1. First contest join check ──
-  // ఇప్పుడు insert అయిన teams తీసేసి check చేయాలి
+
   const [[{ contestCount }]] = await conn.query(
     `SELECT COUNT(*) AS contestCount FROM contest_entries WHERE user_id = ?`,
     [userId]
   );
 
-  // ఇప్పుడు insert అయినవి తీసేస్తే — ముందు ఎన్ని ఉన్నాయో తెలుస్తుంది
+
   const previousCount = Number(contestCount) - Number(teamsJoined);
-  if (previousCount !== 0) return; // ← ముందే join చేశాడు — bonus వద్దు
+  if (previousCount !== 0) return; 
 
   // ── 2. Fetch referral record with lock ──
   const [[ref]] = await conn.query(
@@ -538,12 +538,12 @@ export const applyReferralContestBonus = async (userId, contestId, ip, device, c
 
 export const verifyEmailLinkService = async (token) => {
 
-  console.log("🔍 Received token:", token);
+  
 
   if (!token) throw new Error("Invalid verification link");
 
   const userId = await redis.get(`EMAIL_VERIFY:${token}`);
-  console.log("📦 Redis userId:", userId);
+
 
   if (!userId) throw new Error("Verification link expired");
 
@@ -552,7 +552,7 @@ export const verifyEmailLinkService = async (token) => {
     [userId]
   );
 
-  console.log("📦 DB update result:", result);  // ✅ result — not result.log
+
 
   if (result.affectedRows === 0)
     throw new Error("User not found");
@@ -581,7 +581,6 @@ export const requestContactChangeService = async (userId, type, newValue) => {
 
   const otp = crypto.randomInt(100000, 999999).toString();
 
-  console.log("Generated OLD OTP:", otp);
 
   /* store session */
 
@@ -615,8 +614,6 @@ export const verifyOldContactService = async (userId, otp) => {
 
   const savedOtp = await redis.get(`CHANGE_CONTACT_OLD_OTP:${userId}`);
 
-  console.log("Entered OLD OTP:", otp);
-  console.log("Redis OLD OTP:", savedOtp);
 
   if (!savedOtp)
     throw new Error("OTP expired");
@@ -635,8 +632,6 @@ export const verifyOldContactService = async (userId, otp) => {
   const { type, newValue } = parsedSession;
 
   const newOtp = crypto.randomInt(100000, 999999).toString();
-
-  console.log("Generated NEW OTP:", newOtp);
 
   await redis.set(
     `CHANGE_CONTACT_NEW_OTP:${userId}`,
@@ -662,8 +657,7 @@ export const verifyNewContactService = async (userId, otp) => {
 
   const savedOtp = await redis.get(`CHANGE_CONTACT_NEW_OTP:${userId}`);
 
-  console.log("Entered NEW OTP:", otp);
-  console.log("Redis NEW OTP:", savedOtp);
+
 
   if (!savedOtp)
     throw new Error("OTP expired");
@@ -705,7 +699,7 @@ export const verifyNewContactService = async (userId, otp) => {
   await redis.del(`CHANGE_CONTACT_OLD_OTP:${userId}`);
   await redis.del(`CHANGE_CONTACT_NEW_OTP:${userId}`);
 
-  console.log("✅ Contact updated successfully");
+
 
   logActivity({
     userId,
@@ -901,7 +895,7 @@ export const signupService = async ({ mobile, otp }) => {
         await redis.set(`EMAIL_VERIFY:${emailToken}`, userIdSnapshot, { ex: 86400 });
         const verifyLink = `${BACKEND}/api/auth/verify-email?token=${emailToken}`;
         await sendVerificationEmail(emailSnapshot, verifyLink);
-        console.log("✅ Verification email sent to:", emailSnapshot);
+      
       } catch (emailErr) {
         console.error("❌ Email send failed:", emailErr.message);
       }

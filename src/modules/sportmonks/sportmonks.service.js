@@ -389,7 +389,7 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
     );
 
     if (!seriesRow) {
-      // DB లో లేదు — API నుండి fetch చేసి insert చేయి
+      
       let leagueData = null;
       try {
         const res  = await apiGet(`/leagues/${lookupCid}`);
@@ -411,13 +411,13 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
 
       console.log(`✅ Series auto-inserted: ${lookupCid} — ${leagueData?.name}`);
 
-      // Insert తర్వాత fresh fetch
+   
       [[seriesRow]] = await db.query(
         `SELECT id, seriesid FROM series WHERE seriesid = ? LIMIT 1`,
         [lookupCid]
       );
     } else {
-      // Already ఉంది — duplicate insert వద్దు, update మాత్రమే
+   
       await db.query(
         `UPDATE series SET status = 'active', is_selected = 1 WHERE seriesid = ?`,
         [lookupCid]
@@ -515,149 +515,6 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
 };
 
 
-
-// export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
-//   const results   = [];
-//   const uniqueIds = [...new Set(matchIds.map(String))];
-
-//   for (const matchId of uniqueIds) {
-//     const [[existing]] = await db.query(
-//       `SELECT id, hometeamname, awayteamname, start_time, lineupavailable
-//        FROM matches WHERE provider_match_id = ? LIMIT 1`,
-//       [matchId]
-//     );
-
-//     // ── EXISTING MATCH — toggle only ──────────────
-//     if (existing) {
-//       await db.query(
-//         `UPDATE matches SET is_active = ? WHERE provider_match_id = ?`,
-//         [isActive ? 1 : 0, matchId]
-//       );
-//       results.push({
-//         match_id:   matchId,
-//         home:       existing.hometeamname,
-//         away:       existing.awayteamname,
-//         start_time: existing.start_time,
-//         is_active:  isActive,
-//         note:       isActive
-//           ? "Match activated — lineup sync via cron when announced"
-//           : "Match deactivated",
-//       });
-//       continue;
-//     }
-
-//     // ── NEW MATCH ──────────────────────────────────
-//     if (!isActive) {
-//       results.push({ match_id: matchId, error: "Match not found in DB" });
-//       continue;
-//     }
-
-//     const data    = await apiGet(`/fixtures/${matchId}`, { include: "participants;league" });
-//     const fixture = data?.data;
-
-//     if (!fixture) {
-//       results.push({ match_id: matchId, error: "Match not found in API" });
-//       continue;
-//     }
-
-//     const home      = fixture.participants?.find((p) => p.meta?.location === "home");
-//     const away      = fixture.participants?.find((p) => p.meta?.location === "away");
-//     const lookupCid = seriesId ? String(seriesId) : String(fixture.league_id);
-
-//     const [[seriesRow]] = await db.query(
-//       `SELECT id, seriesid FROM series WHERE seriesid = ? LIMIT 1`,
-//       [lookupCid]
-//     );
-
-//     if (!seriesRow) {
-//       results.push({ match_id: matchId, error: "Series not active — toggle ON చేయి ముందు" });
-//       continue;
-//     }
-
-//     // ── Teams upsert ──────────────────────────────
-//     const teamIds = {};
-//     for (const participant of [home, away]) {
-//       if (!participant) continue;
-
-//       await db.query(
-//         `INSERT INTO teams (name, short_name, series_id, provider_team_id, logo)
-//          VALUES (?, ?, ?, ?, ?)
-//          ON DUPLICATE KEY UPDATE
-//            name       = VALUES(name),
-//            short_name = VALUES(short_name),
-//            logo       = VALUES(logo)`,
-//         [
-//           participant.name,
-//           participant.short_code || participant.name.substring(0, 3),
-//           seriesRow.seriesid,
-//           String(participant.id),
-//           participant.image_path || null,
-//         ]
-//       );
-
-//       const [[teamRow]] = await db.query(
-//         `SELECT id FROM teams WHERE provider_team_id = ? LIMIT 1`,
-//         [String(participant.id)]
-//       );
-//       teamIds[participant.meta.location] = teamRow?.id || null;
-//     }
-
-//     // ── Match upsert ──────────────────────────────
-//     const startingAt    = fixture.starting_at;
-//     const matchDateOnly = startingAt?.split(" ")[0] || null;
-
-//     await db.query(
-//       `INSERT INTO matches
-//          (provider_match_id, series_id, home_team_id, away_team_id,
-//           start_time, status, seriesname, hometeamname, awayteamname,
-//           matchdate, lineupavailable, lineup_status, is_active)
-//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'not_available', 1)
-//        ON DUPLICATE KEY UPDATE
-//          is_active     = 1,
-//          lineup_status = 'not_available',
-//          series_id     = VALUES(series_id),
-//          home_team_id  = VALUES(home_team_id),
-//          away_team_id  = VALUES(away_team_id),
-//          status        = VALUES(status),
-//          seriesname    = VALUES(seriesname),
-//          hometeamname  = VALUES(hometeamname),
-//          awayteamname  = VALUES(awayteamname),
-//          matchdate     = VALUES(matchdate),
-//          start_time    = VALUES(start_time)`,
-//       [
-//         matchId,
-//         seriesRow.seriesid,
-//         teamIds["home"] || null,
-//         teamIds["away"] || null,
-//         startingAt,
-//         mapStatus(fixture.state_id),
-//         fixture.league?.name || "",
-//         home?.name || "",
-//         away?.name || "",
-//         matchDateOnly,
-//       ]
-//     );
-
-//     // ── Squad sync ────────────────────────────────
-//     try {
-//       await syncPlayersService(matchId);
-//     } catch (e) {
-//       console.warn(`Player sync failed for ${matchId}:`, e.message);
-//     }
-
-//     results.push({
-//       match_id:   matchId,
-//       home:       home?.name,
-//       away:       away?.name,
-//       start_time: startingAt,
-//       is_active:  true,
-//       note:       "Match added + squad synced to players table. Playing XI via cron after lineup announced.",
-//     });
-//   }
-
-//   return results;
-// };
-
 /* ══════════════════════════════════════════
    PLAYERS (players table only)
 ══════════════════════════════════════════ */
@@ -730,7 +587,7 @@ export const syncPlayersService = async (matchId) => {
     }
   }
 
-  console.log(`✅ Players synced to players table for match ${matchId}: ${totalInserted}`);
+  console.log(` Players synced to players table for match ${matchId}: ${totalInserted}`);
   return { success: true, inserted: totalInserted };
 };
 
@@ -808,7 +665,7 @@ export const syncPlayingXIService = async (matchId) => {
     [matchRow.id]
   );
 
-  console.log(`✅ Playing XI synced: ${count} players for match ${matchId}`);
+  console.log(` Playing XI synced: ${count} players for match ${matchId}`);
   return { count, reason: null, type: "lineup" };
 };
 
@@ -1182,7 +1039,7 @@ export const getMatchesByDateRangeService = async (fromDate, toDate) => {
     return d >= fromDt && d <= toDt;
   });
 
-  // ── Lineup filter — Starting XI ఉన్నవి మాత్రమే ──
+  // ── Lineup filter — Starting XI ──
   const withLineup = dateFiltered.filter(f => {
     const lineups = f.lineups || [];
     return lineups.some(l => l.type_id === 11);

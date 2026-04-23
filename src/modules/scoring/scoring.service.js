@@ -100,11 +100,11 @@ const saveScoreResults = async (contestId, rankedEntries, matchId) => {
     await conn.beginTransaction();
 
     // ── Player base points → player_match_stats లో save ──
-    // (ఇది ONCE చేస్తే సరిపోతుంది — అన్ని contests కి same match stats)
+  
     const playerPointsMap = {};
     for (const entry of rankedEntries) {
       for (const player of entry.players || []) {
-        // basePoints మాత్రమే store చేయి (captain/VC లేకుండా)
+     
         if (!playerPointsMap[player.playerId]) {
           playerPointsMap[player.playerId] = player.basePoints ?? 0;
         }
@@ -202,8 +202,8 @@ export const scoreContestService = async (contestId, matchId) => {
   const statsMap = {};
   allStats.forEach(s => { statsMap[s.playerId] = s; });
 
-  // ── ✅ NEW: Match-level max base points calculate చేయి ──
-  // అన్ని players score చేయి (captain/VC లేకుండా) — match లో highest ఎవరో తెలుసుకోవడానికి
+  // ── ✅ NEW: Match-level max base points calculate  ──
+
 
   
   let allMatchMaxPoints = 0;
@@ -214,7 +214,7 @@ export const scoreContestService = async (contestId, matchId) => {
     }
   }
 
-  // ── 4. Score each team — allMatchMaxPoints pass చేయి ──
+  // ── 4. Score each team — allMatchMaxPoints pass  ──
   const scoredEntries = entries.map(entry => {
     const playerStatsList = entry.players
       .map(p => statsMap[p.playerId])
@@ -234,7 +234,7 @@ export const scoreContestService = async (contestId, matchId) => {
       playerStatsList,
       entry.captainId,
       entry.viceCaptainId,
-      allMatchMaxPoints  // ← ✅ match-level max pass చేస్తున్నాం
+      allMatchMaxPoints  
     );
 
     return {
@@ -354,16 +354,15 @@ export const getScoreBreakdownService = async (contestId, userTeamId, matchId) =
 };
 
 
-// scoring.service.js లో — new function add చేయి
+// scoring.service.js లో — new function add 
 export const updateLiveScores = async (matchId) => {
-  // ── 1. ఆ match కి ఉన్న అన్ని contests తీసుకో ──
+ 
   const [contests] = await db.query(
     `SELECT id FROM contest WHERE match_id = ? AND status = 'LIVE'`,
     [matchId]
   );
   if (!contests.length) return;
 
-  // ── 2. అన్ని entries తీసుకో ──
   const contestIds = contests.map(c => c.id);
   const [entries] = await db.query(
     `SELECT ce.contest_id, ce.user_id, ce.user_team_id,
@@ -434,11 +433,11 @@ export const updateLiveScores = async (matchId) => {
       else entry.rank = i + 1;
     });
 
-    // Redis లో store — 5 minutes expiry
+    // Redis in store — 5 minutes expiry
     await redis.set(
       lbKey(contest.id),
       JSON.stringify(ranked),
-      'EX', 300  // 5 minutes
+      'EX', 300  
     );
   }
 };

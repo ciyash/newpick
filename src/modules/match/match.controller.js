@@ -4,7 +4,7 @@ import {   getMatchesService } from "./match.service.js";
 
 
 export const getAllMatches = async (req, res) => {
-  console.log("✅ getAllMatches API HIT");
+
 
   try {
     const [rows] = await db.execute(`
@@ -30,8 +30,6 @@ export const getAllMatches = async (req, res) => {
       ORDER BY m.start_time ASC
     `);
 
-    console.log("✅ Matches fetched:", rows.length);
-
     return res.status(200).json({
       success: true,
       count: rows.length,
@@ -39,7 +37,6 @@ export const getAllMatches = async (req, res) => {
     });
 
   } catch (error) {
-    console.log("❌ Error in getAllMatches:", error.message);
 
     return res.status(500).json({
       success: false,
@@ -89,7 +86,7 @@ export const getMatches = async (req, res) => {
 export const getMatchFullDetails = async (req, res) => {
   try {
     const { id } = req.params;
-console.log("getMatchFullDetails hit with id:", id)
+
     // 1️⃣ Match details (support BOTH db id and provider_match_id)
     const [[match]] = await db.execute(
       `SELECT 
@@ -170,7 +167,7 @@ console.log("getMatchFullDetails hit with id:", id)
          FROM match_players mp
          JOIN players p ON p.id = mp.player_id
          WHERE mp.match_id = ?`,
-        [match.id] // ✅ always DB id
+        [match.id] 
       );
 
       players = mpPlayers;

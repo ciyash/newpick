@@ -1,4 +1,4 @@
-import db from "../../config/db.js"; // adjust path as needed
+import db from "../../config/db.js";
 
 // ── Constants ──────────────────────────────────────────────────────────────
 
@@ -246,7 +246,7 @@ export const getFullHistoryRequestsService = async (status = null) => {
   return { requests, total: requests.length };
 };
 
-// ── Add this to your user.activity.controller.js ──
+
 
 
 export const getFullHistoryRequests = async (req, res) => {

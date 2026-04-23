@@ -56,7 +56,7 @@ export const stripeWebhook = async (req, res) => {
 };
 
 
-// export const stripeWebhook = async (req, res) => {
+
 //   try {
 //     const sig = req.headers["stripe-signature"];
 

@@ -24,7 +24,6 @@ export const getAllContests = async (req, res) => {
     const contests = await getAllContestsService();
     return res.status(200).json({ success: true, total: contests.length, data: contests });
   } catch (err) {
-    console.error("[getAllContests]", err.message);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -48,7 +47,6 @@ export const getContestsByMatchId = async (req, res) => {
 
     return res.status(200).json({ success: true, total: contests.length, data: contests });
   } catch (err) {
-    console.error("[getContestsByMatchId]", err.message);
     return res.status(err.statusCode || 500).json({
       success: false,
       message: err.statusCode ? err.message : "Internal server error",
@@ -66,13 +64,13 @@ export const getContestsByMatchId = async (req, res) => {
 export const joinContest = async (req, res) => {
   try {
     const userId = req.user?.id;
-    const { contestId, userTeamId } = req.body;  // entryFee తీసేశాం
+    const { contestId, userTeamId } = req.body;  
 
     if (!userId)    return res.status(401).json({ success: false, message: "Unauthorized" });
     if (!contestId) return res.status(400).json({ success: false, message: "contestId is required" });
     if (!userTeamId) return res.status(400).json({ success: false, message: "userTeamId is required" });
 
-    const result = await joinContestService(userId, { // entryFee parameter తీసేశాం
+    const result = await joinContestService(userId, { 
       contestId,
       userTeamId,
       ip:     req.ip,
@@ -81,7 +79,6 @@ export const joinContest = async (req, res) => {
 
     return res.status(200).json(result);
   } catch (err) {
-    console.error("[joinContest]", err.message);
     return res.status(err.statusCode || 400).json({ success: false, message: err.message });
   }
 };
@@ -107,10 +104,10 @@ export const getMyContests = async (req, res) => {
   } 
   
   catch (err) {
-  console.error("ERROR:", err.message); // ← add this line
+
   return res.status(err.statusCode || 500).json({
     success: false,
-    message: err.message  // now shows real error in response too
+    message: err.message  
   });
 }
 };
@@ -130,7 +127,6 @@ export const getFantasyDashboard = async (req, res) => {
     const result = await getFantasyDashboardService(userId, match_id);
     return res.status(200).json(result);
   } catch (err) {
-    console.error("[getFantasyDashboard]", err.message);
     return res.status(err.statusCode || 500).json({
       success: false,
       message: err.message || "Internal server error",
@@ -144,7 +140,7 @@ export const getFantasyDashboard = async (req, res) => {
 export const compareTeam = async (req, res) => {
   try {
     const { contest_id }               = req.params;
-    const { my_team_id, opp_team_id }  = req.body;   // ✅ req.body
+    const { my_team_id, opp_team_id }  = req.body;   
     const userId                       = req.user?.id;
 
     if (!contest_id || !my_team_id || !opp_team_id)
@@ -165,7 +161,7 @@ export const compareTeam = async (req, res) => {
 
     return res.status(200).json(result);
   } catch (err) {
-    console.error("[compareTeam]", err.message);
+  
     return res.status(500).json({ success: false, message:err.message });
   }
 };
@@ -194,7 +190,7 @@ export const getLeaderboard = async (req, res) => {
 
     return res.status(200).json(result);
   } catch (err) {
-    console.error("[getLeaderboard]", err.message);
+   
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -219,7 +215,7 @@ export const getMyRank = async (req, res) => {
 
     return res.status(200).json(result);
   } catch (err) {
-    console.error("[getMyRank]", err.message);
+   
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -242,7 +238,7 @@ export const getScoreBreakdown = async (req, res) => {
     const result = await getScoreBreakdownService(contestId, userTeamId, matchId);
     return res.status(200).json(result);
   } catch (err) {
-    console.error("[getScoreBreakdown]", err.message);
+  
     return res.status(err.statusCode || 500).json({
       success: false,
       message: err.statusCode ? err.message : "Internal server error",
@@ -259,7 +255,7 @@ export const getScoreBreakdown = async (req, res) => {
 export const getContestHistory = async (req, res) => {
   try {
     const userId = req.user?.id;
-    const { year, month, page = 1, limit = 10 } = req.query; // status తీసేశాం
+    const { year, month, page = 1, limit = 10 } = req.query; 
 
     if (!userId)
       return res.status(401).json({ success: false, message: "Unauthorized" });
@@ -273,7 +269,6 @@ export const getContestHistory = async (req, res) => {
 
     return res.status(200).json(result);
   } catch (err) {
-    console.error("[getContestHistory]", err.message);
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
@@ -304,7 +299,7 @@ export const getInReviewContests = async (req, res) => {
 
 // ── Credit Winnings to Wallets ──
 const creditWinningsToWallets = async (contestId, conn) => {
-  // ── Winners fetch చేయి ──
+  // ── Winners fetch  ──
   const [winners] = await conn.query(
     `SELECT user_id, SUM(winning_amount) AS total_winning
      FROM contest_entries
@@ -315,7 +310,7 @@ const creditWinningsToWallets = async (contestId, conn) => {
 
   if (!winners.length) return 0;
 
-  // ── Each winner కి earnwallet credit చేయి ──
+  // ── Each winner కి earnwallet credit  ──
   for (const winner of winners) {
     await conn.query(
       `UPDATE wallet
@@ -355,7 +350,7 @@ export const approveContestResults = async (req, res) => {
     // ── Credit winnings ──
     const winnersCount = await creditWinningsToWallets(contestId, conn);
 
-    // ── COMPLETED గా mark చేయి ──
+    // ── COMPLETED గా mark  ──
     await conn.query(
       `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
       [contestId]
@@ -392,7 +387,6 @@ export const announceWinners = async (req, res) => {
     return res.status(200).json(result);
 
   } catch (err) {
-    console.error("AnnounceWinners Error:", err.message);
     return res.status(err.statusCode || 500).json({
       success: false,
       message: err.message,

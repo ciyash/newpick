@@ -578,7 +578,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     if (contestEntryFee > 0) {
       await applyReferralContestBonus(
         userId, contestId, ip, device, conn,
-        teamIds.length  // ✅ correctly pass చేశాం
+        teamIds.length 
       );
     }
 
@@ -845,7 +845,7 @@ export const getMyContestsService = async (userId, matchId) => {
   const isResult     = matchStatus === "RESULT";
   const showAllTeams = isLive || isResult;
 
-  // ── User join అయిన contests ──
+  // ── User join  contests ──
   const [contestRows] = await db.query(
     `SELECT
        c.id                  AS contest_id,
@@ -895,7 +895,7 @@ export const getMyContestsService = async (userId, matchId) => {
     [userId, contestIds]
   );
 
-  // ── Other entries — LIVE/RESULT లో మాత్రమే ──
+  // ── Other entries — LIVE/RESULT    ──
   let allEntryRows = [];
   if (showAllTeams) {
     const [rows] = await db.query(
@@ -926,7 +926,7 @@ export const getMyContestsService = async (userId, matchId) => {
     : [];
   const allTeamIds   = [...new Set([...myTeamIds, ...otherTeamIds])];
 
-  // ── LIVE → Redis నుండి rank + points ──
+  // ── LIVE → Redis from rank + points ──
   let liveRankMap = {};
   if (isLive) {
     for (const cid of contestIds) {
@@ -1039,10 +1039,9 @@ export const getMyContestsService = async (userId, matchId) => {
     });
 
   
-    // LIVE లో HS Bonus వద్దు
-   // తర్వాత: ✅ match-level max — అన్ని teams players లో max
+
 if (isResult) {
-  // ── Match-level max calculate చేయి ──
+  // ── Match-level max calculate  ──
   let matchMaxBase = 0;
   Object.values(teamsMap).forEach(team => {
     team.players.forEach(p => {
@@ -1050,7 +1049,7 @@ if (isResult) {
     });
   });
 
-  // ── అన్ని teams లో apply చేయి ──
+  
   Object.values(teamsMap).forEach(team => {
     if (!team.players.length) return;
     if (matchMaxBase <= 0) return;
@@ -1103,8 +1102,8 @@ if (isResult) {
     else if (isLive) rank = liveRankMap[e.user_team_id]?.rank ?? null;
 
     // ── Points ──
-    // LIVE → Redis నుండి (base points only, no captain/HS)
-    // RESULT → teamsMap నుండి (full calculation with captain/HS)
+    // LIVE → Redis from (base points only, no captain/HS)
+    // RESULT → teamsMap from (full calculation with captain/HS)
     let totalPoints = 0;
     if (isResult) {
       totalPoints = team?.totalPoints || 0;
@@ -1112,7 +1111,7 @@ if (isResult) {
       totalPoints = liveRankMap[e.user_team_id]?.points ?? team?.totalPoints ?? 0;
     }
 
-    // ── Winning Amount — COMPLETED లో మాత్రమే ──
+    // ── Winning Amount — COMPLETED   ──
     const contestStatus = c.status?.toUpperCase();
     const showWinning   = contestStatus === "COMPLETED";
  console.log(`Contest ${c.contest_id} status: ${c.status}, contestStatus: ${contestStatus}, showWinning: ${showWinning}`);
@@ -1718,13 +1717,13 @@ export const announceWinnersService = async (contestId, adminId) => {
     if (!contest)
       throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
 
-    // ── 2. Only INREVIEW contest announce చేయవచ్చు ──
+    // ── 2. Only INREVIEW contest announce  ──
     if (contest.status === "COMPLETED")
       throw Object.assign(new Error("Winners already announced"), { statusCode: 400 });
     if (contest.status !== "INREVIEW")
       throw Object.assign(new Error(`Contest is in '${contest.status}' status. Only INREVIEW contests can be announced`), { statusCode: 400 });
 
-    // ── 3. Already scored entries fetch (saveScoreResults లో already save అయ్యాయి) ──
+    // ── 3. Already scored entries fetch (saveScoreResults లో already saved ) ──
     const [winners] = await conn.query(
       `SELECT 
          ce.id AS entry_id,

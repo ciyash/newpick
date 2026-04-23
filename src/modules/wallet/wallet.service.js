@@ -1,6 +1,6 @@
 import db from "../../config/db.js";
 
-// ఇది మాత్రమే change చేయి — service top లో
+
 import { sendMail } from "../../utils/send.mail.js"
 import { logActivity } from "../../utils/activity.logger.js";
 
@@ -727,7 +727,7 @@ rows.forEach(r => {
   });
 });
 
-  // ── 8. అన్నీ కలిపి sort చేయి ──
+  // ── 8.  ──
   allActivities.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   // ── 9. Pagination ──

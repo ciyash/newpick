@@ -92,7 +92,7 @@ export const getAllPlayers = async (req, res) => {
 };
 
 export const getPlayerById = async (req, res) => {
-  console.log("✅ getPlayerById API HIT");
+  console.log("getPlayerById API HIT");
 
   try {
     const id = Number(req.params.id);
@@ -134,7 +134,7 @@ export const getPlayerById = async (req, res) => {
 
 
 export const getPlayerTeamById = async (req, res) => {
-  console.log("✅ getPlayerByTeam API HIT");
+  console.log(" getPlayerByTeam API HIT");
 
   try {
     const team_id = Number(req.params.id);

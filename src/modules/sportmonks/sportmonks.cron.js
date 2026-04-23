@@ -217,7 +217,7 @@ const syncPointsAndCacheLeaderboard = async () => {
     });
 
     // ── Step 2: LIVE matches కి leaderboard cache ──
-    // Points sync అయిన తర్వాతే run అవుతుంది ✅
+    // Points sync after, cache before — to ensure users see updated points on LB
     const liveMatchIds = matches
       .filter(m => m.status === 'LIVE')
       .map(m => m.id);
@@ -318,7 +318,7 @@ const syncContestStatuses = async () => {
   console.log("⏰ [CRON] Contest status sync started:", new Date().toISOString());
   try {
 
-    // ── UPCOMING → LIVE (match LIVE అయినప్పుడు) ──
+    // ── UPCOMING → LIVE (match LIVE ) ──
     const [toLive] = await db.query(
       `UPDATE contest c
        JOIN matches m ON m.id = c.match_id
@@ -328,7 +328,7 @@ const syncContestStatuses = async () => {
          AND m.is_active = 1`
     );
 
-    // ── LIVE → INREVIEW (match RESULT అయినప్పుడు) ──
+    // ── LIVE → INREVIEW (match RESULT ) ──
     const [toReview] = await db.query(
       `UPDATE contest c
        JOIN matches m ON m.id = c.match_id

@@ -1,10 +1,12 @@
-import { getUserProfileService, reduceMonthlyLimitService,  createFeedbackService,
-  getMyFeedbacksService } from "./user.service.js";
+import {
+  getUserProfileService, reduceMonthlyLimitService, createFeedbackService,
+  getMyFeedbacksService
+} from "./user.service.js";
 import { feedbackSchema } from "./user.validation.js";
 import db from "../../config/db.js";
 import { logActivity } from "../../utils/activity.logger.js";
 
-  
+
 export const getUserProfile = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -57,7 +59,7 @@ export const reduceMonthlyLimit = async (req, res) => {
 
 export const createFeedback = async (req, res) => {
   try {
-    const userId = req.user.id; // 🔐 from JWT
+    const userId = req.user.id;
 
     await feedbackSchema.validateAsync(req.body);
 
@@ -123,12 +125,12 @@ export const pauseAccount = async (req, res) => {
 
     logActivity({
       userId,
-      type:        "profile",
-      sub_type:    "account_paused",
-      title:       "Account Paused",
+      type: "profile",
+      sub_type: "account_paused",
+      title: "Account Paused",
       description: `Account paused for ${durationMap[duration]} days`,
-      icon:        "profile",
-      meta:        { duration, pausedTill: end },
+      icon: "profile",
+      meta: { duration, pausedTill: end },
     });
 
     return res.status(200).json({
@@ -162,11 +164,11 @@ export const deleteAccount = async (req, res) => {
 
     logActivity({
       userId,
-      type:        "profile",
-      sub_type:    "account_deleted",
-      title:       "Account Deleted",
+      type: "profile",
+      sub_type: "account_deleted",
+      title: "Account Deleted",
       description: "User account deleted",
-      icon:        "profile",
+      icon: "profile",
     });
 
     res.status(200).json({

@@ -47,7 +47,7 @@ export const getMatchesByTypeService = async (type, userId) => {
     [type.toUpperCase(), userId]
   );
 
-  // Group by match — ఒక match కి multiple contests/teams ఉండవచ్చు
+  // Group by match —  match కి multiple contests/teams 
   const matchMap = {};
 
   rows.forEach((row) => {
@@ -87,7 +87,7 @@ export const getMatchesByTypeService = async (type, userId) => {
 };
 
 
-// ✅ contestStatus parameter add చేయి
+// ✅ contestStatus parameter add 
 export const getMatchesService = async (userId, status) => {
   switch (status) {
     case "LIVE":      return getLiveMatches(userId);
@@ -98,7 +98,7 @@ export const getMatchesService = async (userId, status) => {
   }
 };
 
-// ✅ LIVE — contest_entries లో JOIN అయిన matches (status = 'LIVE')
+// ✅ LIVE — contest_entries లో JOINED matches (status = 'LIVE')
 const getLiveMatches = async (userId) => {
   const [rows] = await db.query(
     `SELECT DISTINCT
@@ -139,7 +139,7 @@ const getLiveMatches = async (userId) => {
   return groupMatchesWithEntries(rows);
 };
 
-// ✅ UPCOMING — user_teams create చేసుకున్న matches (team ఉంటే చాలు, contest join అవ్వాల్సిన అవసరం లేదు)
+// ✅ UPCOMING — user_teams create  matches 
 const getUpcomingMatches = async (userId) => {
   const [rows] = await db.query(
     `SELECT DISTINCT

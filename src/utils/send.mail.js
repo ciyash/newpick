@@ -10,7 +10,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// ✅ Server start అయినప్పుడు SMTP connection verify చేస్తుంది
+//
 transporter.verify((error, success) => {
   if (error) {
     console.error("❌ SMTP connection failed:", error.message);
@@ -26,8 +26,8 @@ export const sendMail = async (options) => {
       to: options.to,
       subject: options.subject,
       html: options.html,
-      text: options.text,           // ✅ plain text support
-      attachments: options.attachments  // ✅ PDF attachments support
+      text: options.text,           
+      attachments: options.attachments  
     });
 
     console.log("✅ Email sent:", info.messageId, "→", options.to);
@@ -35,6 +35,6 @@ export const sendMail = async (options) => {
 
   } catch (err) {
     console.error("❌ sendMail failed:", err.message);
-    throw err;  // caller కి error propagate చేస్తుంది
+    throw err;  // caller కి error propagate 
   }
 }; 

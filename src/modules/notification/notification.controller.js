@@ -51,7 +51,7 @@ export const testNotification = async (req, res) => {
 
   try {
 
-    const userId = req.user.id;   // better than params
+    const userId = req.user.id;  
 
     await notifyUser(
       userId,

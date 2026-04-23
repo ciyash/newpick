@@ -29,7 +29,7 @@ export const getUserProfileService = async (userId) => {
       kyc_status,
       mobile_verify,
       email_verify,
-      account_status          -- ✅ ADD THIS
+      account_status          
    FROM users
    WHERE id = ?`,
   [userId]
@@ -39,7 +39,7 @@ export const getUserProfileService = async (userId) => {
     throw new Error("User not found");
   }
 
-   /* ================= NICKNAME ================= */        // ✅ ADD HERE
+   /* ================= NICKNAME ================= */        
   const generateNickname = (fullName) => {
     if (!fullName) return null;
     const parts = fullName.trim().split(/\s+/);
@@ -130,8 +130,8 @@ export const getUserProfileService = async (userId) => {
       mobile: user.mobile,
       nickname: user.nickname || generateNickname(user.name),
       region: user.region,
-      accountStatus: user.account_status,   // ✅ ADD THIS
-      isActive: user.account_status === "active",  // ✅ boolean convenience field
+      accountStatus: user.account_status,  
+      isActive: user.account_status === "active",  
       category: user.category,
       dob: user.dob,
       memberSince: user.created_at,

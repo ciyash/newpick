@@ -7,16 +7,13 @@ export const startBankVerification = async (req, res) => {
 
   try {
 
-    console.log("User:", req.user);
-
+  
     const userId = req.user.id;
 
     const [[user]] = await db.query(
       `SELECT email, stripe_account_id FROM users WHERE id = ?`,
       [userId]
     );
-
-    console.log("DB User:", user);
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
@@ -45,8 +42,6 @@ export const startBankVerification = async (req, res) => {
     });
 
   } catch (error) {
-
-    console.error("BANK VERIFY ERROR:", error);
 
     res.status(500).json({
       success: false,

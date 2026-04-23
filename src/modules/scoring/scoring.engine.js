@@ -135,14 +135,14 @@ export const calculatePlayerPoints = (stats) => {
 export const calculateTeamPoints = (playerStatsList, captainId, viceCaptainId, allMatchMaxPoints = null) => {
   const playerResults = playerStatsList.map(calculatePlayerPoints);
 
-  // ── starterMap — player started గా వచ్చాడా substitute గా వచ్చాడా ──
+
   const starterMap = {};
   playerStatsList.forEach((s) => { starterMap[s.playerId] = s.started; });
 
-  // STEP 8: Highest Scorer Bonus — match-level max use చేయి
+  // STEP 8: Highest Scorer Bonus — match-level max use 
   const maxPoints = allMatchMaxPoints !== null
-    ? allMatchMaxPoints                                      // ← match-level max ✅
-    : Math.max(...playerResults.map((r) => r.basePoints));  // ← fallback (single team)
+    ? allMatchMaxPoints                                     
+    : Math.max(...playerResults.map((r) => r.basePoints));  
 
   playerResults.forEach((r) => {
     if (r.basePoints === maxPoints) {

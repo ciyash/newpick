@@ -58,16 +58,14 @@ export const resendSignupOtp = async (req, res) => {
 
     await redis.set(`SIGNUP_OTP:${normalizedMobile}`, otp, { ex: 300 });
 
-    console.log(`Signup OTP for ${normalizedMobile}:`, otp);
-
     res.json({
       success: true,
       message: "OTP resent successfully",
-      // ✅ Fix: OTP only in non-production
+    
       ...(process.env.NODE_ENV !== "production" && { otp }),
     });
   } catch (err) {
-    console.error("Resend OTP error:", err);
+   
     res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -188,7 +186,7 @@ export const verifyEmailLink = async (req, res) => {
       </html>
     `);
   } catch (err) {
-    console.error("❌ Verify email error:", err.message);
+   
     return res.status(400).send(`
       <html>
         <body style="font-family: sans-serif; text-align: center; padding: 50px;">
