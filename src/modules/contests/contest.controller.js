@@ -378,9 +378,6 @@ export const approveContestResults = async (req, res) => {
   }
 };
 
-
-
-
 // controllers/admin/contestController.js
 
 export const announceWinners = async (req, res) => {
