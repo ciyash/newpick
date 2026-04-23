@@ -92,7 +92,6 @@ export const getMatchesService = async (userId, status) => {
   switch (status) {
     case "LIVE":      return getLiveMatches(userId);
     case "UPCOMING":  return getUpcomingMatches(userId);
-    case "RESULT":    return getPastMatches(userId, null);
     case "INREVIEW":  return getPastMatches(userId, 'INREVIEW');
     case "COMPLETED": return getPastMatches(userId, 'COMPLETED');
     default: throw new Error("Invalid status");
@@ -230,7 +229,7 @@ const getUpcomingMatches = async (userId) => {
 
 // ✅ RESULT — completed matches (status = 'RESULT')
 
-const getPastMatches = async (userId, contestStatus = null) => {
+const getPastMatches = async (userId, contestStatus) => {
 
   // contestStatus based on HAVING filter
   const havingClause = contestStatus
