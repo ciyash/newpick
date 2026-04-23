@@ -2,10 +2,9 @@
 import cron from "node-cron";
 import db    from "../../config/db.js";
 import redis from "../../config/redis.js";
-import {
-  syncPlayingXIService,
-  syncPlayerPointsService,
-} from "./sportmonks.service.js";
+
+import { syncPlayingXIService, syncPlayerPointsService} from "./sportmonks.service.js";
+
 import { scoreContestService } from "../scoring/scoring.service.js";
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -13,7 +12,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const formatDateTime = (date) => {
   return date.toISOString().slice(0, 19).replace("T", " ");
 };
-
+  
 // ─────────────────────────────────────────────────────────────────────────────
 // CACHE KEY
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,7 +265,9 @@ const scoreCompletedMatches = async () => {
        WHERE m.is_active = 1
          AND m.status = 'RESULT'
          AND c.status NOT IN ('COMPLETED')
-         AND m.start_time >= DATE_SUB(NOW(), INTERVAL 6 HOUR)
+         AND m.start_time >= DATE_SUB(NOW(), INTERVAL 48 HOUR)
+   
+
        ORDER BY c.id ASC`
     );
 
@@ -349,6 +350,7 @@ const syncContestStatuses = async () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // REGISTER ALL CRON JOBS
 // ─────────────────────────────────────────────────────────────────────────────
+
 export const startCronJobs = () => {
 
   // Lineup — every 5 mins
@@ -371,3 +373,4 @@ export const startCronJobs = () => {
 
   console.log("🚀 [CRON] All jobs registered");
 };
+

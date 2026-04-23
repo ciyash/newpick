@@ -278,6 +278,32 @@ export const getInReviewContests = async (req, res) => {
   }
 };
 
+// ── Credit Winnings to Wallets ──
+const creditWinningsToWallets = async (contestId, conn) => {
+  // ── Winners fetch చేయి ──
+  const [winners] = await conn.query(
+    `SELECT user_id, SUM(winning_amount) AS total_winning
+     FROM contest_entries
+     WHERE contest_id = ? AND winning_amount > 0
+     GROUP BY user_id`,
+    [contestId]
+  );
+
+  if (!winners.length) return 0;
+
+  // ── Each winner కి earnwallet credit చేయి ──
+  for (const winner of winners) {
+    await conn.query(
+      `UPDATE wallet
+       SET earnwallet = earnwallet + ?
+       WHERE user_id = ?`,
+      [winner.total_winning, winner.user_id]
+    );
+  }
+
+  return winners.length;
+};
+
 // ── POST /admin/contests/:contestId/approve ──
 export const approveContestResults = async (req, res) => {
   const { contestId } = req.params;

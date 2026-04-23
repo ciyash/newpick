@@ -55,6 +55,4 @@ router.post("/contests/approve/:contestId", adminAuth(), approveContestResults);
 router.get("/contests/announce-winners/:contestId", adminAuth(), announceWinners);
 
 
-
-
 export default router;  
