@@ -27,6 +27,7 @@ router.post("/join", authenticate, checkAccountActive, joinContest);
 
 // ── Authenticated user's contests ────────────────────────────────────────────
 router.get("/dashboard/:match_id", authenticate, checkAccountActive, getFantasyDashboard);
+
 router.get("/my-contests/:match_id", authenticate, checkAccountActive, getMyContests);
 
 // ── Leaderboard + Winnings (two tabs in the UI) ───────────────────────────────

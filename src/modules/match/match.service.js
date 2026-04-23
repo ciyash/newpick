@@ -231,6 +231,12 @@ const getUpcomingMatches = async (userId) => {
 // ✅ RESULT — completed matches (status = 'RESULT')
 
 const getPastMatches = async (userId, contestStatus = null) => {
+
+  // contestStatus based on HAVING filter
+  const havingClause = contestStatus
+    ? `HAVING SUM(CASE WHEN c.status = '${contestStatus}' THEN 1 ELSE 0 END) > 0`
+    : "";
+
   const [matches] = await db.query(
     `SELECT 
         m.id              AS matchId,
@@ -257,15 +263,15 @@ const getPastMatches = async (userId, contestStatus = null) => {
      LEFT JOIN series s     ON s.seriesid = m.series_id
      WHERE ce.user_id = ?
        AND m.status   = 'RESULT'
-       ${contestStatus ? "AND c.status = ?" : ""}
      GROUP BY 
         m.id, m.seriesname, m.hometeamname, m.awayteamname,
         m.matchdate, m.start_time, m.status,
         t_home.short_name, t_home.logo,
         t_away.short_name, t_away.logo,
         s.id, s.name
+     ${havingClause}
      ORDER BY m.start_time DESC`,
-    contestStatus ? [userId, contestStatus] : [userId]
+    [userId]
   );
 
   if (!matches.length) return [];
@@ -295,7 +301,8 @@ const getPastMatches = async (userId, contestStatus = null) => {
          JOIN contest c      ON c.id = ce.contest_id
          JOIN user_teams ut  ON ut.id = ce.user_team_id
          WHERE ut.user_id = ? AND ut.match_id = ?
-         ${contestStatus ? "AND c.status = ?" : ""}`,
+         ${contestStatus ? "AND c.status = ?" : ""}
+         GROUP BY c.id, ce.urank, ce.winning_amount`,
         contestStatus ? [userId, match.matchId, contestStatus] : [userId, match.matchId]
       );
 
