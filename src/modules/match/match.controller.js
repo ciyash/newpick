@@ -58,7 +58,7 @@ export const getMatches = async (req, res) => {
 
   const status = req.params.status
 
-  const validTypes = ["LIVE", "UPCOMING", "RESULT", "INREVIEW", "COMPLETED"];
+ const validTypes = ["LIVE", "UPCOMING", "INREVIEW", "COMPLETED"];
   
     if (!status || !validTypes.includes(status)) {
       return res.status(400).json({
