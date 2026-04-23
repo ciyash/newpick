@@ -90,11 +90,11 @@ export const getMatchesByTypeService = async (type, userId) => {
 // ✅ contestStatus parameter add చేయి
 export const getMatchesService = async (userId, status) => {
   switch (status) {
-    case "LIVE":     return getLiveMatches(userId);
-    case "UPCOMING": return getUpcomingMatches(userId);
-    case "RESULT":   return getPastMatches(userId);        // INREVIEW + COMPLETED రెండూ
-    case "INREVIEW":   return getPastMatches(userId, 'INREVIEW');   // INREVIEW మాత్రమే
-    case "COMPLETED":  return getPastMatches(userId, 'COMPLETED');  // COMPLETED మాత్రమే
+    case "LIVE":      return getLiveMatches(userId);
+    case "UPCOMING":  return getUpcomingMatches(userId);
+    case "RESULT":    return getPastMatches(userId, null);
+    case "INREVIEW":  return getPastMatches(userId, 'INREVIEW');
+    case "COMPLETED": return getPastMatches(userId, 'COMPLETED');
     default: throw new Error("Invalid status");
   }
 };
@@ -230,7 +230,7 @@ const getUpcomingMatches = async (userId) => {
 
 // ✅ RESULT — completed matches (status = 'RESULT')
 
-const getPastMatches = async (userId) => {
+const getPastMatches = async (userId, contestStatus = null) => {
   const [matches] = await db.query(
     `SELECT 
         m.id              AS matchId,
@@ -251,11 +251,13 @@ const getPastMatches = async (userId) => {
      FROM contest_entries ce
      JOIN user_teams ut     ON ut.id = ce.user_team_id
      JOIN matches m         ON m.id = ut.match_id
+     JOIN contest c         ON c.id = ce.contest_id
      LEFT JOIN teams t_home ON t_home.id = m.home_team_id
      LEFT JOIN teams t_away ON t_away.id = m.away_team_id
      LEFT JOIN series s     ON s.seriesid = m.series_id
      WHERE ce.user_id = ?
        AND m.status   = 'RESULT'
+       ${contestStatus ? "AND c.status = ?" : ""}
      GROUP BY 
         m.id, m.seriesname, m.hometeamname, m.awayteamname,
         m.matchdate, m.start_time, m.status,
@@ -263,7 +265,7 @@ const getPastMatches = async (userId) => {
         t_away.short_name, t_away.logo,
         s.id, s.name
      ORDER BY m.start_time DESC`,
-    [userId]
+    contestStatus ? [userId, contestStatus] : [userId]
   );
 
   if (!matches.length) return [];
@@ -280,21 +282,21 @@ const getPastMatches = async (userId) => {
         [userId, match.matchId]
       );
 
-      // ✅ Contests info add చేయి
       const [contests] = await db.query(
         `SELECT 
-           c.id            AS contestId,
-           c.contest_type  AS contestType,
-           c.status        AS contestStatus,
-           c.prize_pool    AS prizePool,
-           c.first_prize   AS firstPrize,
+           c.id              AS contestId,
+           c.contest_type    AS contestType,
+           c.status          AS contestStatus,
+           c.prize_pool      AS prizePool,
+           c.first_prize     AS firstPrize,
            ce.urank,
            ce.winning_amount AS winningAmount
          FROM contest_entries ce
-         JOIN contest c ON c.id = ce.contest_id
-         JOIN user_teams ut ON ut.id = ce.user_team_id
-         WHERE ut.user_id = ? AND ut.match_id = ?`,
-        [userId, match.matchId]
+         JOIN contest c      ON c.id = ce.contest_id
+         JOIN user_teams ut  ON ut.id = ce.user_team_id
+         WHERE ut.user_id = ? AND ut.match_id = ?
+         ${contestStatus ? "AND c.status = ?" : ""}`,
+        contestStatus ? [userId, match.matchId, contestStatus] : [userId, match.matchId]
       );
 
       return {
@@ -317,14 +319,13 @@ const getPastMatches = async (userId) => {
         teamCount:    match.teamCount,
         contestCount: match.contestCount,
         teams:        teams.map(t => ({ teamId: t.teamId, teamName: t.teamName })),
-        // ✅ contests info
         contests:     contests.map(c => ({
           contestId:     c.contestId,
           contestType:   c.contestType,
-          contestStatus: c.contestStatus,  // INREVIEW or COMPLETED
-          prizePool:     Number(c.prizePool) || 0,
-          firstPrize:    Number(c.firstPrize) || 0,
-          urank:         c.urank || null,
+          contestStatus: c.contestStatus,
+          prizePool:     Number(c.prizePool)     || 0,
+          firstPrize:    Number(c.firstPrize)    || 0,
+          urank:         c.urank                 || null,
           winningAmount: Number(c.winningAmount) || 0,
         })),
       };
