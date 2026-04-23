@@ -86,11 +86,15 @@ export const getMatchesByTypeService = async (type, userId) => {
   return Object.values(matchMap);
 };
 
+
+// ✅ contestStatus parameter add చేయి
 export const getMatchesService = async (userId, status) => {
   switch (status) {
     case "LIVE":     return getLiveMatches(userId);
     case "UPCOMING": return getUpcomingMatches(userId);
-    case "RESULT":   return getPastMatches(userId);
+    case "RESULT":   return getPastMatches(userId);        // INREVIEW + COMPLETED రెండూ
+    case "INREVIEW":   return getPastMatches(userId, 'INREVIEW');   // INREVIEW మాత్రమే
+    case "COMPLETED":  return getPastMatches(userId, 'COMPLETED');  // COMPLETED మాత్రమే
     default: throw new Error("Invalid status");
   }
 };
