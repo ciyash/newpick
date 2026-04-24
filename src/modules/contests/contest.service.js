@@ -1232,6 +1232,7 @@ if (isResult) {
 // COMPARE TEAM
 // ─────────────────────────────────────────────────────────────────────────────
 
+
 const getTeamPlayers = async (userTeamId, matchId) => {
   const [rows] = await db.query(
     `SELECT
@@ -1239,7 +1240,8 @@ const getTeamPlayers = async (userTeamId, matchId) => {
        p.name AS player_name, p.playerimage AS player_image,
        p.player_type AS player_role, p.playercredits AS player_credits,
        t.short_name AS team_short,
-       COALESCE(pms.fantasy_points, 0) AS base_points
+       COALESCE(pms.fantasy_points, 0) AS base_points,
+       COALESCE(utp.points, 0)         AS final_points  -- ✅ add చేయి
      FROM user_team_players utp
      JOIN players p  ON p.id = utp.player_id
      LEFT JOIN teams t ON t.id = p.team_id
@@ -1248,20 +1250,22 @@ const getTeamPlayers = async (userTeamId, matchId) => {
      WHERE utp.user_team_id = ?`,
     [matchId, userTeamId]
   );
+
   return rows.map(r => {
     const multiplier = r.is_captain ? 2 : r.is_vice_captain ? 1.5 : 1;
     return {
-      player_id: r.player_id,
-      player_name: r.player_name,
-      player_image: r.player_image || null,
-      player_role: r.player_role || null,
+      player_id:      r.player_id,
+      player_name:    r.player_name,
+      player_image:   r.player_image   || null,
+      player_role:    r.player_role    || null,
       player_credits: r.player_credits || null,
-      team_short: r.team_short || null,
-      is_captain: !!r.is_captain,
+      team_short:     r.team_short     || null,
+      is_captain:     !!r.is_captain,
       is_vice_captain: !!r.is_vice_captain,
-      base_points: parseFloat(r.base_points),
+      base_points:    parseFloat(r.base_points),
       multiplier,
-      effective_points: parseFloat((r.base_points * multiplier).toFixed(2)),
+      // ✅ utp.points use చేయి (HS Bonus included)
+      effective_points: parseFloat(r.final_points) || parseFloat((r.base_points * multiplier).toFixed(2)),
     };
   });
 };
