@@ -2438,6 +2438,27 @@ export const getContestCategories = async ({ page = 1, limit = 20 } = {}) => {
   };
 };
 
+export const getContestcategoryById = async (id) => {
+
+  if (!id || isNaN(Number(id))) throw new Error("Valid contest ID is required");
+
+  const [[row]] = await db.query(
+    `SELECT SELECT
+       id,
+       name,
+       percentage,
+       entryfee,
+       platformfee,
+       created_at
+     FROM contestcategory
+     WHERE c.id = ?`,
+    [Number(id)]
+  );
+
+  if (!row) throw new Error("Contest not found");
+  return row;
+};
+
 
 export const updateContestCategory = async (id, data, admin, ip) => {
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
@@ -3064,7 +3085,7 @@ export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
 // ── Users ─────────────────────────────────────────────────────
 
 const USER_COLUMNS = `
-  id, name, email, mobile, referalid,
+  id, name, email, mobile, referralid,
   usercode, phoneverify, iskycverify,
   account_status,userid, kyc_status, created_at
 `;
@@ -3097,7 +3118,7 @@ export const fetchUsers = async (filters = {}, { page = 1, limit = 20 } = {}) =>
   const params     = [];
 
   if (userid)                 { conditions.push(`id = ?`);             params.push(Number(userid)); }
-  if (referalid)              { conditions.push(`referalid = ?`);      params.push(Number(referalid)); }
+  if (referalid)              { conditions.push(`referralid = ?`);      params.push(Number(referalid)); }
   if (name?.trim())           { conditions.push(`name LIKE ?`);        params.push(`%${name.trim()}%`); }
   if (email?.trim())          { conditions.push(`email = ?`);          params.push(email.trim()); }
   if (mobile?.trim())         { conditions.push(`mobile = ?`);         params.push(mobile.trim()); }

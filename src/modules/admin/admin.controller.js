@@ -407,6 +407,15 @@ export const getContestCategories = async (req, res) => {
   }
 };
 
+
+export const getContestcategoryById = async (req, res) => {
+  try {
+    const data = await s.getContestcategoryById(req.params.id);
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
 export const updateContestCategory = async (req, res) => {
   try {
     await s.updateContestCategory(req.params.id, req.body, req.admin, getClientIp(req));
