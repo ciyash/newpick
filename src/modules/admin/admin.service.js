@@ -3086,7 +3086,7 @@ export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
 
 const USER_COLUMNS = `
   id, name, email, mobile, referralid,
-  usercode, phoneverify, iskycverify,
+  usercode, mobile_verify, 
   account_status,userid, kyc_status, created_at
 `;
 
