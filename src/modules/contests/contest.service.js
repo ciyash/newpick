@@ -262,6 +262,24 @@ export const getPrizeForRank = (rank, prizeDistribution, entryFee, refundWinners
   return tier ? Number(tier.amount) || 0 : 0;
 };
 
+const buildCompetitionRankMap = (scoredRows = []) => {
+  const sorted = [...scoredRows].sort((a, b) => b.points - a.points);
+  const rankMap = {};
+
+  let prevPoints = null;
+  let currentRank = 0;
+
+  sorted.forEach((row, idx) => {
+    if (prevPoints === null || row.points !== prevPoints) {
+      currentRank = idx + 1;
+      prevPoints = row.points;
+    }
+    rankMap[row.userTeamId] = currentRank;
+  });
+
+  return rankMap;
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER — Team total points WITH captain ×2 / vice-captain ×1.5
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1085,6 +1103,31 @@ if (isResult) {
     });
   }
 
+  const computedResultRankByContest = {};
+  if (isResult) {
+    contestRows.forEach(c => {
+      const contestId = c.contest_id;
+      const contestEntries = [
+        ...(myEntriesByContest[contestId] || []),
+        ...(otherEntriesByContest[contestId] || []),
+      ];
+
+      const uniqueByTeam = new Map();
+      contestEntries.forEach(e => {
+        const teamId = e.user_team_id;
+        if (!teamId || uniqueByTeam.has(teamId)) return;
+        uniqueByTeam.set(teamId, {
+          userTeamId: teamId,
+          points: Number(teamsMap[teamId]?.totalPoints ?? 0),
+        });
+      });
+
+      computedResultRankByContest[contestId] = buildCompetitionRankMap(
+        [...uniqueByTeam.values()]
+      );
+    });
+  }
+
   // ── Format entry ──
   const formatEntry = (e, isOwn, c) => {
     const team    = teamsMap[e.user_team_id] || null;
@@ -1096,7 +1139,12 @@ if (isResult) {
 
     // ── Rank ──
     let rank = null;
-    if (isResult)    rank = e.urank || null;
+    if (isResult) {
+      rank =
+        computedResultRankByContest[c.contest_id]?.[e.user_team_id] ??
+        e.urank ??
+        null;
+    }
     else if (isLive) rank = liveRankMap[e.user_team_id]?.rank ?? null;
 
     // ── Points ──
@@ -1112,11 +1160,10 @@ if (isResult) {
     // ── Winning Amount — COMPLETED లో మాత్రమే ──
     const contestStatus = c.status?.toUpperCase();
     const showWinning   = contestStatus === "COMPLETED";
- console.log(`Contest ${c.contest_id} status: ${c.status}, contestStatus: ${contestStatus}, showWinning: ${showWinning}`);
-  // ...
+    const rankForPrize = e.urank ?? rank;
     const winningAmount = showWinning
       ? (Number(e.winning_amount) || getPrizeForRank(
-           e.urank,
+           rankForPrize,
            c.prize_distribution ?? null,
            c.entry_fee,
            c.refund_winners,
@@ -1921,6 +1968,30 @@ export const announceWinnersService = async (contestId, adminId) => {
       throw Object.assign(new Error("Winners already announced"), { statusCode: 400 });
     if (contest.status !== "INREVIEW")
       throw Object.assign(new Error(`Contest is in '${contest.status}' status. Only INREVIEW contests can be announced`), { statusCode: 400 });
+
+    // ── Backfill urank if still null (safety for legacy unscored rows) ──
+    await conn.query(
+      `UPDATE contest_entries ce
+       JOIN (
+         SELECT
+           ce2.id,
+           RANK() OVER (
+             ORDER BY COALESCE(team_pts.total_points, 0) DESC
+           ) AS computed_rank
+         FROM contest_entries ce2
+         LEFT JOIN (
+           SELECT
+             utp.user_team_id,
+             SUM(COALESCE(utp.points, 0)) AS total_points
+           FROM user_team_players utp
+           GROUP BY utp.user_team_id
+         ) team_pts ON team_pts.user_team_id = ce2.user_team_id
+         WHERE ce2.contest_id = ?
+       ) ranked ON ranked.id = ce.id
+       SET ce.urank = ranked.computed_rank
+       WHERE ce.contest_id = ? AND ce.urank IS NULL`,
+      [contestId, contestId]
+    );
 
     // ── 3. Already scored entries fetch (saveScoreResults లో already save అయ్యాయి) ──
     const [winners] = await conn.query(
