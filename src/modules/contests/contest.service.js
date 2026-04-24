@@ -1603,7 +1603,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
 
   const matchStatus   = contest.match_status?.toUpperCase();
   const contestStatus = contest.status?.toUpperCase();
-
+console.log(`Contest ${contestId} — matchStatus: ${matchStatus}, contestStatus: ${contestStatus}`);
   // ── UPCOMING ──
   if (matchStatus === "UPCOMING") {
     return {

@@ -298,8 +298,9 @@ export const getInReviewContests = async (req, res) => {
 };
 
 // ── Credit Winnings to Wallets ──
+
+
 const creditWinningsToWallets = async (contestId, conn) => {
-  // ── Winners fetch  ──
   const [winners] = await conn.query(
     `SELECT user_id, SUM(winning_amount) AS total_winning
      FROM contest_entries
@@ -310,13 +311,39 @@ const creditWinningsToWallets = async (contestId, conn) => {
 
   if (!winners.length) return 0;
 
-  // ── Each winner కి earnwallet credit  ──
   for (const winner of winners) {
+    // ── 1. Current balance fetch ──
+    const [[wallet]] = await conn.query(
+      `SELECT earnwallet FROM wallets WHERE user_id = ?`,
+      [winner.user_id]
+    );
+    if (!wallet) continue;
+
+    const openingBalance = parseFloat(wallet.earnwallet) || 0;
+    const closingBalance = openingBalance + parseFloat(winner.total_winning);
+
+    // ── 2. earnwallet update ──
     await conn.query(
-      `UPDATE wallet
+      `UPDATE wallets
        SET earnwallet = earnwallet + ?
        WHERE user_id = ?`,
       [winner.total_winning, winner.user_id]
+    );
+
+    // ── 3. wallet_transactions record ──
+    await conn.query(
+     `INSERT INTO wallet_transactions
+   (user_id, wallettype, transtype, remark, amount,
+    opening_balance, closing_balance, reference_id)
+ VALUES (?, 'winning', 'credit', ?, ?, ?, ?, ?)`,
+      [
+        winner.user_id,
+        `Contest #${contestId} winning`,
+        winner.total_winning,
+        openingBalance,
+        closingBalance,
+        `CONTEST_${contestId}`,
+      ]
     );
   }
 
