@@ -1,6 +1,7 @@
 import {
   buySubscriptionService,
-  getSubscriptionStatusService
+  getSubscriptionStatusService,
+  getAllPackages
 } from "./subscription.service.js";
 
 export const buySubscription = async (req, res) => {
@@ -47,4 +48,21 @@ export const getSubscriptionStatus = async (req, res) => {
       message: err.message
     });
   }
+}; 
+
+
+export const fetchAllPackages = async (req, res) => {
+    try {
+        const packages = await getAllPackages();
+
+        return res.status(200).json({
+            success: true,
+            data: packages
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
 };

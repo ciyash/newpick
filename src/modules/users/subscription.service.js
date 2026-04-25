@@ -632,5 +632,14 @@ export const getSubscriptionStatusService = async (userId) => {
   };
 };
   
+export const getAllPackages = async () => {
+    try {
+        const query = 'SELECT * FROM subscription_packages ORDER BY id ASC';
+        const [rows] = await db.execute(query);
+        return rows;
+    } catch (error) {
+        throw error;
+    }
+};
 
 
