@@ -31,24 +31,24 @@ export const buySubscription = async (req, res) => {
   }
 };
 
+
 export const getSubscriptionStatus = async (req, res) => {
   try {
     const userId = req.user.id;
-
     const result = await getSubscriptionStatusService(userId);
-
-    return res.status(200).json({
-      success: true,
-      ...result
-    });
-
+    return res.status(200).json(result);
   } catch (err) {
     return res.status(400).json({
       success: false,
-      message: err.message
+      data:    null,
+      error:   err.message,
+      meta: {
+        timestamp: new Date().toISOString(),
+        version:   "v1"
+      }
     });
   }
-}; 
+};
 
 
 export const fetchAllPackages = async (req, res) => {
