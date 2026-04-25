@@ -414,11 +414,13 @@ export const getSubscriptionStatusService = async (userId) => {
   );
 
   // Other packages
+
+  // Other packages — allPackages use cheyyi
   const [otherPackages] = await db.query(
     `SELECT id, package_name, amount, bonus, duration
      FROM subscription_packages
-     WHERE duration != ? AND status = 'Active'`,
-    [user.subscribepack]
+     WHERE status = 'Active'`,  // WHERE duration != ? తీసేసాం
+    []
   );
 
   return {
