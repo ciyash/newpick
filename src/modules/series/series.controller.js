@@ -1,6 +1,75 @@
 import db from "../../config/db.js";
 
 
+// export const getAllSeries = async (req, res) => {
+//   try {
+//     const [seriesRows] = await db.execute(`
+//       SELECT 
+//         id, seriesid, name, season,
+//         start_date, end_date, created_at,
+//         status, is_selected
+//       FROM series
+//       ORDER BY created_at DESC
+//     `);
+
+//     const result = await Promise.all(
+//       seriesRows.map(async (series) => {
+
+//         const [matches] = await db.execute(
+//           `SELECT 
+//               m.id,
+//               m.provider_match_id,
+//               m.series_id,
+//               m.start_time,
+//               m.status,
+//               m.matchdate,
+//               m.lineupavailable,
+//               m.lineup_status,
+//               m.is_active,
+//               ht.short_name AS home_team_name,
+//               awt.short_name AS away_team_name,
+//               ht.logo AS home_team_logo,
+//               awt.logo AS away_team_logo,
+//               COUNT(c.id) AS total_contests
+//             FROM matches m
+//             JOIN teams ht ON m.home_team_id = ht.id
+//             JOIN teams awt ON m.away_team_id = awt.id
+//             LEFT JOIN contest c ON c.match_id = m.id
+//             WHERE m.series_id = ?
+//               AND m.is_active = 1
+//             GROUP BY 
+//               m.id, m.provider_match_id, m.series_id,
+//               m.start_time, m.status, m.matchdate,
+//               m.lineupavailable, m.lineup_status, m.is_active,
+//               ht.short_name, awt.short_name,
+//               ht.logo, awt.logo
+//             ORDER BY m.start_time ASC`,
+//           [series.seriesid]
+//         );
+
+//         return {
+//           ...series,
+//           total_matches: matches.length,
+//           matches,
+//         };
+//       })
+//     );
+
+//     res.status(200).json({
+//       success: true,
+//       count: result.length,
+//       data: result,
+//     });
+
+//   } catch (error) {
+//     console.error("GetAllSeries Error:", error.message);
+//     res.status(500).json({
+//       success: false,
+//       message: error.message,
+//     });
+//   }
+// };
+
 export const getAllSeries = async (req, res) => {
   try {
     const [seriesRows] = await db.execute(`
@@ -37,6 +106,7 @@ export const getAllSeries = async (req, res) => {
             LEFT JOIN contest c ON c.match_id = m.id
             WHERE m.series_id = ?
               AND m.is_active = 1
+              AND m.status = 'UPCOMING'
             GROUP BY 
               m.id, m.provider_match_id, m.series_id,
               m.start_time, m.status, m.matchdate,
@@ -55,10 +125,13 @@ export const getAllSeries = async (req, res) => {
       })
     );
 
+    // UPCOMING matches leni series filter out cheyyi
+    const filtered = result.filter((series) => series.total_matches > 0);
+
     res.status(200).json({
       success: true,
-      count: result.length,
-      data: result,
+      count: filtered.length,
+      data: filtered,
     });
 
   } catch (error) {
