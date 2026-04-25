@@ -1967,7 +1967,7 @@ export const announceWinnersService = async (contestId, adminId) => {
     if (!contest)
       throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
 
-    // ── 2. Only INREVIEW contest announce చేయవచ్చు ──
+    // ── 2. Only INREVIEW contest announce 
     if (contest.status === "COMPLETED")
       throw Object.assign(new Error("Winners already announced"), { statusCode: 400 });
     if (contest.status !== "INREVIEW")
@@ -2112,29 +2112,36 @@ export const announceWinnersService = async (contestId, adminId) => {
 };
 
 // ── Full refund helper (min entries not met) ──
+
+
 const handleFullRefund = async (conn, contestId, contest) => {
   const [entries] = await conn.query(
-    `SELECT user_id, entry_fee FROM contest_entries
+    `SELECT DISTINCT user_id, entry_fee
+     FROM contest_entries
      WHERE contest_id = ? AND status = 'active'`,
     [contestId]
   );
 
   for (const entry of entries) {
-    const refundAmt = Number(entry.entry_fee);
+    const refundAmt = Number(entry.entry_fee) || Number(contest.entry_fee);
+    if (!refundAmt) continue;
+
     const [[wallet]] = await conn.query(
       `SELECT depositwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
       [entry.user_id]
     );
     if (!wallet) continue;
 
-    const openBal = Number(wallet.depositwallet);
+    const openBal  = Number(wallet.depositwallet);
     const closeBal = parseFloat((openBal + refundAmt).toFixed(2));
 
+    // ── Deposit wallet credit ──
     await conn.query(
       `UPDATE wallets SET depositwallet = depositwallet + ? WHERE user_id = ?`,
       [refundAmt, entry.user_id]
     );
 
+    // ── Transaction log ──
     await conn.query(
       `INSERT INTO wallet_transactions
        (user_id, wallettype, transtype, remark, amount,
@@ -2149,11 +2156,59 @@ const handleFullRefund = async (conn, contestId, contest) => {
       ]
     );
 
+    // ── Entry status → refunded ──
     await conn.query(
-      `UPDATE contest_entries SET status = 'refunded' WHERE contest_id = ? AND user_id = ?`,
+      `UPDATE contest_entries SET status = 'refunded'
+       WHERE contest_id = ? AND user_id = ?`,
       [contestId, entry.user_id]
     );
   }
+
+  // ── Contest → COMPLETED ──
+  await conn.query(
+    `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
+    [contestId]
+  );
 };
 
+
+
+
+export const cancelContestService = async (contestId) => {
+  let conn;
+  try {
+    conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    const [[contest]] = await conn.query(
+      `SELECT id, status, entry_fee, min_entries, current_entries
+       FROM contest WHERE id = ? FOR UPDATE`,
+      [contestId]
+    );
+    if (!contest)
+      throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
+
+    if (contest.status === "COMPLETED")
+      throw Object.assign(new Error("Contest already completed"), { statusCode: 400 });
+
+    if (contest.status === "INREVIEW")
+      throw Object.assign(new Error("Contest in review — use announce instead"), { statusCode: 400 });
+
+    // ── Full refund ──
+    await handleFullRefund(conn, contestId, contest);
+
+    await conn.commit();
+
+    return {
+      success: true,
+      message: `Contest #${contestId} cancelled — all entries refunded`,
+      contestId,
+    };
+  } catch (err) {
+    if (conn) await conn.rollback();
+    throw err;
+  } finally {
+    if (conn) conn.release();
+  }
+};
 

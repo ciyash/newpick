@@ -15,6 +15,7 @@ import {
   getInReviewContests,
   approveContestResults,
   announceWinners,
+  cancelContest,
 } from "./contest.controller.js";
 import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
@@ -57,7 +58,10 @@ router.post("/contests/approve/:contestId", adminAuth(), approveContestResults);
 
 router.get("/contests/announce-winners/:contestId", adminAuth(), announceWinners);
 
-
+router.post("/contests/:contestId/cancel", adminAuth(), cancelContest);
 
 
 export default router;  
+  
+
+  

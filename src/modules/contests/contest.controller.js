@@ -13,6 +13,7 @@ import {
   compareTeamService,
   getContestHistoryService,
   announceWinnersService,
+  cancelContestService,
 } from "./contest.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -418,5 +419,18 @@ export const announceWinners = async (req, res) => {
       success: false,
       message: err.message,
     });
+  }
+};
+
+
+
+// admin.controller.js లో
+export const cancelContest = async (req, res) => {
+  try {
+    const { contestId } = req.params;
+    const result = await cancelContestService(contestId);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(err.statusCode || 500).json({ success: false, message: err.message });
   }
 };
