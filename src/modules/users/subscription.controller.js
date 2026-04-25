@@ -48,7 +48,7 @@ export const getSubscriptionStatus = async (req, res) => {
       message: err.message
     });
   }
-};
+}; 
 
 
 export const fetchAllPackages = async (req, res) => {
