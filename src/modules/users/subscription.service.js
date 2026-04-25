@@ -375,10 +375,7 @@ export const getSubscriptionStatusService = async (userId) => {
       price:    Number(pkg.amount),
       currency: "GBP",
       bonus:    Number(pkg.bonus),
-      duration: {
-        value: durationValue,
-        unit:  "month"
-      }
+      duration: pkg.duration  
     };
   };
 
@@ -435,10 +432,7 @@ export const getSubscriptionStatusService = async (userId) => {
           price:       Number(user.amount),
           currency:    "GBP",
           bonus:       Number(currentPack?.bonus),
-          duration: {
-            value: currentPack?.duration === "1M" ? 1 : 3,
-            unit:  "month"
-          },
+          duration:    currentPack?.duration, 
           billingCycle: user.period,
           status:       user.sub_status,
           startAt:      user.subscription_date,
