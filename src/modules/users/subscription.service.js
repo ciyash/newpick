@@ -591,39 +591,61 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
   }
 };
 
+
 export const getSubscriptionStatusService = async (userId) => {
   const [[user]] = await db.query(
     `SELECT
-      subscribe,
-      subscribepack,
-      subscribestartdate,
-      subscribeenddate,
-      nextsubscribe,
-      nextsubscribestartdate,
-      nextsubscribeenddate
-     FROM users
-     WHERE id = ?`,
+       u.subscribe,
+       u.subscribepack,
+       u.subscribestartdate,
+       u.subscribeenddate,
+       u.nextsubscribe,
+       u.nextsubscribestartdate,
+       u.nextsubscribeenddate,
+       sp.id AS package_id,
+       sp.package_name,
+       sp.amount AS package_price,
+       sp.bonus AS package_bonus,
+       sp.duration AS package_duration,
+       sp.status AS package_status
+     FROM users u
+     LEFT JOIN subscription_packages sp ON sp.package_name = u.subscribepack
+     WHERE u.id = ?`,
     [userId]
   );
 
   if (!user || user.subscribe !== 1 || !user.subscribeenddate) {
-    return { active: false };
+    return {
+      active: false,
+      message: "No active subscription"
+    };
   }
 
   const now = new Date();
 
-  if (new Date(user.subscribeenddate).getTime() < now.getTime()) {
-    return { active: false, message: "Subscription expired" };
+  if (new Date(user.subscribeenddate) < now) {
+    return {
+      active: false,
+      message: "Your subscription expired"
+    };
   }
 
   return {
     active: true,
     current: {
-      plan: user.subscribepack,
+      pack: user.subscribepack,
       startDate: user.subscribestartdate,
-      endDate: user.subscribeenddate
+      endDate: user.subscribeenddate,
+      packageDetails: {
+        id: user.package_id,
+        name: user.package_name,
+        price: user.package_price,
+        bonus: user.package_bonus,
+        duration: user.package_duration,
+        status: user.package_status
+      }
     },
-    next: user.nextsubscribe
+    next: user.nextsubscribe === 1
       ? {
           startDate: user.nextsubscribestartdate,
           endDate: user.nextsubscribeenddate
