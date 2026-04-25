@@ -592,6 +592,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
 };
 
 
+
 export const getSubscriptionStatusService = async (userId) => {
   const [[user]] = await db.query(
     `SELECT
@@ -599,35 +600,30 @@ export const getSubscriptionStatusService = async (userId) => {
        u.subscribepack,
        u.subscribestartdate,
        u.subscribeenddate,
-       u.nextsubscribe,
-       u.nextsubscribestartdate,
-       u.nextsubscribeenddate,
-       sp.id AS package_id,
-       sp.package_name,
-       sp.amount AS package_price,
-       sp.bonus AS package_bonus,
-       sp.duration AS package_duration,
-       sp.status AS package_status
+       s.id AS subscription_id,
+       s.package_name,
+       s.amount,
+       s.period,
+       s.final_amount,
+       s.remark,
+       s.status AS sub_status
      FROM users u
-     LEFT JOIN subscription_packages sp ON sp.package_name = u.subscribepack
-     WHERE u.id = ?`,
+     LEFT JOIN subscriptions s
+       ON s.user_id = u.id
+       AND s.package_name = u.subscribepack
+     WHERE u.id = ?
+     ORDER BY s.id DESC
+     LIMIT 1`,
     [userId]
   );
 
   if (!user || user.subscribe !== 1 || !user.subscribeenddate) {
-    return {
-      active: false,
-      message: "No active subscription"
-    };
+    return { active: false, message: "No active subscription" };
   }
 
   const now = new Date();
-
   if (new Date(user.subscribeenddate) < now) {
-    return {
-      active: false,
-      message: "Your subscription expired"
-    };
+    return { active: false, message: "Your subscription expired" };
   }
 
   return {
@@ -637,20 +633,15 @@ export const getSubscriptionStatusService = async (userId) => {
       startDate: user.subscribestartdate,
       endDate: user.subscribeenddate,
       packageDetails: {
-        id: user.package_id,
+        id: user.subscription_id,
         name: user.package_name,
-        price: user.package_price,
-        bonus: user.package_bonus,
-        duration: user.package_duration,
-        status: user.package_status
+        amount: user.amount,
+        final_amount: user.final_amount,
+        period: user.period,
+        status: user.sub_status,
+        remark: user.remark
       }
-    },
-    next: user.nextsubscribe === 1
-      ? {
-          startDate: user.nextsubscribestartdate,
-          endDate: user.nextsubscribeenddate
-        }
-      : null
+    }
   };
 };
   
