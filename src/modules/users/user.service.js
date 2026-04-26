@@ -220,7 +220,7 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
     String(data.category || "").toLowerCase();
 
   const DEFAULT_LIMIT =
-    normalizedCategory === "student" ? 300 : 1500;
+    normalizedCategory === "student" ? 500 : 1500;
 
   /* --------------------------------
      3️⃣ VALIDATIONS

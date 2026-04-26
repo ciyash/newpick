@@ -419,7 +419,7 @@ export const getSubscriptionStatusService = async (userId) => {
   const [otherPackages] = await db.query(
     `SELECT id, package_name, amount, bonus, duration
      FROM subscription_packages
-     WHERE status = 'Active'`,  // WHERE duration != ? తీసేసాం
+     WHERE status = 'Active'`,  
     []
   );
 
