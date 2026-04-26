@@ -1,4 +1,4 @@
-/**
+/** scoring engine
  * PICK2WIN – Fantasy Football Scoring Engine
  * ES6 Module Version
  */

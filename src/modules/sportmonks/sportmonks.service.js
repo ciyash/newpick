@@ -795,7 +795,8 @@ export const syncPlayerPointsService = async (providerMatchId) => {
   }
 
   // ── 2. Fetch events + lineups from Sportmonks ──
-  const data    = await apiGet(`/fixtures/${providerMatchId}`, { include: "events;lineups" });
+  // const data    = await apiGet(`/fixtures/${providerMatchId}`, { include: "events;lineups" });
+  const data = await apiGet(`/fixtures/${providerMatchId}`, { include: "events;lineups;statistics" });
   const fixture = data?.data;
   if (!fixture) return { count: 0, reason: "Fixture not found in API" };
 
