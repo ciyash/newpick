@@ -1473,218 +1473,6 @@ export const compareTeamService = async (contestId, myTeamId, oppTeamId, userId)
 // ─────────────────────────────────────────────────────────────────────────────
 
 
-// export const getLeaderboardService = async (contestId, userId, page = 1, limit = 50) => {
-//   const offset = (page - 1) * limit;
-
-//   const [[contest]] = await db.query(
-//     `SELECT
-//        c.id, c.match_id, c.prize_pool, c.net_pool_prize,
-//        c.first_prize, c.prize_distribution,
-//        c.current_entries, c.max_entries, c.min_entries,
-//        c.entry_fee, c.status, c.is_guaranteed,
-//        c.contest_type, c.winner_percentage,
-//        c.bonus_ranks, c.refund_start_rank, c.refund_winners,
-//        c.refund_total, c.netpool_amount,
-//        c.rank1_percent, c.top1_end_rank,
-//        c.linear_start_rank, c.linear_end_rank,
-//        m.status    AS match_status,
-//        m.seriesname, m.hometeamname, m.awayteamname,
-//        m.matchdate, m.start_time
-//      FROM contest c
-//      JOIN matches m ON m.id = c.match_id
-//      WHERE c.id = ?`,
-//     [contestId]
-//   );
-//   if (!contest) return { success: false, message: "Contest not found" };
-
-//   const matchStatus   = contest.match_status?.toUpperCase();
-//   const contestStatus = contest.status?.toUpperCase();
-// console.log(`Contest ${contestId} — matchStatus: ${matchStatus}, contestStatus: ${contestStatus}`);
-//   // ── UPCOMING ──
-//   if (matchStatus === "UPCOMING") {
-//     return {
-//       success: true,
-//       contest: { id: contest.id, match_status: matchStatus, status: contestStatus },
-//       leaderboard: [],
-//       my_entry: null,
-//       message: "Match has not started yet",
-//     };
-//   }
-
-//   // ── LIVE → Redis cache ──
-//   if (matchStatus === "LIVE") {
-//     try {
-//       const cached = await redis.get(lbKey(contestId));
-//       if (cached && Array.isArray(cached)) {
-//         const allRanked = cached;
-//         const total     = allRanked.length;
-//         const paginated = allRanked.slice(offset, offset + limit);
-
-//         const leaderboard = paginated.map(e => ({
-//           ...e,
-//           winning_amount: 0,
-//           is_winner:      false,
-//           is_me: userId ? e.user_id === parseInt(userId) : false,
-//         }));
-
-//         const myRow = userId
-//           ? allRanked.find(e => e.user_id === parseInt(userId))
-//           : null;
-
-//         const my_entry = myRow ? {
-//           user_team_id:  myRow.user_team_id,
-//           team_name:     myRow.team_name,
-//           username:      myRow.username,
-//           profile_image: myRow.profile_image,
-//           rank:          myRow.rank,
-//           points:        myRow.points,
-//           winning_amount: 0,
-//           is_winner:      false,
-//         } : null;
-
-//         return buildLeaderboardResponse(
-//           contest, matchStatus, leaderboard, my_entry, total, page, limit, offset
-//         );
-//       }
-//     } catch (err) {
-//       console.error("Redis leaderboard error:", err.message);
-//     }
-//   }
-
-//   // ── RESULT (INREVIEW / COMPLETED) → DB ──
-//   const [entries] = await db.query(
-//     `SELECT
-//        ce.id, ce.user_id, ce.user_team_id, ce.urank,
-//        ce.winning_amount, ce.status,
-//        u.name, u.nickname, u.image, ut.team_name,
-//        COALESCE(
-//          (SELECT SUM(utp.points)
-//           FROM user_team_players utp
-//           WHERE utp.user_team_id = ce.user_team_id
-//          ), 0
-//        ) AS computed_points,
-//        DENSE_RANK() OVER (
-//          ORDER BY COALESCE(
-//            (SELECT SUM(utp2.points)
-//             FROM user_team_players utp2
-//             WHERE utp2.user_team_id = ce.user_team_id
-//            ), 0
-//          ) DESC
-//        ) AS computed_rank
-//      FROM contest_entries ce
-//      JOIN users           u  ON u.id  = ce.user_id
-//      LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
-//      WHERE ce.contest_id = ?
-//      ORDER BY computed_points DESC
-//      LIMIT ? OFFSET ?`,
-//     [contestId, limit, offset]
-//   );
-
-//   const [[{ total }]] = await db.query(
-//     `SELECT COUNT(*) AS total FROM contest_entries WHERE contest_id = ?`,
-//     [contestId]
-//   );
-
-//   // ── pointsMap ──
-//   const teamIds = entries.map(e => e.user_team_id).filter(Boolean);
-//   let pointsMap = {};
-//   if (teamIds.length > 0) {
-//     const [pointsRows] = await db.query(
-//       `SELECT utp.user_team_id, SUM(utp.points) AS total_points
-//        FROM user_team_players utp
-//        WHERE utp.user_team_id IN (?)
-//        GROUP BY utp.user_team_id`,
-//       [teamIds]
-//     );
-//     pointsRows.forEach(r => {
-//       pointsMap[r.user_team_id] = parseFloat(r.total_points || 0);
-//     });
-//   }
-
-//   // ✅ COMPLETED అయినప్పుడు మాత్రమే winning amount చూపించు
-//   const isCompleted = contestStatus === 'COMPLETED';
-
-//   const leaderboard = entries.map(entry => {
-//     const points = parseFloat(entry.computed_points) || 0;
-//     const rank   = entry.urank ?? entry.computed_rank;
-
-//     const prize = isCompleted
-//       ? (entry.winning_amount || getPrizeForRank(
-//           rank,
-//           contest.prize_distribution,
-//           contest.entry_fee,
-//           contest.refund_winners,
-//           contest.refund_start_rank
-//         ))
-//       : 0;
-
-//     return {
-//       rank,
-//       user_id:       entry.user_id,
-//       username:      entry.nickname || entry.name || `User${entry.user_id}`,
-//       profile_image: entry.image    || null,
-//       team_name:     entry.team_name || null,
-//       user_team_id:  entry.user_team_id,
-//       points,
-//       winning_amount: prize,
-//       is_winner:      prize > 0,
-//       is_me: userId ? entry.user_id === parseInt(userId) : false,
-//     };
-//   });
-
-//   // ── My best entry ──
-//   let my_entry = null;
-//   if (userId) {
-//     const [myEntries] = await db.query(
-//       `SELECT
-//          ce.user_team_id, ce.urank, ce.winning_amount,
-//          ut.team_name, u.name, u.nickname, u.image
-//        FROM contest_entries ce
-//        LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
-//        LEFT JOIN users      u  ON u.id  = ce.user_id
-//        WHERE ce.contest_id = ? AND ce.user_id = ?`,
-//       [contestId, userId]
-//     );
-
-//     if (myEntries.length > 0) {
-//       const best = myEntries.reduce((prev, curr) =>
-//         (pointsMap[curr.user_team_id] || 0) > (pointsMap[prev.user_team_id] || 0)
-//           ? curr : prev
-//       );
-
-//       const myPoints   = pointsMap[best.user_team_id] ?? 0;
-//       const myLbEntry  = leaderboard.find(l => l.user_team_id === best.user_team_id);
-//       const myRank     = best.urank ?? myLbEntry?.rank ?? null;
-
-//       // ✅ COMPLETED అయినప్పుడు మాత్రమే
-//       const myPrize = isCompleted
-//         ? (best.winning_amount || getPrizeForRank(
-//             myRank,
-//             contest.prize_distribution,
-//             contest.entry_fee,
-//             contest.refund_winners,
-//             contest.refund_start_rank
-//           ))
-//         : 0;
-
-//       my_entry = {
-//         user_team_id:  best.user_team_id,
-//         team_name:     best.team_name    || null,
-//         username:      best.nickname || best.name || `User${userId}`,
-//         profile_image: best.image        || null,
-//         rank:          myRank,
-//         points:        myPoints,
-//         winning_amount: myPrize,
-//         is_winner:     myPrize > 0,
-//       };
-//     }
-//   }
-
-//   return buildLeaderboardResponse(
-//     contest, matchStatus, leaderboard, my_entry, parseInt(total), page, limit, offset
-//   );
-// };
-
 export const getLeaderboardService = async (contestId, userId, page = 1, limit = 50) => {
   const offset = (page - 1) * limit;
 
@@ -1697,6 +1485,8 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
        c.contest_type, c.winner_percentage,
        c.bonus_ranks, c.refund_start_rank, c.refund_winners,
        c.refund_total, c.netpool_amount,
+       c.rank1_percent, c.top1_end_rank,
+       c.linear_start_rank, c.linear_end_rank,
        m.status    AS match_status,
        m.seriesname, m.hometeamname, m.awayteamname,
        m.matchdate, m.start_time
@@ -1715,11 +1505,12 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   // ── UPCOMING ──
   if (matchStatus === "UPCOMING") {
     return {
-      success:    true,
-      contest:    { id: contest.id, match_status: matchStatus, status: contestStatus },
+      success:     true,
+      contest:     { id: contest.id, match_status: matchStatus, status: contestStatus },
       leaderboard: [],
+      my_entry:    null,
       my_entries:  [],
-      message:    "Match has not started yet",
+      message:     "Match has not started yet",
     };
   }
 
@@ -1730,14 +1521,38 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       if (cached && Array.isArray(cached)) {
         const allRanked = cached;
         const total     = allRanked.length;
+        const paginated = allRanked.slice(offset, offset + limit);
 
-        // ── My entries (all my teams) ──
+        const leaderboard = paginated.map(e => ({
+          ...e,
+          winning_amount: 0,
+          is_winner:      false,
+          is_me: userId ? e.user_id === parseInt(userId) : false,
+        }));
+
+        // ── my_entry — best team ──
+        const myRow = userId
+          ? allRanked.find(e => e.user_id === parseInt(userId))
+          : null;
+
+        const my_entry = myRow ? {
+          user_team_id:   myRow.user_team_id,
+          team_name:      myRow.team_name     || null,
+          username:       myRow.username,
+          profile_image:  myRow.profile_image || null,
+          rank:           myRow.rank,
+          points:         myRow.points,
+          winning_amount: 0,
+          is_winner:      false,
+        } : null;
+
+        // ── my_entries — అన్ని teams ──
         const my_entries = userId
           ? allRanked
               .filter(e => e.user_id === parseInt(userId))
               .map(e => ({
                 user_team_id:   e.user_team_id,
-                team_name:      e.team_name    || null,
+                team_name:      e.team_name     || null,
                 username:       e.username,
                 profile_image:  e.profile_image || null,
                 rank:           e.rank,
@@ -1747,20 +1562,8 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
               }))
           : [];
 
-        // ── Leaderboard — other users only ──
-        const otherRanked = allRanked.filter(e =>
-          userId ? e.user_id !== parseInt(userId) : true
-        );
-        const paginated = otherRanked.slice(offset, offset + limit);
-        const leaderboard = paginated.map(e => ({
-          ...e,
-          winning_amount: 0,
-          is_winner:      false,
-          is_me:          false,
-        }));
-
         return buildLeaderboardResponse(
-          contest, matchStatus, leaderboard, my_entries, total, page, limit, offset
+          contest, matchStatus, leaderboard, my_entry, my_entries, total, page, limit, offset
         );
       }
     } catch (err) {
@@ -1820,34 +1623,34 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
 
   const isCompleted = contestStatus === 'COMPLETED';
 
-  // ── Leaderboard — other users only ──
-  const leaderboard = entries
-    .filter(e => e.user_id !== parseInt(userId))
-    .map(entry => {
-      const points = parseFloat(entry.computed_points) || 0;
-      const rank   = entry.urank ?? entry.computed_rank;
-      const prize  = isCompleted
-        ? (Number(entry.winning_amount) || getPrizeForRank(
-            rank, contest.prize_distribution,
-            contest.entry_fee, contest.refund_winners, contest.refund_start_rank
-          ))
-        : 0;
-      return {
-        rank,
-        user_id:        entry.user_id,
-        username:       entry.nickname || entry.name || `User${entry.user_id}`,
-        profile_image:  entry.image    || null,
-        team_name:      entry.team_name || null,
-        user_team_id:   entry.user_team_id,
-        points,
-        winning_amount: prize,
-        is_winner:      prize > 0,
-        is_me:          false,
-      };
-    });
+  // ── Leaderboard — అందరి teams ──
+  const leaderboard = entries.map(entry => {
+    const points = parseFloat(entry.computed_points) || 0;
+    const rank   = entry.urank ?? entry.computed_rank;
+    const prize  = isCompleted
+      ? (Number(entry.winning_amount) || getPrizeForRank(
+          rank, contest.prize_distribution,
+          contest.entry_fee, contest.refund_winners, contest.refund_start_rank
+        ))
+      : 0;
+    return {
+      rank,
+      user_id:        entry.user_id,
+      username:       entry.nickname || entry.name || `User${entry.user_id}`,
+      profile_image:  entry.image    || null,
+      team_name:      entry.team_name || null,
+      user_team_id:   entry.user_team_id,
+      points,
+      winning_amount: prize,
+      is_winner:      prize > 0,
+      is_me: userId ? entry.user_id === parseInt(userId) : false,
+    };
+  });
 
-  // ── My entries (all my teams) ──
+  // ── my_entry + my_entries ──
+  let my_entry   = null;
   let my_entries = [];
+
   if (userId) {
     const [myEntries] = await db.query(
       `SELECT
@@ -1860,37 +1663,66 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       [contestId, userId]
     );
 
-    my_entries = myEntries.map(e => {
-      const myPoints  = pointsMap[e.user_team_id] ?? 0;
-      const myLbEntry = leaderboard.find(l => l.user_team_id === e.user_team_id);
-      const myRank    = e.urank ?? myLbEntry?.rank ?? null;
-      const myPrize   = isCompleted
-        ? (Number(e.winning_amount) || getPrizeForRank(
-            myRank, contest.prize_distribution,
+    if (myEntries.length > 0) {
+
+      // ── my_entry — best team ──
+      const best = myEntries.reduce((prev, curr) =>
+        (pointsMap[curr.user_team_id] || 0) > (pointsMap[prev.user_team_id] || 0)
+          ? curr : prev
+      );
+      const bestPoints = pointsMap[best.user_team_id] ?? 0;
+      const bestLbEntry = leaderboard.find(l => l.user_team_id === best.user_team_id);
+      const bestRank    = best.urank ?? bestLbEntry?.rank ?? null;
+      const bestPrize   = isCompleted
+        ? (Number(best.winning_amount) || getPrizeForRank(
+            bestRank, contest.prize_distribution,
             contest.entry_fee, contest.refund_winners, contest.refund_start_rank
           ))
         : 0;
-      return {
-        user_team_id:   e.user_team_id,
-        team_name:      e.team_name    || null,
-        username:       e.nickname || e.name || `User${userId}`,
-        profile_image:  e.image        || null,
-        rank:           myRank,
-        points:         myPoints,
-        winning_amount: myPrize,
-        is_winner:      myPrize > 0,
+
+      my_entry = {
+        user_team_id:   best.user_team_id,
+        team_name:      best.team_name    || null,
+        username:       best.nickname || best.name || `User${userId}`,
+        profile_image:  best.image        || null,
+        rank:           bestRank,
+        points:         bestPoints,
+        winning_amount: bestPrize,
+        is_winner:      bestPrize > 0,
       };
-    });
+
+      // ── my_entries — అన్ని teams ──
+      my_entries = myEntries.map(e => {
+        const myPoints  = pointsMap[e.user_team_id] ?? 0;
+        const myLbEntry = leaderboard.find(l => l.user_team_id === e.user_team_id);
+        const myRank    = e.urank ?? myLbEntry?.rank ?? null;
+        const myPrize   = isCompleted
+          ? (Number(e.winning_amount) || getPrizeForRank(
+              myRank, contest.prize_distribution,
+              contest.entry_fee, contest.refund_winners, contest.refund_start_rank
+            ))
+          : 0;
+        return {
+          user_team_id:   e.user_team_id,
+          team_name:      e.team_name    || null,
+          username:       e.nickname || e.name || `User${userId}`,
+          profile_image:  e.image        || null,
+          rank:           myRank,
+          points:         myPoints,
+          winning_amount: myPrize,
+          is_winner:      myPrize > 0,
+        };
+      });
+    }
   }
 
   return buildLeaderboardResponse(
-    contest, matchStatus, leaderboard, my_entries, parseInt(total), page, limit, offset
+    contest, matchStatus, leaderboard, my_entry, my_entries, parseInt(total), page, limit, offset
   );
 };
 
 
-// ── buildLeaderboardResponse ──
-const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries, totalEntries, page, limit, offset) => {
+const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entry, my_entries, totalEntries, page, limit, offset) => {
   let prizeTiers = [];
   try {
     prizeTiers = typeof contest.prize_distribution === "string"
@@ -1901,28 +1733,32 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries,
   return {
     success: true,
     contest: {
-      id:                  contest.id,
-      prize_pool:          Number(contest.prize_pool)          || 0,
-      net_pool_prize:      Number(contest.net_pool_prize)      || 0,
-      first_prize:         Number(contest.first_prize)         || 0,
-      entry_fee:           Number(contest.entry_fee)           || 0,
-      total_entries:       contest.current_entries             || 0,
-      total_spots:         contest.max_entries                 || 0,
-      min_entries:         contest.min_entries                 || 0,
-      is_guaranteed:       contest.is_guaranteed               === 1,
-      total_winners:       contest.refund_winners              || 0,
-      refund_start_rank:   contest.refund_start_rank           || 0,
-      bonus_ranks:         contest.bonus_ranks                 || 0,
-      winner_percentage:   Number(contest.winner_percentage)   || 0,
-      contest_type:        contest.contest_type                || null,
-      status:              contest.status                      || null,
-      match_status:        matchStatus,
-      series_name:         contest.seriesname                  || null,
-      home_team:           contest.hometeamname                || null,
-      away_team:           contest.awayteamname                || null,
-      match_date:          contest.matchdate                   || null,
-      start_time:          contest.start_time                  || null,
-      prize_tiers:         prizeTiers,
+      id:                contest.id,
+      prize_pool:        Number(contest.prize_pool)        || 0,
+      net_pool_prize:    Number(contest.net_pool_prize)    || 0,
+      first_prize:       Number(contest.first_prize)       || 0,
+      entry_fee:         Number(contest.entry_fee)         || 0,
+      total_entries:     contest.current_entries           || 0,
+      total_spots:       contest.max_entries               || 0,
+      min_entries:       contest.min_entries               || 0,
+      is_guaranteed:     contest.is_guaranteed             === 1,
+      total_winners:     contest.refund_winners            || 0,
+      refund_start_rank: contest.refund_start_rank         || 0,
+      bonus_ranks:       contest.bonus_ranks               || 0,
+      rank1_percent:     Number(contest.rank1_percent)     || 0,
+      top1_end_rank:     contest.top1_end_rank             || 0,
+      linear_start_rank: contest.linear_start_rank         || 0,
+      linear_end_rank:   contest.linear_end_rank           || 0,
+      winner_percentage: Number(contest.winner_percentage) || 0,
+      contest_type:      contest.contest_type              || null,
+      status:            contest.status                    || null,
+      match_status:      matchStatus,
+      series_name:       contest.seriesname                || null,
+      home_team:         contest.hometeamname              || null,
+      away_team:         contest.awayteamname              || null,
+      match_date:        contest.matchdate                 || null,
+      start_time:        contest.start_time                || null,
+      prize_tiers:       prizeTiers,
     },
     refund_zone: {
       rank_from: contest.refund_start_rank || 0,
@@ -1936,6 +1772,7 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries,
       prize:     0,
       label:     "No prize",
     },
+    my_entry,
     my_entries,
     leaderboard,
     pagination: {
@@ -1947,72 +1784,6 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries,
     },
   };
 };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPER — build leaderboard response shape (used by LIVE Redis + RESULT DB)
-// ─────────────────────────────────────────────────────────────────────────────
-
-// const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entry, totalEntries, page, limit, offset) => {
-//   let prizeTiers = [];
-//   try {
-//     prizeTiers = typeof contest.prize_distribution === "string"
-//       ? JSON.parse(contest.prize_distribution)
-//       : contest.prize_distribution || [];
-//   } catch { prizeTiers = []; }
-
-//   return {
-//     success: true,
-//     contest: {
-//       id: contest.id,
-//       prize_pool: Number(contest.prize_pool) || 0,
-//       net_pool_prize: Number(contest.net_pool_prize) || 0,
-//       first_prize: Number(contest.first_prize) || 0,
-//       entry_fee: Number(contest.entry_fee) || 0,
-//       total_entries: contest.current_entries || 0,
-//       total_spots: contest.max_entries || 0,
-//       min_entries: contest.min_entries || 0,
-//       is_guaranteed: contest.is_guaranteed === 1,
-//       total_winners: contest.refund_winners || 0,
-//       refund_start_rank: contest.refund_start_rank || 0,
-//       bonus_ranks: contest.bonus_ranks || 0,
-//       rank1_percent: Number(contest.rank1_percent) || 0,
-//       top1_end_rank: contest.top1_end_rank || 0,
-//       linear_start_rank: contest.linear_start_rank || 0,
-//       linear_end_rank: contest.linear_end_rank || 0,
-//       winner_percentage: Number(contest.winner_percentage) || 0,
-//       contest_type: contest.contest_type || null,
-//       status: contest.status || null,
-//       match_status: matchStatus,
-//       series_name: contest.seriesname || null,
-//       home_team: contest.hometeamname || null,
-//       away_team: contest.awayteamname || null,
-//       match_date: contest.matchdate || null,
-//       start_time: contest.start_time || null,
-//       prize_tiers: prizeTiers,
-//     },
-//     refund_zone: {
-//       rank_from: contest.refund_start_rank || 0,
-//       rank_to: contest.refund_winners || 0,
-//       prize: Number(contest.entry_fee) || 0,
-//       label: "Entry fee return",
-//     },
-//     no_prize_zone: {
-//       rank_from: (contest.refund_winners || 0) + 1,
-//       rank_to: contest.max_entries || 0,
-//       prize: 0,
-//       label: "No prize",
-//     },
-//     my_entry,
-//     leaderboard,
-//     pagination: {
-//       current_page: page,
-//       per_page: limit,
-//       total_entries: totalEntries,
-//       total_pages: Math.ceil(totalEntries / limit),
-//       has_more: offset + limit < totalEntries,
-//     },
-//   };
-// };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MY RANK
