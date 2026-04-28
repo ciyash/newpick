@@ -1508,7 +1508,6 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       success:     true,
       contest:     { id: contest.id, match_status: matchStatus, status: contestStatus },
       leaderboard: [],
-      my_entry:    null,
       my_entries:  [],
       message:     "Match has not started yet",
     };
@@ -1521,32 +1520,8 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       if (cached && Array.isArray(cached)) {
         const allRanked = cached;
         const total     = allRanked.length;
-        const paginated = allRanked.slice(offset, offset + limit);
 
-        const leaderboard = paginated.map(e => ({
-          ...e,
-          winning_amount: 0,
-          is_winner:      false,
-          is_me: userId ? e.user_id === parseInt(userId) : false,
-        }));
-
-        // ── my_entry — best team ──
-        const myRow = userId
-          ? allRanked.find(e => e.user_id === parseInt(userId))
-          : null;
-
-        const my_entry = myRow ? {
-          user_team_id:   myRow.user_team_id,
-          team_name:      myRow.team_name     || null,
-          username:       myRow.username,
-          profile_image:  myRow.profile_image || null,
-          rank:           myRow.rank,
-          points:         myRow.points,
-          winning_amount: 0,
-          is_winner:      false,
-        } : null;
-
-        // ── my_entries — అన్ని teams ──
+        // ── my_entries — నీ అన్ని teams ──
         const my_entries = userId
           ? allRanked
               .filter(e => e.user_id === parseInt(userId))
@@ -1562,8 +1537,20 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
               }))
           : [];
 
+        // ── leaderboard — other users మాత్రమే ──
+        const otherRanked = allRanked.filter(e =>
+          userId ? e.user_id !== parseInt(userId) : true
+        );
+        const paginated   = otherRanked.slice(offset, offset + limit);
+        const leaderboard = paginated.map(e => ({
+          ...e,
+          winning_amount: 0,
+          is_winner:      false,
+          is_me:          false,
+        }));
+
         return buildLeaderboardResponse(
-          contest, matchStatus, leaderboard, my_entry, my_entries, total, page, limit, offset
+          contest, matchStatus, leaderboard, my_entries, total, page, limit, offset
         );
       }
     } catch (err) {
@@ -1623,34 +1610,34 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
 
   const isCompleted = contestStatus === 'COMPLETED';
 
-  // ── Leaderboard — అందరి teams ──
-  const leaderboard = entries.map(entry => {
-    const points = parseFloat(entry.computed_points) || 0;
-    const rank   = entry.urank ?? entry.computed_rank;
-    const prize  = isCompleted
-      ? (Number(entry.winning_amount) || getPrizeForRank(
-          rank, contest.prize_distribution,
-          contest.entry_fee, contest.refund_winners, contest.refund_start_rank
-        ))
-      : 0;
-    return {
-      rank,
-      user_id:        entry.user_id,
-      username:       entry.nickname || entry.name || `User${entry.user_id}`,
-      profile_image:  entry.image    || null,
-      team_name:      entry.team_name || null,
-      user_team_id:   entry.user_team_id,
-      points,
-      winning_amount: prize,
-      is_winner:      prize > 0,
-      is_me: userId ? entry.user_id === parseInt(userId) : false,
-    };
-  });
+  // ── leaderboard — other users మాత్రమే ──
+  const leaderboard = entries
+    .filter(e => userId ? e.user_id !== parseInt(userId) : true)
+    .map(entry => {
+      const points = parseFloat(entry.computed_points) || 0;
+      const rank   = entry.urank ?? entry.computed_rank;
+      const prize  = isCompleted
+        ? (Number(entry.winning_amount) || getPrizeForRank(
+            rank, contest.prize_distribution,
+            contest.entry_fee, contest.refund_winners, contest.refund_start_rank
+          ))
+        : 0;
+      return {
+        rank,
+        user_id:        entry.user_id,
+        username:       entry.nickname || entry.name || `User${entry.user_id}`,
+        profile_image:  entry.image    || null,
+        team_name:      entry.team_name || null,
+        user_team_id:   entry.user_team_id,
+        points,
+        winning_amount: prize,
+        is_winner:      prize > 0,
+        is_me:          false,
+      };
+    });
 
-  // ── my_entry + my_entries ──
-  let my_entry   = null;
+  // ── my_entries — నీ అన్ని teams ──
   let my_entries = [];
-
   if (userId) {
     const [myEntries] = await db.query(
       `SELECT
@@ -1663,66 +1650,36 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       [contestId, userId]
     );
 
-    if (myEntries.length > 0) {
-
-      // ── my_entry — best team ──
-      const best = myEntries.reduce((prev, curr) =>
-        (pointsMap[curr.user_team_id] || 0) > (pointsMap[prev.user_team_id] || 0)
-          ? curr : prev
-      );
-      const bestPoints = pointsMap[best.user_team_id] ?? 0;
-      const bestLbEntry = leaderboard.find(l => l.user_team_id === best.user_team_id);
-      const bestRank    = best.urank ?? bestLbEntry?.rank ?? null;
-      const bestPrize   = isCompleted
-        ? (Number(best.winning_amount) || getPrizeForRank(
-            bestRank, contest.prize_distribution,
+    my_entries = myEntries.map(e => {
+      const myPoints  = pointsMap[e.user_team_id] ?? 0;
+      const myLbEntry = entries.find(l => l.user_team_id === e.user_team_id);
+      const myRank    = e.urank ?? myLbEntry?.computed_rank ?? null;
+      const myPrize   = isCompleted
+        ? (Number(e.winning_amount) || getPrizeForRank(
+            myRank, contest.prize_distribution,
             contest.entry_fee, contest.refund_winners, contest.refund_start_rank
           ))
         : 0;
-
-      my_entry = {
-        user_team_id:   best.user_team_id,
-        team_name:      best.team_name    || null,
-        username:       best.nickname || best.name || `User${userId}`,
-        profile_image:  best.image        || null,
-        rank:           bestRank,
-        points:         bestPoints,
-        winning_amount: bestPrize,
-        is_winner:      bestPrize > 0,
+      return {
+        user_team_id:   e.user_team_id,
+        team_name:      e.team_name    || null,
+        username:       e.nickname || e.name || `User${userId}`,
+        profile_image:  e.image        || null,
+        rank:           myRank,
+        points:         myPoints,
+        winning_amount: myPrize,
+        is_winner:      myPrize > 0,
       };
-
-      // ── my_entries — అన్ని teams ──
-      my_entries = myEntries.map(e => {
-        const myPoints  = pointsMap[e.user_team_id] ?? 0;
-        const myLbEntry = leaderboard.find(l => l.user_team_id === e.user_team_id);
-        const myRank    = e.urank ?? myLbEntry?.rank ?? null;
-        const myPrize   = isCompleted
-          ? (Number(e.winning_amount) || getPrizeForRank(
-              myRank, contest.prize_distribution,
-              contest.entry_fee, contest.refund_winners, contest.refund_start_rank
-            ))
-          : 0;
-        return {
-          user_team_id:   e.user_team_id,
-          team_name:      e.team_name    || null,
-          username:       e.nickname || e.name || `User${userId}`,
-          profile_image:  e.image        || null,
-          rank:           myRank,
-          points:         myPoints,
-          winning_amount: myPrize,
-          is_winner:      myPrize > 0,
-        };
-      });
-    }
+    });
   }
 
   return buildLeaderboardResponse(
-    contest, matchStatus, leaderboard, my_entry, my_entries, parseInt(total), page, limit, offset
+    contest, matchStatus, leaderboard, my_entries, parseInt(total), page, limit, offset
   );
 };
 
 
-const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entry, my_entries, totalEntries, page, limit, offset) => {
+const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries, totalEntries, page, limit, offset) => {
   let prizeTiers = [];
   try {
     prizeTiers = typeof contest.prize_distribution === "string"
@@ -1772,7 +1729,6 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entry, m
       prize:     0,
       label:     "No prize",
     },
-    my_entry,
     my_entries,
     leaderboard,
     pagination: {
@@ -1785,7 +1741,7 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entry, m
   };
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // MY RANK
 // ─────────────────────────────────────────────────────────────────────────────
 
