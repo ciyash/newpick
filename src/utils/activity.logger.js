@@ -36,3 +36,4 @@ export const logActivity = async ({
     // activity log fail ainappatiki main flow block kaakunda silent fail
   }
 };
+

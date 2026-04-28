@@ -514,13 +514,22 @@ export const getMyTeamsWithPlayersService = async (userId, matchId, contestId) =
       }
 
       // ── Step 9: Captain/VC multiplier — RESULT ──
-      if (isResult) {
-        team.players = team.players.map(p => {
-          const multiplier   = p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1;
-          const effectivePts = parseFloat((p.basePoints * multiplier).toFixed(2));
-          return { ...p, effectivePoints: effectivePts };
-        });
-      }
+      // if (isResult) {
+      //   team.players = team.players.map(p => {
+      //     const multiplier   = p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1;
+      //     const effectivePts = parseFloat((p.basePoints * multiplier).toFixed(2));
+      //     return { ...p, effectivePoints: effectivePts };
+      //   });
+      // }
+
+      // ── Step 9: Captain/VC multiplier — LIVE + RESULT ──
+if (isLive || isResult) {  // ✅ both apply చేయి
+    team.players = team.players.map(p => {
+        const multiplier   = p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1;
+        const effectivePts = parseFloat((p.basePoints * multiplier).toFixed(2));
+        return { ...p, effectivePoints: effectivePts };
+    });
+}
 
       // ── Total points ──
       team.totalPoints = parseFloat(

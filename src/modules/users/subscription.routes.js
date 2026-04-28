@@ -11,6 +11,7 @@ const router = express.Router();
 router.post("/buy", authenticate, buySubscription);
 
 router.get("/status", authenticate, getSubscriptionStatus);
+
 router.get("/getallsubscriptions", authenticate, fetchAllPackages);
 
 export default router;

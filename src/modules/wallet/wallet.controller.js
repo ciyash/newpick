@@ -16,6 +16,25 @@ import {
 // ADD MONEY
 // ─────────────────────────────────────────────────────────────────────────────
 
+// export const addMoney = async (req, res) => {
+//   try {
+//     const userId = req.user.id;
+//     const { amount } = req.body;
+
+//     const result = await addDepositService(userId, amount);
+
+//     res.json({
+//       success:                true,
+//       addedAmount:            result.addedAmount,
+//       newBalance:             result.newBalance,
+//       remainingMonthlyLimit:  result.remainingMonthlyLimit,
+//     });
+//   } catch (err) {
+//     res.status(400).json({ success: false, message: err.message });
+//   }
+// };
+
+
 export const addMoney = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -24,15 +43,20 @@ export const addMoney = async (req, res) => {
     const result = await addDepositService(userId, amount);
 
     res.json({
-      success:                true,
-      addedAmount:            result.addedAmount,
-      newBalance:             result.newBalance,
-      remainingMonthlyLimit:  result.remainingMonthlyLimit,
+      success:               true,
+      addedAmount:           result.addedAmount,
+      newBalance:            result.newBalance,
+      remainingMonthlyLimit: result.remainingMonthlyLimit,
     });
   } catch (err) {
-    res.status(400).json({ success: false, message: err.message });
+    res.status(err.statusCode || 400).json({
+      success: false,
+      message: err.message,
+    });
   }
 };
+
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET MY WALLET

@@ -2,7 +2,7 @@ export const MIN_DEPOSIT_AMOUNT = 10;
 
 // 🎯 Deposit limits by category
 export const CATEGORY_DEPOSIT_LIMITS = Object.freeze({
-  STUDENT: 300,
+  STUDENT: 500,
   OTHERS: 1500
 });
 

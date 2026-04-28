@@ -175,7 +175,8 @@ export const scoreContestService = async (contestId, matchId) => {
   // ── Already completed? ──
   const [[contest]] = await db.query(
     `SELECT id, status, entry_fee, prize_distribution,
-            refund_winners, refund_start_rank
+            refund_winners, refund_start_rank,
+               min_entries, current_entries        
      FROM contest WHERE id = ?`,
     [contestId]
   );
