@@ -43,21 +43,21 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
 
   const teamIds = [...new Set(entries.map(e => e.user_team_id).filter(Boolean))];
 
-  const [playerRows] = await db.query(
-    `SELECT
-       utp.user_team_id,
-       utp.player_id,
-       utp.is_captain,
-       utp.is_vice_captain,
-       utp.is_substitude,
-       COALESCE(pms.fantasy_points, 0) AS base_points
-     FROM user_team_players utp
-     LEFT JOIN player_match_stats pms
-       ON pms.player_id = utp.player_id
-      AND pms.match_id  = ?
-     WHERE utp.user_team_id IN (?)`,
-    [matchId, teamIds]
-  );
+const [playerRows] = await db.query(
+  `SELECT
+     utp.user_team_id,
+     utp.player_id,
+     utp.is_captain,
+     utp.is_vice_captain,
+     utp.is_substitude,
+     COALESCE(pms.fantasy_points, 0) AS base_points
+   FROM user_team_players utp
+   LEFT JOIN player_match_stats pms
+     ON pms.player_id = utp.player_id
+    AND pms.match_id  = ?
+   WHERE utp.user_team_id IN (?)`,
+  [matchId, teamIds]
+);
 
   const teamPlayersMap = {};
   playerRows.forEach(r => {
@@ -72,9 +72,15 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
     if (!players.length) { teamPointsMap[teamId] = 0; continue; }
 
     // Simple sum — NO captain multiplier, NO HS Bonus
-    const total = players.reduce((sum, p) => {
-      return sum + (parseFloat(p.base_points) || 0);
-    }, 0);
+    // const total = players.reduce((sum, p) => {
+    //   return sum + (parseFloat(p.base_points) || 0);
+    // }, 0);
+
+// ✅ Captain ×2, VC ×1.5 apply చేయి
+const total = players.reduce((sum, p) => {
+  const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
+  return sum + (parseFloat(p.base_points) || 0) * multiplier;
+}, 0);
 
     teamPointsMap[teamId] = parseFloat(total.toFixed(2));
   }
@@ -374,3 +380,4 @@ export const startCronJobs = () => {
   console.log("🚀 [CRON] All jobs registered");
 };
 
+  

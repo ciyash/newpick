@@ -80,7 +80,7 @@ export const getUserProfileService = async (userId) => {
   const withdrawWallet = Number(safeWallet.earnwallet);
   const bonusWallet = Number(safeWallet.bonusamount);
 
-  const totalWallet = depositWallet + withdrawWallet + bonusWallet;
+  const totalWallet = depositWallet + withdrawWallet 
 
   /* ================= MONTHLY DEPOSIT ================= */
 

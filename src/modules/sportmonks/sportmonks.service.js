@@ -372,7 +372,7 @@ export const toggleMatchesService = async (matchIds, isActive, seriesId) => {
 
     const data    = await apiGet(`/fixtures/${matchId}`, { include: "participants;league" });
     const fixture = data?.data;
-
+     console.log("STATISTICS SAMPLE:", JSON.stringify(fixture?.statistics?.slice(0, 5), null, 2));
     if (!fixture) {
       results.push({ match_id: matchId, error: "Match not found in API" });
       continue;
