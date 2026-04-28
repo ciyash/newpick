@@ -2910,7 +2910,7 @@ export const getallWithdraws = async ({ page = 1, limit = 20 } = {}) => {
     pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
   };
 };
-
+//fetch
 export const fetchWithdraws = async (filters = {}, { page = 1, limit = 20 } = {}) => {
   const { payment_mode, status, minAmount, maxAmount, phone, startDate, endDate, transaction_id } = filters;
 
