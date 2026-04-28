@@ -452,10 +452,11 @@ export const getallDeposites = async (req, res) => {
 
 export const fetchDeposites = async (req, res) => {
   try {
-    const page  = parseInt(req.query.page)           || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const body  = req.body || {};
+    const page  = parseInt(body.page  ?? req.query.page)  || 1;
+    const limit = Math.min(parseInt(body.limit ?? req.query.limit) || 20, 100);
 
-    const data = await s.fetchDeposites(req.query, { page, limit });
+    const data = await s.fetchDeposites(body, { page, limit });
     res.json({ success: true, ...data });
   } catch (e) {
     handleError(res, e);
@@ -487,10 +488,11 @@ export const getallWithdraws = async (req, res) => {
 
 export const fetchWithdraws = async (req, res) => {
   try {
-    const page  = parseInt(req.query.page)           || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const body  = req.body || {};
+    const page  = parseInt(body.page  ?? req.query.page)  || 1;
+    const limit = Math.min(parseInt(body.limit ?? req.query.limit) || 20, 100);
 
-    const data = await s.fetchWithdraws(req.query, { page, limit });
+    const data = await s.fetchWithdraws(body, { page, limit });
     res.json({ success: true, ...data });
   } catch (e) {
     handleError(res, e);
@@ -550,10 +552,11 @@ export const getallUsers = async (req, res) => {
 
 export const fetchUsers = async (req, res) => {
   try {
-    const page  = parseInt(req.query.page)           || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const body  = req.body || {};
+    const page  = parseInt(body.page  ?? req.query.page)  || 1;
+    const limit = Math.min(parseInt(body.limit ?? req.query.limit) || 20, 100);
 
-    const data = await s.fetchUsers(req.query, { page, limit });
+    const data = await s.fetchUsers(body, { page, limit });
     res.json({ success: true, ...data });
   } catch (e) {
     handleError(res, e);
@@ -562,10 +565,11 @@ export const fetchUsers = async (req, res) => {
 
 export const fetchUsersByKycStatus = async (req, res) => {
   try {
-    const page  = parseInt(req.query.page)           || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const body  = req.body || {};
+    const page  = parseInt(body.page  ?? req.query.page)  || 1;
+    const limit = Math.min(parseInt(body.limit ?? req.query.limit) || 20, 100);
 
-    const data = await s.fetchUsersByKycStatus(req.query, { page, limit });
+    const data = await s.fetchUsersByKycStatus(body, { page, limit });
     res.json({ success: true, ...data });
   } catch (e) {
     handleError(res, e);
@@ -574,10 +578,11 @@ export const fetchUsersByKycStatus = async (req, res) => {
 
 export const fetchUsersByAccountStatus = async (req, res) => {
   try {
-    const page  = parseInt(req.query.page)           || 1;
-    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const body  = req.body || {};
+    const page  = parseInt(body.page  ?? req.query.page)  || 1;
+    const limit = Math.min(parseInt(body.limit ?? req.query.limit) || 20, 100);
 
-    const data = await s.fetchUsersByAccountStatus(req.query, { page, limit });
+    const data = await s.fetchUsersByAccountStatus(body, { page, limit });
     res.json({ success: true, ...data });
   } catch (e) {
     handleError(res, e);

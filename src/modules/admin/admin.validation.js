@@ -413,10 +413,19 @@ export const updatePlayer = validate(Joi.object({
 
 export const createContest = validate(
   Joi.object({
-    match_id:          Joi.number().integer().positive().required(),
+    match_id:          Joi.alternatives()
+                         .try(
+                           Joi.string().trim().pattern(/^\d+$/),
+                           Joi.number().integer().positive()
+                         )
+                         .required(),
     contest_type:      Joi.string().max(20).required(),
     max_entries:       Joi.number().integer().min(2).required(),
     is_guaranteed:     Joi.number().valid(0, 1).default(0),
+    rank1Percentage:   Joi.number().min(1).max(10).precision(2).default(8),
+    top1_end_rank:     Joi.number().integer().positive().optional(),
+    linear_start_rank: Joi.number().integer().positive().optional(),
+    linear_end_rank:   Joi.number().integer().positive().optional(),
     status:            Joi.string()
                          .valid("UPCOMING", "LIVE", "FULL", "COMPLETED", "CANCELLED")
                          .default("UPCOMING"),

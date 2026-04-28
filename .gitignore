@@ -40,3 +40,6 @@ Thumbs.db
 tmp/
 temp/
 *.tmp
+
+# Local documentation (not for repo)
+project.md
