@@ -1308,44 +1308,6 @@ export const getMyContestsService = async (userId, matchId) => {
   });
 
   // ── Final response ──
-<<<<<<< HEAD
-  return contestRows.map(c => {
-    const myEntries    = (myEntriesByContest[c.contest_id]    || []).map(e => formatEntry(e, true,  c));
-    const otherEntries = (otherEntriesByContest[c.contest_id] || []).map(e => formatEntry(e, false, c));
-
-    return {
-      contest_id:              c.contest_id,
-      match_id:                c.match_id,
-      match_status:            matchStatus,
-      match_date:              match.matchdate               || null,
-      home_team_name:          match.home_team_name          || null,
-      home_team_short_name:    match.home_team_short_name    || null,
-      away_team_name:          match.away_team_name          || null,
-      away_team_short_name:    match.away_team_short_name    || null,
-      entry_fee:               Number(c.entry_fee)               || 0,
-      prize_pool:              Number(c.prize_pool)              || 0,
-      net_pool_prize:          Number(c.net_pool_prize)          || 0,
-      max_entries:             c.max_entries                     || 0,
-      current_entries:         c.current_entries                 || 0,
-      remaining_spots:         Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
-      contest_type:            c.contest_type                    || null,
-      status:                  c.status                          || null,
-      first_prize:             Number(c.first_prize)             || 0,
-      total_winners:           c.total_winners                   || 0,
-      refund_start_rank:       c.refund_start_rank               || 0,
-      bonus_ranks:             c.bonus_ranks                     || 0,
-      rank1_percent:           Number(c.rank1_percent)           || 0,
-      top1_end_rank:           c.top1_end_rank                   || 0,
-      linear_start_rank:       c.linear_start_rank               || 0,
-      linear_end_rank:         c.linear_end_rank                 || 0,
-      winner_percentage:       Number(c.winner_percentage)       || 0,
-      platform_fee_percentage: Number(c.platform_fee_percentage) || 0,
-      my_team_count:           Number(c.my_team_count)           || 0,
-      my_teams:                myEntries,
-      other_teams:             showAllTeams ? otherEntries : [],
-    };
-  });
-=======
   return contestRows.map(c => ({
     contest_id:       c.contest_id,
     match_id:         c.match_id,
@@ -1366,7 +1328,6 @@ export const getMyContestsService = async (userId, matchId) => {
     my_team_count:    Number(c.my_team_count)    || 0,
     my_teams:         teamNamesByContest[c.contest_id] || [],
   }));
->>>>>>> 8b14f1afd4285e281eeace36617ac287e8baa28b
 };
 
 
