@@ -1105,3 +1105,155 @@ export const getMatchesByDateRangeService = async (fromDate, toDate) => {
     };
   });
 };
+
+
+
+export const getPlayerBioService = async (playerId) => {
+
+  // ── 1. DB నుండి provider_player_id fetch ──
+  const [[player]] = await db.query(
+    `SELECT id, name, position, provider_player_id 
+     FROM players WHERE id = ?`,
+    [playerId]
+  );
+  if (!player) throw new Error("Player not found");
+  if (!player.provider_player_id) throw new Error("Provider player ID not found");
+
+  // ── 2. Sportmonks API call ──
+  const data = await apiGet(`/players/${player.provider_player_id}`, {
+    include: [
+      "trophies.league",
+      "trophies.season",
+      "trophies.trophy",
+      "trophies.team",
+      "teams.team",
+      "statistics.details.type",
+      "statistics.team",
+      "statistics.season.league",
+      "latest.fixture.participants",
+      "latest.fixture.league",
+      "latest.fixture.scores",
+      "latest.details.type",
+      "nationality",
+      "detailedPosition",
+    ].join(";"),
+  });
+
+  const p = data?.data;
+  if (!p) throw new Error("Player data not found from provider");
+
+  // ── 3. Age calculate ──
+  const age = p.date_of_birth
+    ? Math.floor(
+        (new Date() - new Date(p.date_of_birth)) / (365.25 * 24 * 60 * 60 * 1000)
+      )
+    : null;
+
+  // ── 4. Current team — domestic team మాత్రమే ──
+  const currentTeam =
+    p.teams?.find(t => t.active && t.team?.type === "domestic") ||
+    p.teams?.find(t => t.active) ||
+    p.teams?.[0] ||
+    null;
+
+  // ── 5. Trophies ──
+  const trophies = (p.trophies || []).map(t => ({
+    trophy_name:  t.trophy?.name       || null,
+    league_name:  t.league?.name       || null,
+    league_logo:  t.league?.image_path || null,
+    season_name:  t.season?.name       || null,
+    team_name:    t.team?.name         || null,
+    team_logo:    t.team?.image_path   || null,
+  }));
+
+  // ── 6. Recent matches ──
+  const recent_matches = (p.latest || []).slice(0, 5).map(l => {
+    const fixture      = l.fixture || {};
+    const participants = fixture.participants || [];
+    const home         = participants.find(p => p.meta?.location === "home");
+    const away         = participants.find(p => p.meta?.location === "away");
+    const scores       = fixture.scores || [];
+    const homeScore    = scores.find(
+      s => s.participant_id === home?.id && s.description === "CURRENT"
+    )?.score?.goals ?? null;
+    const awayScore    = scores.find(
+      s => s.participant_id === away?.id && s.description === "CURRENT"
+    )?.score?.goals ?? null;
+
+    return {
+      fixture_id:  fixture.id                || null,
+      league_name: fixture.league?.name       || null,
+      league_logo: fixture.league?.image_path || null,
+      home_team:   home?.name                || null,
+      home_logo:   home?.image_path          || null,
+      home_score:  homeScore,
+      away_team:   away?.name                || null,
+      away_logo:   away?.image_path          || null,
+      away_score:  awayScore,
+      date:        fixture.starting_at       || null,
+    };
+  });
+
+  // ── 7. Statistics — null values filter ──
+  const statistics = (p.statistics || [])
+    .filter(s =>
+      s.goals !== null ||
+      s.assists !== null ||
+      s.appearances !== null
+    )
+    .slice(0, 10)
+    .map(s => {
+      const details   = s.details || [];
+      const getValue  = (name) =>
+        details.find(d => d.type?.name === name)?.value?.total ?? null;
+
+      return {
+        season_name:    s.season?.name               || null,
+        league_name:    s.season?.league?.name        || null,
+        league_logo:    s.season?.league?.image_path  || null,
+        team_name:      s.team?.name                  || null,
+        team_logo:      s.team?.image_path            || null,
+        goals:          getValue("Goals"),
+        assists:        getValue("Assists"),
+        appearances:    getValue("Appearances"),
+        minutes_played: getValue("Minutes Played"),
+      };
+    });
+
+  // ── 8. Final response ──
+  return {
+    success: true,
+    data: {
+      player_id:      player.id,
+      name:           p.display_name  || p.name,
+      common_name:    p.common_name   || null,
+      image:          p.image_path    || null,
+      date_of_birth:  p.date_of_birth || null,
+      age,
+      height:         p.height        || null,
+      weight:         p.weight        || null,
+      gender:         p.gender        || null,
+
+      position:          player.position          || null,
+      detailed_position: p.detailedPosition?.name || null,
+
+      nationality: p.nationality
+        ? {
+            name:       p.nationality.name       || null,
+            flag_image: p.nationality.image_path || null,
+          }
+        : null,
+
+      current_team: currentTeam?.team
+        ? {
+            name: currentTeam.team.name       || null,
+            logo: currentTeam.team.image_path || null,
+          }
+        : null,
+
+      trophies,
+      recent_matches,
+      statistics,
+    },
+  };
+};

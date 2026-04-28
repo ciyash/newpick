@@ -9,6 +9,7 @@ import {
   syncPlayerPointsService,
   getAllFixturesBetween,
   getMatchesByDateRangeService,
+  getPlayerBioService,
 } from "./sportmonks.service.js";
 
 /* ══════════════════════════════════════════
@@ -302,5 +303,16 @@ export const getMatchesByDateRange = async (req, res) => {
   } catch (err) {
     console.error("❌ getMatchesByDateRange error:", err.message);
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+export const getPlayerBio = async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    const data = await getPlayerBioService(playerId);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
