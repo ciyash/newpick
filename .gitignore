@@ -28,6 +28,7 @@ build/
 # Coverage
 coverage/
 
+audit/
 # OS
 .DS_Store
 Thumbs.db
