@@ -250,7 +250,8 @@ function buildMiddleSlabs({ top10Count, bonusEnd, lastTop10Amount, entryFee, mid
     const ratio = fixedBudget / Math.max(1, uncappedTotal);
     prevAmt = lastTop10Amount;
     for (const g of groups) {
-      g.amount = Math.min(prevAmt - 1, Math.max(MIN, Math.floor(g.amount * ratio)));
+      const scaled = Math.max(MIN, Math.floor(g.amount * ratio));
+      g.amount = prevAmt > MIN ? Math.min(prevAmt - 1, scaled) : scaled;
       prevAmt  = g.amount;
     }
   }
@@ -451,7 +452,7 @@ function assertMonotonic(slabs) {
  *
  *   This keeps the ceiling-cap fix for monotonicity while eliminating large deltas.
  */
-export function generatePrizeDistribution({
+function generatePrizeDistributionLegacy({
   entryFee,
   maxEntries,
   winnerPercentage,
@@ -615,6 +616,152 @@ export function generatePrizeDistribution({
       winners,
       safeStart: pass2Safe.safeStart,
       safeCount: pass2Safe.safeCount,
+      totalPayout,
+    },
+  };
+}
+
+export function generatePrizeDistribution({
+  entryFee,
+  maxEntries,
+  winnerPercentage,
+  platformFeePercentage,
+  rank1Percentage = 5,
+}) {
+  entryFee = Number(entryFee);
+  maxEntries = Number(maxEntries);
+  winnerPercentage = Number(winnerPercentage);
+  platformFeePercentage = Number(platformFeePercentage);
+  rank1Percentage = Number(rank1Percentage);
+
+  if (entryFee === 0) {
+    return {
+      prize_distribution: [],
+      debug: {
+        totalCollection: 0,
+        platformFee: 0,
+        netPool: 0,
+        safePool: 0,
+        bonusPool: 0,
+        rank1: 0,
+        winners: 0,
+        safeStart: null,
+        safeCount: 0,
+        totalPayout: 0,
+      },
+    };
+  }
+
+  validateInputs({
+    entryFee,
+    maxEntries,
+    winnerPercentage,
+    platformFeePercentage,
+    rank1Percentage,
+  });
+
+  const totalCollection = maxEntries * entryFee;
+  const platformFee = Math.floor(totalCollection * platformFeePercentage / 100);
+  const netPool = totalCollection - platformFee;
+  const winners = Math.floor(maxEntries * winnerPercentage / 100);
+
+  if (winners < 1) {
+    throw new Error("[Calc] winnerPercentage too low - results in zero winners");
+  }
+
+  const safeCount = Math.floor(winners * 0.20);
+  const safeStart = safeCount > 0 ? winners - safeCount + 1 : null;
+  const refundTotal = safeCount * entryFee;
+  const bonusWinners = winners - safeCount;
+  const bonusPool = netPool - refundTotal;
+
+  if (bonusWinners < 1 || bonusPool < bonusWinners * entryFee) {
+    throw new Error("[Calc] net pool is too small for the requested winner/refund structure");
+  }
+
+  const amounts = Array(bonusWinners).fill(entryFee);
+  const rank1 = Math.max(entryFee, Math.floor(bonusPool * rank1Percentage / 100));
+  amounts[0] = Math.min(rank1, bonusPool - ((bonusWinners - 1) * entryFee));
+
+  let distributed = amounts.reduce((sum, amount) => sum + amount, 0);
+  let remaining = bonusPool - distributed;
+  const topCount = Math.min(bonusWinners, Math.max(1, Math.floor(winners * 0.01)));
+  const weights = [];
+
+  for (let index = 1; index < bonusWinners; index++) {
+    const rank = index + 1;
+    const powerWeight = rank <= topCount ? Math.pow(topCount - rank + 2, 2) : 0;
+    const linearWeight = bonusWinners - index;
+    weights.push({ index, weight: powerWeight + linearWeight });
+  }
+
+  const weightTotal = weights.reduce((sum, item) => sum + item.weight, 0);
+  if (remaining > 0 && weightTotal > 0) {
+    const baseRemaining = remaining;
+    const fractions = [];
+    for (const item of weights) {
+      const exact = baseRemaining * item.weight / weightTotal;
+      const add = Math.floor(exact);
+      amounts[item.index] += add;
+      fractions.push({ index: item.index, fraction: exact - add });
+    }
+
+    let roundingLeft = bonusPool - amounts.reduce((sum, amount) => sum + amount, 0);
+    fractions.sort((a, b) => b.fraction - a.fraction || a.index - b.index);
+    for (let i = 0; roundingLeft > 0 && fractions.length > 0; i++) {
+      amounts[fractions[i % fractions.length].index] += 1;
+      roundingLeft--;
+    }
+  }
+
+  distributed = amounts.reduce((sum, amount) => sum + amount, 0);
+  remaining = bonusPool - distributed;
+  amounts[bonusWinners - 1] += remaining;
+
+  const perRank = [
+    ...amounts,
+    ...Array(safeCount).fill(entryFee),
+  ];
+
+  let totalPayout = perRank.reduce((sum, amount) => sum + amount, 0);
+  if (totalPayout !== netPool) {
+    const delta = netPool - totalPayout;
+    perRank[winners - 1] += delta;
+    totalPayout += delta;
+  }
+
+  if (totalPayout !== netPool) {
+    throw new Error(`[FinalCheck] totalPayout=${totalPayout} !== netPool=${netPool}`);
+  }
+
+  const prize_distribution = [];
+  let start = 1;
+
+  for (let i = 1; i <= perRank.length; i++) {
+    if (i === perRank.length || perRank[i] !== perRank[start - 1]) {
+      const end = i;
+      const amount = perRank[start - 1];
+      prize_distribution.push(
+        start === end
+          ? { rank: start, amount }
+          : { rank_from: start, rank_to: end, amount }
+      );
+      start = i + 1;
+    }
+  }
+
+  return {
+    prize_distribution,
+    debug: {
+      totalCollection,
+      platformFee,
+      netPool,
+      safePool: refundTotal,
+      bonusPool,
+      rank1: amounts[0],
+      winners,
+      safeStart,
+      safeCount,
       totalPayout,
     },
   };

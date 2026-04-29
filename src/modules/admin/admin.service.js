@@ -1893,19 +1893,18 @@ export const createContest = async (data, admin, ip) => {
     if (!data.prize_distribution) {
       /* ── AUTO-GENERATE ────────────────────────────────────────────────
        *
-       * ✅ FIX (root cause):
-       *   Previously, createContest computed its own safe_pool / bonus_pool
-       *   independently of generatePrizeDistribution using a WRONG formula:
-       *
-       *     OLD: safe_pool = safe_count * entry_fee          (flat 1× per rank)
-       *     NEW: read safePool from debug                    (smooth 2×→1× ramp)
-       *
-       *   This caused bonus_pool to differ between createContest and
-       *   generatePrizeDistribution, making rank1 be computed from the wrong pool.
-       *
-       *   Now generatePrizeDistribution is the SINGLE SOURCE OF TRUTH.
-       *   All financial columns in the INSERT come from its debug object. rank1Percentage
+       * Practice contests (entry_fee=0 or winner_percentage=0) have no prize pool.
+       * Skip generation and leave finalDistribution as null.
        * ──────────────────────────────────────────────────────────────── */
+      if (entry_fee === 0 || winner_percentage === 0) {
+        finalDistribution = null;
+        prize_pool = max_entries * entry_fee;
+        platform_fee_amt = 0;
+        net_pool = prize_pool;
+        safe_pool = 0; bonus_pool = 0;
+        total_winners = 0; safe_start = 0; safe_count = 0; bonus_ranks = 0;
+        first_prize = 0; total_payout = 0;
+      } else {
       const generated = generatePrizeDistribution({
         entryFee:              entry_fee,
         maxEntries:            max_entries,
@@ -1928,7 +1927,8 @@ export const createContest = async (data, admin, ip) => {
       bonus_ranks      = safe_start - 1;
       first_prize      = generated.debug.rank1;   // rank1 from debug is always correct
       total_payout     = generated.debug.totalPayout;
- 
+      } // end else (paid contest auto-generate)
+
     } else {
       /* ── MANUAL — parse → validate → scale → append safe zone ──────────
        *
@@ -1995,10 +1995,12 @@ export const createContest = async (data, admin, ip) => {
     }
  
     /* ── 8. Integrity checks ───────────────────────────────────────────── */
-    checkCoverage(finalDistribution, total_winners);
- 
-    if (Math.abs(total_payout - net_pool) > 1)
-      throw new Error(`Payout mismatch: distributed ₹${total_payout} vs netPool ₹${net_pool}`);
+    if (total_winners > 0) {
+      checkCoverage(finalDistribution, total_winners);
+
+      if (Math.abs(total_payout - net_pool) > 1)
+        throw new Error(`Payout mismatch: distributed ₹${total_payout} vs netPool ₹${net_pool}`);
+    }
  
     /* ── 9. Insert ─────────────────────────────────────────────────────── */
     //
@@ -2016,16 +2018,18 @@ export const createContest = async (data, admin, ip) => {
           first_prize, prize_distribution,
           refund_start_rank, bonus_ranks, refund_winners, refund_total,
           platform_fee_percentage, platform_fee_amount,
+          rank1_percent,
           status, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
       [
         data.match_id,      category.name,     entry_fee,
         prize_pool,         net_pool,           bonus_pool,
         max_entries,        0,
         winner_percentage,  total_winners,
-        first_prize,        JSON.stringify(finalDistribution),
+        first_prize,        finalDistribution?.length ? JSON.stringify(finalDistribution) : null,
         safe_start,         bonus_ranks,        safe_count,     safe_pool,
         platform_fee_pct,   platform_fee_amt,
+        Number(data.rank1Percentage ?? 8),
         data.status ?? "UPCOMING",
       ]
     );
