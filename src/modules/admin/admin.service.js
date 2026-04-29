@@ -2063,6 +2063,22 @@ export const createContest = async (data, admin, ip) => {
   }
 };
 
+
+export const CONTEST_COLUMNS = `
+match_id, contest_type, entry_fee,
+prize_pool, net_pool_prize,
+max_entries, min_entries, current_entries,
+is_guaranteed, winner_percentage, total_winners,
+first_prize, prize_distribution,
+is_cashback, cashback_percentage, cashback_amount,
+platform_fee_percentage, platform_fee_amount,
+status, created_at
+`;
+
+export const CONTEST_STATUSES = ['UPCOMING','LIVE','INREVIEW','COMPLETED'];
+
+export const CONTEST_JOINS = ``;
+
 export const getContests = async ({ page = 1, limit = 20, status = null } = {}) => {
   const offset = (page - 1) * limit;
 
