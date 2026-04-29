@@ -153,7 +153,7 @@ export const login = async (req, res) => {
       device_name: req.body.device_name || null,
       device_type: req.body.device_type || null,
       push_token:  req.body.push_token  || null,
-        user_agent:  req.headers['user-agent'] || null, // ✅ add
+        user_agent:  req.headers['user-agent'] || null, 
     };
 
     const user = await loginService(req.body, ipAddress, deviceInfo);

@@ -8,7 +8,7 @@ import { sendOtpEmail } from '../../utils/send.otp.mails.js';
 import { getSubscriptionStatusService } from '../users/subscription.service.js';
 import { logActivity } from "../../utils/activity.logger.js";
 
-import {UAParser} from 'ua-parser-js';
+import { UAParser } from 'ua-parser-js';
 
 
 //* =================== ADMIN SERVICES =================== */
@@ -332,7 +332,6 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 // };
 
 
-
 export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo = {}) => {
 
   /* ─── Find User ─── */
@@ -388,6 +387,9 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
   if (result.affectedRows === 0)
     throw new Error("Login state update failed");
 
+  /* ─── Login Method Detect ─── */
+  const login_method = email ? "email" : mobile ? "mobile" : null;
+
   /* ─── Device Info Parse ─── */
   let parsedDevice = {
     device_id:   deviceInfo.device_id   || null,
@@ -396,7 +398,7 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
     push_token:  deviceInfo.push_token  || null,
   };
 
-  // Frontend 
+  // Frontend పంపకపోతే user-agent నుండి extract చేయి
   if (!parsedDevice.device_name && deviceInfo.user_agent) {
     const parser = new UAParser(deviceInfo.user_agent);
     const result = parser.getResult();
@@ -411,9 +413,9 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
 
     parsedDevice.device_type =
       os?.toLowerCase().includes("android") ? "android"
-      : os?.toLowerCase().includes("ios")     ? "ios"
+      : os?.toLowerCase().includes("ios")   ? "ios"
       : os?.toLowerCase().includes("windows") ? "windows"
-      : os?.toLowerCase().includes("mac")     ? "mac"
+      : os?.toLowerCase().includes("mac")   ? "mac"
       : "web";
   }
 
@@ -421,11 +423,12 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
   if (parsedDevice.device_id) {
     await db.query(
       `INSERT INTO user_devices
-         (user_id, device_id, device_name, device_type, push_token, ip_address, last_login_at, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)
+         (user_id, device_id, device_name, device_type, login_method, push_token, ip_address, last_login_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 1)
        ON DUPLICATE KEY UPDATE
          device_name   = VALUES(device_name),
          device_type   = VALUES(device_type),
+         login_method  = VALUES(login_method),
          push_token    = VALUES(push_token),
          ip_address    = VALUES(ip_address),
          last_login_at = NOW(),
@@ -435,6 +438,7 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
         parsedDevice.device_id,
         parsedDevice.device_name || null,
         parsedDevice.device_type || null,
+        login_method,
         parsedDevice.push_token  || null,
         ipAddress                || null,
       ]
@@ -442,13 +446,14 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
   } else {
     await db.query(
       `INSERT INTO user_devices
-         (user_id, device_id, device_name, device_type, push_token, ip_address, last_login_at, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)`,
+         (user_id, device_id, device_name, device_type, login_method, push_token, ip_address, last_login_at, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 1)`,
       [
         user.id,
         null,
         parsedDevice.device_name || null,
         parsedDevice.device_type || null,
+        login_method,
         parsedDevice.push_token  || null,
         ipAddress                || null,
       ]
@@ -465,10 +470,11 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
     description: `Logged in from IP: ${ipAddress || "unknown"}`,
     icon:        "login",
     meta:        {
-      ip:          ipAddress                || null,
-      device_id:   parsedDevice.device_id   || null,
-      device_name: parsedDevice.device_name || null,
-      device_type: parsedDevice.device_type || null,
+      ip:           ipAddress                || null,
+      device_id:    parsedDevice.device_id   || null,
+      device_name:  parsedDevice.device_name || null,
+      device_type:  parsedDevice.device_type || null,
+      login_method: login_method             || null,
     },
   });
 
@@ -482,8 +488,6 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
     subscription: subscription.active,
   };
 };
-
-
 /* ================= PAUSE ACCOUNT ====================== */
 
 export const pauseAccountService = async (userId, durationKey) => {
