@@ -7,7 +7,7 @@ import { sendVerificationEmail } from "../../utils/sendVerificationEmail.js";
 import { sendOtpEmail } from '../../utils/send.otp.mails.js';
 import { getSubscriptionStatusService } from '../users/subscription.service.js';
 import { logActivity } from "../../utils/activity.logger.js";
-
+import geoip from 'geoip-lite';
 import { UAParser } from 'ua-parser-js';
 
 
