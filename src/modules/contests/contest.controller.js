@@ -434,8 +434,7 @@ export const announceWinners = async (req, res) => {
 };
 
 
-
-// admin.controller.js లో
+// admin.controller.js 
 export const cancelContest = async (req, res) => {
   try {
     const { contestId } = req.params;
@@ -445,3 +444,4 @@ export const cancelContest = async (req, res) => {
     return res.status(err.statusCode || 500).json({ success: false, message: err.message });
   }
 };
+

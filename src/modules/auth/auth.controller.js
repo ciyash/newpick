@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import db from "../../config/db.js";
 import { signupSchema, loginSchema, sendOtpSchema, verifyOtpSchema } from "../auth/auth.validation.js";
+
 import {
   signupService,
   sendLoginOtpService,
@@ -123,11 +124,39 @@ export const sendLoginOtp = async (req, res) => {
 // LOGIN
 // ─────────────────────────────────────────────────────────────────────────────
 
+// export const login = async (req, res) => {
+//   try {
+//     await loginSchema.validateAsync(req.body);
+//     const ipAddress = getClientIp(req);
+//     const user      = await loginService(req.body, ipAddress);
+
+//     const token = jwt.sign(
+//       { id: user.id, usercode: user.usercode, email: user.email },
+//       process.env.JWT_SECRET,
+//       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
+//     );
+
+//     res.status(200).json({ success: true, message: "Login successful", token, data: user });
+//   } catch (err) {
+//     res.status(400).json({ success: false, message: err.message });
+//   }
+// };
+
 export const login = async (req, res) => {
   try {
     await loginSchema.validateAsync(req.body);
     const ipAddress = getClientIp(req);
-    const user      = await loginService(req.body, ipAddress);
+
+    // ✅ Device info
+    const deviceInfo = {
+      device_id:   req.body.device_id   || null,
+      device_name: req.body.device_name || null,
+      device_type: req.body.device_type || null,
+      push_token:  req.body.push_token  || null,
+        user_agent:  req.headers['user-agent'] || null, // ✅ add
+    };
+
+    const user = await loginService(req.body, ipAddress, deviceInfo);
 
     const token = jwt.sign(
       { id: user.id, usercode: user.usercode, email: user.email },
@@ -140,7 +169,6 @@ export const login = async (req, res) => {
     res.status(400).json({ success: false, message: err.message });
   }
 };
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ADMIN LOGIN
 // ─────────────────────────────────────────────────────────────────────────────
