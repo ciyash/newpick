@@ -402,7 +402,7 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 // ── Allowed countries — England, Scotland, Wales = GB ──
 
 
-const ALLOWED_COUNTRIES = ['GB'];
+const ALLOWED_COUNTRIES = ['GB', 'IN'];
 
 export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo = {}) => {
 
