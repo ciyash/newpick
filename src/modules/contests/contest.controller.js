@@ -312,37 +312,48 @@ const creditWinningsToWallets = async (contestId, conn) => {
 
   if (!winners.length) return 0;
 
+  // ── Company balance for chaining across all credits ──
+  const [[companyLastRow]] = await conn.query(
+    `SELECT closing_balance FROM wallet_transactions
+     WHERE closing_balance IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`
+  );
+  let companyBalance = Number(companyLastRow?.closing_balance || 0);
+
   for (const winner of winners) {
-    // ── 1. Current balance fetch ──
+    // ── 1. Total balance fetch for proper ledger ──
     const [[wallet]] = await conn.query(
-      `SELECT earnwallet FROM wallets WHERE user_id = ?`,
+      `SELECT earnwallet, depositwallet, bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
       [winner.user_id]
     );
     if (!wallet) continue;
 
-    const openingBalance = parseFloat(wallet.earnwallet) || 0;
-    const closingBalance = openingBalance + parseFloat(winner.total_winning);
+    const totalBal      = Number(wallet.earnwallet) + Number(wallet.depositwallet) + Number(wallet.bonusamount);
+    const openingBalance = parseFloat(totalBal.toFixed(2));
+    const closingBalance = parseFloat((totalBal + parseFloat(winner.total_winning)).toFixed(2));
+
+    const coOpen  = companyBalance;
+    const coClose = Number((companyBalance - parseFloat(winner.total_winning)).toFixed(2));
+    companyBalance = coClose;
 
     // ── 2. earnwallet update ──
     await conn.query(
-      `UPDATE wallets
-       SET earnwallet = earnwallet + ?
-       WHERE user_id = ?`,
+      `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
       [winner.total_winning, winner.user_id]
     );
 
     // ── 3. wallet_transactions record ──
     await conn.query(
-     `INSERT INTO wallet_transactions
-   (user_id, wallettype, transtype, remark, amount,
-    opening_balance, closing_balance, reference_id)
- VALUES (?, 'winning', 'credit', ?, ?, ?, ?, ?)`,
+      `INSERT INTO wallet_transactions
+       (user_id, wallettype, transtype, remark, amount,
+        useropeningbalance, userclosingbalance,
+        opening_balance, closing_balance, reference_id)
+       VALUES (?, 'winning', 'credit', ?, ?, ?, ?, ?, ?, ?)`,
       [
         winner.user_id,
         `Contest #${contestId} winning`,
         winner.total_winning,
-        openingBalance,
-        closingBalance,
+        openingBalance, closingBalance,
+        coOpen, coClose,
         `CONTEST_${contestId}`,
       ]
     );

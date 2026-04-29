@@ -448,16 +448,6 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     const depositUse = Math.min(depositBalance, remaining);
     remaining        = Number((remaining - depositUse).toFixed(2));
 
-    // ✅ LOG HERE — after all variables are defined
-    console.log("DEBUG wallet:", {
-      earnBalance,
-      depositBalance,
-      price,
-      earnUse,
-      depositUse,
-      remaining
-    });
-
     if (remaining > 0) throw new Error("Insufficient balance for subscription");
 
     /* ================================

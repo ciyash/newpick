@@ -1,6 +1,6 @@
 import db from "../../config/db.js";
 import { calculateTeamPoints, rankTeams,calculatePlayerPoints  } from "./scoring.engine.js";
-import { getPrizeForRank } from '../contests/contest.service.js'
+import { getPrizeForRank, handleFullRefund } from '../contests/contest.service.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FETCH PLAYER STATS FROM DB
@@ -176,14 +176,11 @@ export const scoreContestService = async (contestId, matchId) => {
   const [[contest]] = await db.query(
     `SELECT id, status, entry_fee, prize_distribution,
             refund_winners, refund_start_rank,
-               min_entries, current_entries        
+            min_entries, current_entries, is_guaranteed
      FROM contest WHERE id = ?`,
     [contestId]
   );
   if (!contest) throw new Error(`Contest ${contestId} not found`);
-  // if (contest.status === "COMPLETED") {
-  //   return { success: true, message: "Already scored", contestId, totalEntries: 0 };
-  // }
 
   if (contest.status === "COMPLETED") {
     return { success: true, message: "Already scored", contestId, totalEntries: 0 };
@@ -201,6 +198,29 @@ export const scoreContestService = async (contestId, matchId) => {
   const rankedEntriesCount = Number(scoreState?.ranked_entries || 0);
   if (contest.status === "INREVIEW" && rankedEntriesCount > 0) {
     return { success: true, message: "Already scored", contestId, totalEntries: 0 };
+  }
+
+  // ── Min entries check — non-guaranteed contests only ──
+  const minEntries     = Number(contest.min_entries     || 0);
+  const currentEntries = Number(contest.current_entries || 0);
+  if (!contest.is_guaranteed && minEntries > 0 && currentEntries < minEntries) {
+    const conn = await db.getConnection();
+    try {
+      await conn.beginTransaction();
+      await handleFullRefund(conn, contestId, contest);
+      await conn.commit();
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+    return {
+      success:   true,
+      message:   `Contest #${contestId} cancelled — min entries not met (${currentEntries}/${minEntries}), all entries refunded`,
+      contestId,
+      refunded:  true,
+    };
   }
 
   // ── 1. Fetch entries ──

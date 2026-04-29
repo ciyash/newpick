@@ -542,45 +542,68 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       [depositDeduct, bonusDeduct, earnDeduct, userId]
     );
 
-    // ── 9. Wallet transaction — winning debit ──
+    // ── 9. Total user balance + company balance for proper ledger ──
+    let userBalance = Number((depositBal + earnBal + bonusBal).toFixed(2));
+    const [[companyLastRow]] = await conn.query(
+      `SELECT closing_balance FROM wallet_transactions
+       WHERE closing_balance IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`
+    );
+    let companyBalance = Number(companyLastRow?.closing_balance || 0);
+
+    // ── 10. Wallet transaction — winning debit ──
     if (earnDeduct > 0) {
-      const eOpen = earnBal;
-      const eClose = Number((earnBal - earnDeduct).toFixed(2));
+      const uOpen  = userBalance;
+      const uClose = Number((userBalance - earnDeduct).toFixed(2));
+      userBalance  = uClose;
+      const coOpen  = companyBalance;
+      const coClose = Number((companyBalance + earnDeduct).toFixed(2));
+      companyBalance = coClose;
       await conn.query(
         `INSERT INTO wallet_transactions
          (user_id, wallettype, transtype, remark, amount,
-          useropeningbalance, userclosingbalance, ip_address, device)
-         VALUES (?, 'winning', 'debit', ?, ?, ?, ?, ?, ?)`,
+          useropeningbalance, userclosingbalance,
+          opening_balance, closing_balance, ip_address, device)
+         VALUES (?, 'winning', 'debit', ?, ?, ?, ?, ?, ?, ?, ?)`,
         [userId, `Contest join fee (winnings) - Contest #${contestId}`,
-          earnDeduct, eOpen, eClose, ip || null, device || null]
+          earnDeduct, uOpen, uClose, coOpen, coClose, ip || null, device || null]
       );
     }
 
-    // ── 10. Wallet transaction — deposit debit ──
+    // ── 11. Wallet transaction — deposit debit ──
     if (depositDeduct > 0) {
-      const dOpen = depositBal;
-      const dClose = Number((depositBal - depositDeduct).toFixed(2));
+      const uOpen  = userBalance;
+      const uClose = Number((userBalance - depositDeduct).toFixed(2));
+      userBalance  = uClose;
+      const coOpen  = companyBalance;
+      const coClose = Number((companyBalance + depositDeduct).toFixed(2));
+      companyBalance = coClose;
       await conn.query(
         `INSERT INTO wallet_transactions
          (user_id, wallettype, transtype, remark, amount,
-          useropeningbalance, userclosingbalance, ip_address, device)
-         VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?)`,
+          useropeningbalance, userclosingbalance,
+          opening_balance, closing_balance, ip_address, device)
+         VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?, ?, ?)`,
         [userId, `Contest join fee - Contest #${contestId}`,
-          depositDeduct, dOpen, dClose, ip || null, device || null]
+          depositDeduct, uOpen, uClose, coOpen, coClose, ip || null, device || null]
       );
     }
 
-    // ── 11. Wallet transaction — bonus debit ──
+    // ── 12. Wallet transaction — bonus debit ──
     if (bonusDeduct > 0) {
-      const bOpen = bonusBal;
-      const bClose = Number((bonusBal - bonusDeduct).toFixed(2));
+      const uOpen  = userBalance;
+      const uClose = Number((userBalance - bonusDeduct).toFixed(2));
+      userBalance  = uClose;
+      const coOpen  = companyBalance;
+      const coClose = Number((companyBalance + bonusDeduct).toFixed(2));
+      companyBalance = coClose;
       await conn.query(
         `INSERT INTO wallet_transactions
          (user_id, wallettype, transtype, remark, amount,
-          useropeningbalance, userclosingbalance, ip_address, device)
-         VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?, ?)`,
+          useropeningbalance, userclosingbalance,
+          opening_balance, closing_balance, ip_address, device)
+         VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?, ?, ?, ?)`,
         [userId, `Contest join bonus used - Contest #${contestId}`,
-          bonusDeduct, bOpen, bClose, ip || null, device || null]
+          bonusDeduct, uOpen, uClose, coOpen, coClose, ip || null, device || null]
       );
     }
 
@@ -1537,7 +1560,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
               }))
           : [];
 
-        // ── leaderboard — other users మాత్రమే ──
+        // ── leaderboard — other users  ──
         const otherRanked = allRanked.filter(e =>
           userId ? e.user_id !== parseInt(userId) : true
         );
@@ -1868,7 +1891,7 @@ export const announceWinnersService = async (contestId, adminId) => {
        JOIN (
          SELECT
            ce2.id,
-           RANK() OVER (
+           DENSE_RANK() OVER (
              ORDER BY COALESCE(team_pts.total_points, 0) DESC
            ) AS computed_rank
          FROM contest_entries ce2
@@ -1907,26 +1930,36 @@ export const announceWinnersService = async (contestId, adminId) => {
       [contestId]
     );
 
-    // ── 4. Credit earnwallet for each winner ──
+    // ── 4. Company balance for chaining across all winner credits ──
+    const [[companyLastRow]] = await conn.query(
+      `SELECT closing_balance FROM wallet_transactions
+       WHERE closing_balance IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`
+    );
+    let companyBalance = Number(companyLastRow?.closing_balance || 0);
+
+    // ── 5. Credit earnwallet for each winner ──
     for (const winner of winners) {
       const prize = Number(winner.winning_amount);
       if (!prize || prize <= 0) continue;
 
-      // Wallet fetch
+      // Wallet fetch — total balance for proper ledger
       const [[wallet]] = await conn.query(
-        `SELECT earnwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
+        `SELECT earnwallet, depositwallet, bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
         [winner.user_id]
       );
       if (!wallet) continue;
 
-      const openBal  = Number(wallet.earnwallet);
-      const closeBal = parseFloat((openBal + prize).toFixed(2));
+      const totalBal = Number(wallet.earnwallet) + Number(wallet.depositwallet) + Number(wallet.bonusamount);
+      const openBal  = parseFloat(totalBal.toFixed(2));
+      const closeBal = parseFloat((totalBal + prize).toFixed(2));
+
+      const coOpen  = companyBalance;
+      const coClose = Number((companyBalance - prize).toFixed(2));
+      companyBalance = coClose;
 
       // Credit earnwallet
       await conn.query(
-        `UPDATE wallets 
-         SET earnwallet = earnwallet + ? 
-         WHERE user_id = ?`,
+        `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
         [prize, winner.user_id]
       );
 
@@ -1934,19 +1967,20 @@ export const announceWinnersService = async (contestId, adminId) => {
       await conn.query(
         `INSERT INTO wallet_transactions
          (user_id, wallettype, transtype, remark, amount,
-          useropeningbalance, userclosingbalance)
-         VALUES (?, 'winning', 'credit', ?, ?, ?, ?)`,
+          useropeningbalance, userclosingbalance,
+          opening_balance, closing_balance)
+         VALUES (?, 'winning', 'credit', ?, ?, ?, ?, ?, ?)`,
         [
           winner.user_id,
           `Contest #${contestId} — Rank ${winner.urank} prize won`,
           prize,
-          openBal,
-          closeBal,
+          openBal, closeBal,
+          coOpen, coClose,
         ]
       );
     }
 
-    // ── 5. Contest COMPLETED ──
+    // ── 6. Contest COMPLETED ──
     await conn.query(
       `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
       [contestId]
@@ -1954,7 +1988,7 @@ export const announceWinnersService = async (contestId, adminId) => {
 
     await conn.commit();
 
-    // ── 6. Log activity for each winner ──
+    // ── 7. Log activity for each winner ──
     for (const winner of winners) {
       if (!winner.winning_amount) continue;
       logActivity({
@@ -2003,7 +2037,7 @@ export const announceWinnersService = async (contestId, adminId) => {
 // ── Full refund helper (min entries not met) ──
 
 
-const handleFullRefund = async (conn, contestId, contest) => {
+export const handleFullRefund = async (conn, contestId, contest) => {
   const [entries] = await conn.query(
     `SELECT DISTINCT user_id, entry_fee
      FROM contest_entries
@@ -2011,18 +2045,29 @@ const handleFullRefund = async (conn, contestId, contest) => {
     [contestId]
   );
 
+  const [[companyLastRow]] = await conn.query(
+    `SELECT closing_balance FROM wallet_transactions
+     WHERE closing_balance IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`
+  );
+  let companyBalance = Number(companyLastRow?.closing_balance || 0);
+
   for (const entry of entries) {
     const refundAmt = Number(entry.entry_fee) || Number(contest.entry_fee);
     if (!refundAmt) continue;
 
     const [[wallet]] = await conn.query(
-      `SELECT depositwallet FROM wallets WHERE user_id = ? FOR UPDATE`,
+      `SELECT depositwallet, earnwallet, bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
       [entry.user_id]
     );
     if (!wallet) continue;
 
-    const openBal  = Number(wallet.depositwallet);
-    const closeBal = parseFloat((openBal + refundAmt).toFixed(2));
+    const totalBal = Number(wallet.depositwallet) + Number(wallet.earnwallet) + Number(wallet.bonusamount);
+    const openBal  = parseFloat(totalBal.toFixed(2));
+    const closeBal = parseFloat((totalBal + refundAmt).toFixed(2));
+
+    const coOpen  = companyBalance;
+    const coClose = Number((companyBalance - refundAmt).toFixed(2));
+    companyBalance = coClose;
 
     // ── Deposit wallet credit ──
     await conn.query(
@@ -2034,14 +2079,15 @@ const handleFullRefund = async (conn, contestId, contest) => {
     await conn.query(
       `INSERT INTO wallet_transactions
        (user_id, wallettype, transtype, remark, amount,
-        useropeningbalance, userclosingbalance)
-       VALUES (?, 'deposit', 'credit', ?, ?, ?, ?)`,
+        useropeningbalance, userclosingbalance,
+        opening_balance, closing_balance)
+       VALUES (?, 'deposit', 'credit', ?, ?, ?, ?, ?, ?)`,
       [
         entry.user_id,
         `Refund — Contest #${contestId} cancelled (min entries not met)`,
         refundAmt,
-        openBal,
-        closeBal,
+        openBal, closeBal,
+        coOpen, coClose,
       ]
     );
 
@@ -2101,3 +2147,4 @@ export const cancelContestService = async (contestId) => {
   }
 };
 
+   
