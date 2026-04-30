@@ -628,127 +628,210 @@ export function generatePrizeDistribution({
   platformFeePercentage,
   rank1Percentage = 5,
 }) {
-  entryFee = Number(entryFee);
-  maxEntries = Number(maxEntries);
-  winnerPercentage = Number(winnerPercentage);
+  entryFee             = Number(entryFee);
+  maxEntries           = Number(maxEntries);
+  winnerPercentage     = Number(winnerPercentage);
   platformFeePercentage = Number(platformFeePercentage);
-  rank1Percentage = Number(rank1Percentage);
+  rank1Percentage      = Number(rank1Percentage);
 
+  /* ── Practise mode ───────────────────────────────────────────────────── */
   if (entryFee === 0) {
     return {
       prize_distribution: [],
       debug: {
-        totalCollection: 0,
-        platformFee: 0,
-        netPool: 0,
-        safePool: 0,
-        bonusPool: 0,
-        rank1: 0,
-        winners: 0,
-        safeStart: null,
-        safeCount: 0,
-        totalPayout: 0,
+        totalCollection: 0, platformFee: 0, netPool: 0,
+        safePool: 0, bonusPool: 0, rank1: 0,
+        winners: 0, safeStart: null, safeCount: 0, totalPayout: 0,
       },
     };
   }
 
-  validateInputs({
-    entryFee,
-    maxEntries,
-    winnerPercentage,
-    platformFeePercentage,
-    rank1Percentage,
-  });
+  /* ── Validate ────────────────────────────────────────────────────────── */
+  if (!Number.isFinite(entryFee) || entryFee <= 0)
+    throw new Error(`[Validation] entryFee must be positive finite — got ${entryFee}`);
+  if (!Number.isInteger(maxEntries) || maxEntries < 2)
+    throw new Error(`[Validation] maxEntries must be integer >= 2 — got ${maxEntries}`);
+  if (!Number.isFinite(platformFeePercentage) || platformFeePercentage < 0 || platformFeePercentage >= 100)
+    throw new Error(`[Validation] platformFeePercentage must be [0,100) — got ${platformFeePercentage}`);
+  if (!Number.isFinite(rank1Percentage) || rank1Percentage <= 0 || rank1Percentage > 10)
+    throw new Error(`[Validation] rank1Percentage must be (0,10] — got ${rank1Percentage}`);
 
+  /* ── Steps 1–3: Core financials ──────────────────────────────────────── */
   const totalCollection = maxEntries * entryFee;
-  const platformFee = Math.floor(totalCollection * platformFeePercentage / 100);
-  const netPool = totalCollection - platformFee;
-  const winners = Math.floor(maxEntries * winnerPercentage / 100);
+  const platformFee     = Math.floor(totalCollection * platformFeePercentage / 100);
+  const netPool         = totalCollection - platformFee;
+  const wpct            = (Number.isFinite(winnerPercentage) && winnerPercentage > 0) ? winnerPercentage : 55;
+  const winners         = Math.floor(maxEntries * wpct / 100);
 
-  if (winners < 1) {
-    throw new Error("[Calc] winnerPercentage too low - results in zero winners");
-  }
+  if (winners < 2) throw new Error(`[Calc] winners=${winners} — need >= 2`);
 
-  const safeCount = Math.floor(winners * 0.20);
-  const safeStart = safeCount > 0 ? winners - safeCount + 1 : null;
-  const refundTotal = safeCount * entryFee;
-  const bonusWinners = winners - safeCount;
+  /* ── Step 4: Refund zone (fixed, pre-computed) ───────────────────────── */
+  const safeCount   = Math.floor(winners * 0.20);
+  const safeStart   = winners - safeCount + 1;           // first refund rank
+  const epsilon     = Math.max(0.1, entryFee * 0.1);    // ε
+  const refundAmt   = entryFee + epsilon / 2;            // fixed per-rank payout
+  const refundTotal = refundAmt * safeCount;
+
+  /* ── Step 5: Bonus pool & rank 1 ─────────────────────────────────────── */
   const bonusPool = netPool - refundTotal;
+  if (bonusPool <= 0) throw new Error(`[Calc] bonusPool=${bonusPool} ≤ 0; pool too small`);
 
-  if (bonusWinners < 1 || bonusPool < bonusWinners * entryFee) {
-    throw new Error("[Calc] net pool is too small for the requested winner/refund structure");
+  const bonusEnd = safeStart - 1;   // last non-refund rank
+  if (bonusEnd < 1) throw new Error("[Calc] no bonus ranks available");
+
+  const rank1 = Math.floor(bonusPool * rank1Percentage / 100);
+  if (rank1 < entryFee + 1) throw new Error(`[Calc] rank1=${rank1} < entryFee+1`);
+
+  /* ── Step 6: Power curve for ranks 2..top1End ────────────────────────── */
+  const indCount = Math.min(10, bonusEnd);
+  const top1End  = Math.min(bonusEnd, Math.max(indCount, Math.floor(winners * 0.01)));
+
+  // Normalise K so Σ P(r) for r=2..top1End ≈ 0.40×bonusPool − rank1
+  const curveTarget = Math.max(0, bonusPool * 0.40 - rank1);
+  let K = 0;
+  if (top1End >= 2) {
+    let wSum = 0;
+    for (let r = 2; r <= top1End; r++) wSum += 1 / Math.pow(r, 0.30);
+    if (wSum > 0) K = curveTarget / wSum;
   }
 
-  const amounts = Array(bonusWinners).fill(entryFee);
-  const rank1 = Math.max(entryFee, Math.floor(bonusPool * rank1Percentage / 100));
-  amounts[0] = Math.min(rank1, bonusPool - ((bonusWinners - 1) * entryFee));
+  // Per-rank amounts for top-1% (individually tracked for exact enforcement)
+  const rankAmt = [0, rank1];   // index = rank; rankAmt[1] = rank1
+  let prev = rank1;
+  for (let r = 2; r <= top1End; r++) {
+    let a = K > 0 ? Math.floor(K / Math.pow(r, 0.30)) : Math.floor(prev * 0.85);
+    a = Math.max(entryFee + 1, a);
+    if (a >= prev) a = prev - 1;
+    if (a < entryFee + 1) a = entryFee + 1;
+    rankAmt.push(a);
+    prev = a;
+  }
+  const lastTop1Amt = rankAmt[rankAmt.length - 1];
 
-  let distributed = amounts.reduce((sum, amount) => sum + amount, 0);
-  let remaining = bonusPool - distributed;
-  const topCount = Math.min(bonusWinners, Math.max(1, Math.floor(winners * 0.01)));
-  const weights = [];
+  /* ── Step 7: Build top-1% zone group slabs (those within top1End) ───── */
+  const GROUP_DEFS = [[11,20],[21,50],[51,100],[101,200],[201,500],[501,1000]];
+  const slabs = [];   // { from, to, count, amount }
 
-  for (let index = 1; index < bonusWinners; index++) {
-    const rank = index + 1;
-    const powerWeight = rank <= topCount ? Math.pow(topCount - rank + 2, 2) : 0;
-    const linearWeight = bonusWinners - index;
-    weights.push({ index, weight: powerWeight + linearWeight });
+  // Individual ranks 1–min(10, bonusEnd)
+  for (let r = 1; r <= indCount; r++) {
+    slabs.push({ from: r, to: r, count: 1, amount: rankAmt[r] ?? (entryFee + 1) });
   }
 
-  const weightTotal = weights.reduce((sum, item) => sum + item.weight, 0);
-  if (remaining > 0 && weightTotal > 0) {
-    const baseRemaining = remaining;
-    const fractions = [];
-    for (const item of weights) {
-      const exact = baseRemaining * item.weight / weightTotal;
-      const add = Math.floor(exact);
-      amounts[item.index] += add;
-      fractions.push({ index: item.index, fraction: exact - add });
+  // Fixed groups that start within top1% (use curve amount at group start)
+  let lastEnd = indCount;
+  for (const [gFrom, gTo] of GROUP_DEFS) {
+    if (gFrom > bonusEnd || gFrom > top1End) break;
+    const aFrom = Math.max(gFrom, lastEnd + 1);
+    const aTo   = Math.min(gTo, bonusEnd);
+    if (aFrom > aTo) continue;
+    const a = rankAmt[Math.min(aFrom, rankAmt.length - 1)] ?? (entryFee + 1);
+    slabs.push({ from: aFrom, to: aTo, count: aTo - aFrom + 1, amount: a });
+    lastEnd = aTo;
+  }
+
+  /* ── Step 8: Linear zone — flat uniform amount ───────────────────────── */
+  // Every group beyond top1End gets the same amount = linearBudget / totalLinearCount.
+  // This is the only approach that simultaneously satisfies:
+  //   – non-increasing order (equal is valid for groups)
+  //   – last bonus slab > refundAmt
+  //   – bonus zone total = bonusPool exactly
+
+  const top1Total = slabs.reduce((s, sl) => s + sl.count * sl.amount, 0);
+  const linearBudget = bonusPool - top1Total;
+  const linearStart  = Math.max(top1End + 1, lastEnd + 1);
+
+  // Collect linear zone group ranges
+  const linGroups = [];
+  let linLastEnd = lastEnd;
+
+  for (const [gFrom, gTo] of GROUP_DEFS) {
+    const aFrom = Math.max(gFrom, linearStart, linLastEnd + 1);
+    const aTo   = Math.min(gTo, bonusEnd);
+    if (aFrom > bonusEnd || aFrom > aTo) continue;
+    linGroups.push({ from: aFrom, to: aTo, count: aTo - aFrom + 1 });
+    linLastEnd = aTo;
+  }
+  // Flat zone: 1001 → bonusEnd (single group)
+  {
+    const fFrom = Math.max(1001, linearStart, linLastEnd + 1);
+    if (fFrom <= bonusEnd) {
+      linGroups.push({ from: fFrom, to: bonusEnd, count: bonusEnd - fFrom + 1 });
+      linLastEnd = bonusEnd;
     }
+  }
+  // Handle case where top1End >= bonusEnd (no linear zone at all)
+  if (linLastEnd < bonusEnd && linearStart <= bonusEnd) {
+    const fFrom = Math.max(linearStart, linLastEnd + 1);
+    if (fFrom <= bonusEnd)
+      linGroups.push({ from: fFrom, to: bonusEnd, count: bonusEnd - fFrom + 1 });
+  }
 
-    let roundingLeft = bonusPool - amounts.reduce((sum, amount) => sum + amount, 0);
-    fractions.sort((a, b) => b.fraction - a.fraction || a.index - b.index);
-    for (let i = 0; roundingLeft > 0 && fractions.length > 0; i++) {
-      amounts[fractions[i % fractions.length].index] += 1;
-      roundingLeft--;
+  const totalLinearCount = linGroups.reduce((s, g) => s + g.count, 0);
+
+  if (totalLinearCount > 0) {
+    const targetUniform = linearBudget / totalLinearCount;
+    if (targetUniform <= refundAmt) {
+      throw new Error(
+        `[Calc] Pool too small: linear-zone uniform=${targetUniform.toFixed(4)} ≤ refundAmt=${refundAmt}. ` +
+        `Increase pool size or reduce winners.`
+      );
     }
+    // Optionally cap at lastTop1Amt to preserve monotonicity with top1 zone
+    const lastTop1SlabAmt = slabs.length > 0 ? slabs[slabs.length - 1].amount : Infinity;
+    const uniformAmt = Math.min(targetUniform, lastTop1SlabAmt);
+    // If capping changed budget, distribute difference to rank1
+    const linTotal = uniformAmt * totalLinearCount;
+    for (const g of linGroups) slabs.push({ ...g, amount: uniformAmt });
+    if (Math.abs(linTotal - linearBudget) > 0.001) {
+      slabs[0] = { ...slabs[0], amount: slabs[0].amount + (linearBudget - linTotal) };
+    }
+  } else if (Math.abs(linearBudget) > 0.001) {
+    // No linear zone; leftover goes to rank1
+    slabs[0] = { ...slabs[0], amount: slabs[0].amount + linearBudget };
   }
 
-  distributed = amounts.reduce((sum, amount) => sum + amount, 0);
-  remaining = bonusPool - distributed;
-  amounts[bonusWinners - 1] += remaining;
-
-  const perRank = [
-    ...amounts,
-    ...Array(safeCount).fill(entryFee),
-  ];
-
-  let totalPayout = perRank.reduce((sum, amount) => sum + amount, 0);
-  if (totalPayout !== netPool) {
-    const delta = netPool - totalPayout;
-    perRank[winners - 1] += delta;
-    totalPayout += delta;
+  /* ── Step 11: Append refund slab ─────────────────────────────────────── */
+  // Last bonus slab must be > refundAmt (strictly)
+  const lastBonusAmt = slabs[slabs.length - 1].amount;
+  if (lastBonusAmt <= refundAmt) {
+    throw new Error(
+      `[Refund] last bonus slab amount=${lastBonusAmt} ≤ refundAmt=${refundAmt}. ` +
+      `Increase pool or reduce rank1Percentage.`
+    );
   }
 
-  if (totalPayout !== netPool) {
+  slabs.push({ from: safeStart, to: winners, count: safeCount, amount: refundAmt });
+
+  /* ── Step 12: Final assertions ───────────────────────────────────────── */
+  const totalPayout = slabs.reduce((s, sl) => s + sl.count * sl.amount, 0);
+  if (Math.abs(totalPayout - netPool) > 0.01) {
     throw new Error(`[FinalCheck] totalPayout=${totalPayout} !== netPool=${netPool}`);
   }
 
-  const prize_distribution = [];
-  let start = 1;
-
-  for (let i = 1; i <= perRank.length; i++) {
-    if (i === perRank.length || perRank[i] !== perRank[start - 1]) {
-      const end = i;
-      const amount = perRank[start - 1];
-      prize_distribution.push(
-        start === end
-          ? { rank: start, amount }
-          : { rank_from: start, rank_to: end, amount }
+  for (let i = 1; i < slabs.length; i++) {
+    const gap = slabs[i - 1].from <= 10 && slabs[i - 1].from === slabs[i - 1].to ? 1 : 0;
+    if (slabs[i].amount + gap > slabs[i - 1].amount) {
+      throw new Error(
+        `[Order] slab ${slabs[i].from}–${slabs[i].to} amount=${slabs[i].amount} ` +
+        `violates order vs prev=${slabs[i - 1].amount}`
       );
-      start = i + 1;
+    }
+    if (slabs[i].from < safeStart && slabs[i].amount <= entryFee) {
+      throw new Error(`[Order] bonus slab rank ${slabs[i].from} amount=${slabs[i].amount} ≤ entryFee`);
     }
   }
+  if (slabs[slabs.length - 1].amount <= entryFee) {
+    throw new Error(`[Refund] refundAmt=${refundAmt} ≤ entryFee=${entryFee}`);
+  }
+
+  /* ── Format output ───────────────────────────────────────────────────── */
+  const prize_distribution = slabs
+    .filter(s => s.count > 0)
+    .map(s =>
+      s.from === s.to && s.from <= 10
+        ? { rank: s.from, amount: s.amount }
+        : { rank_from: s.from, rank_to: s.to, amount: s.amount }
+    );
 
   return {
     prize_distribution,
@@ -758,7 +841,7 @@ export function generatePrizeDistribution({
       netPool,
       safePool: refundTotal,
       bonusPool,
-      rank1: amounts[0],
+      rank1: slabs[0].amount,
       winners,
       safeStart,
       safeCount,
