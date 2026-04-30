@@ -4071,7 +4071,6 @@ export const getExpenditureSummary = async ({ startDate, endDate } = {}) => {
 const getPrizeForRank = (rank, prizeDistribution, entryFee, totalWinners, refundStartRank) => {
   if (!rank || rank <= 0) return 0;
   if (rank > totalWinners) return 0;
-  if (rank >= refundStartRank) return Number(entryFee) || 0;
   if (!prizeDistribution) return 0;
 
   let tiers;
@@ -4089,7 +4088,9 @@ const getPrizeForRank = (rank, prizeDistribution, entryFee, totalWinners, refund
 
   // Range tier (e.g. { rank_from: 11, rank_to: 20, amount: 700 })
   const range = tiers.find(t => rank >= t.rank_from && rank <= t.rank_to);
-  return range ? Number(range.amount) || 0 : 0;
+  if (range) return Number(range.amount) || 0;
+  if (rank >= refundStartRank) return Number(entryFee) || 0;
+  return 0;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
