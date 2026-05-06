@@ -257,7 +257,7 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
   /* ─── 2. Find User ─── */
   const [users] = await db.query(
     `SELECT id, usercode, email, mobile, name,
-            loginotp, loginotpexpires, account_status,
+            loginotp, loginotpexpires, account_status,kyc_status,
             email_verify, mobile_verify, age_verified
      FROM users
      WHERE (email = ? OR mobile = ?)
@@ -408,7 +408,8 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
      email_verify: user.email_verify,
       mobile_verify: user.mobile_verify,
       age_verified: user.age_verified,
-       account_status: user.account_status
+      account_status: user.account_status,
+      kyc_status:     user.kyc_status,
   };
 };
 

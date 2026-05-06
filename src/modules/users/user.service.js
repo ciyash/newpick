@@ -8,7 +8,6 @@ import { logActivity } from "../../utils/activity.logger.js";
 export const getUserProfileService = async (userId) => {
 
   /* ═══════════════════════ 1. USER ═══════════════════════ */
-
   const [[user]] = await db.query(
     `SELECT
         userid, usercode,
