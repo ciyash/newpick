@@ -4,186 +4,125 @@ import { getSubscriptionStatusService } from "./subscription.service.js";
 import { logActivity } from "../../utils/activity.logger.js";
 
 
+
 export const getUserProfileService = async (userId) => {
 
-  /* ================= USER DETAILS ================= */
+  /* ═══════════════════════ 1. USER ═══════════════════════ */
 
- 
   const [[user]] = await db.query(
-  `SELECT 
-      userid,
-      usercode,
-      name,
-      email,
-      mobile,
-      nickname,
-      region,
-      category,
-      dob,
-      created_at,
-      last_login,
-      current_login,
-      last_login_ip,
-      current_login_ip,
-      issofverify,
-      kyc_status,
-      mobile_verify,
-      email_verify,
-      account_status          
-   FROM users
-   WHERE id = ?`,
-  [userId]
-);
+    `SELECT
+        userid, usercode,
+        name, email, mobile, nickname, region,
+        category, dob, created_at,
+        last_login, current_login,
+        last_login_ip, current_login_ip,
+        issofverify, kyc_status,
+        mobile_verify, email_verify,
+        account_status,
+        subscribe, subscribepack,
+        subscribestartdate, subscribeenddate
+     FROM users
+     WHERE id = ?`,
+    [userId]
+  );
 
-  if (!user) {
-    throw new Error("User not found");
-  }
+  if (!user) throw new Error("User not found");
 
-   /* ================= NICKNAME ================= */        
   const generateNickname = (fullName) => {
     if (!fullName) return null;
     const parts = fullName.trim().split(/\s+/);
     if (parts.length === 1) return parts[0].slice(0, 8);
-    const firstName = parts[0];
-    const lastInitial = parts[parts.length - 1][0].toUpperCase();
-    return `${firstName} ${lastInitial}`;
+    return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}`;
   };
 
-
-  /* ================= WALLET =================== */
+  /* ═══════════════════════ 2. WALLET ═══════════════════════ */
 
   const [[wallet]] = await db.query(
-    `SELECT 
-        depositwallet,
-        earnwallet,
-        bonusamount,
-        deposit_limit,
-        iskyc,
-        issofverify,
-        limit_reduced_once
+    `SELECT iskyc, issofverify, limit_reduced_once
      FROM wallets
      WHERE user_id = ?`,
     [userId]
   );
 
-  const safeWallet = wallet || {
-    depositwallet: 0,
-    earnwallet: 0,
-    bonusamount: 0,
-    deposit_limit: 0,
-    iskyc: 0,
-    issofverify: 0,
-    limit_reduced_once: 0
-  };
+  const safeWallet = wallet || { iskyc: 0, issofverify: 0, limit_reduced_once: 0 };
 
-  const depositWallet = Number(safeWallet.depositwallet);
-  const withdrawWallet = Number(safeWallet.earnwallet);
-  const bonusWallet = Number(safeWallet.bonusamount);
+  /* ═══════════════════════ 3. SUBSCRIPTION ═══════════════════════ */
 
-  const totalWallet = depositWallet + withdrawWallet 
+  const now      = new Date();
+  const isActive =
+    Number(user.subscribe) === 1 &&
+    user.subscribeenddate &&
+    new Date(user.subscribeenddate) > now;
 
-  /* ================= MONTHLY DEPOSIT ================= */
-
-  const yearMonth = new Date().toISOString().slice(0, 7);
-
-  const [[monthly]] = await db.query(
-    `SELECT total_added
-     FROM monthly_deposits
-     WHERE user_id = ? AND ym = ?`,
-    [userId, yearMonth]
+  const [allPlans] = await db.query(
+    `SELECT id, package_name, amount, bonus, duration
+     FROM subscription_packages
+     WHERE LOWER(status) = 'active'
+     ORDER BY amount ASC`
   );
 
-  const addedThisMonth = monthly ? Number(monthly.total_added) : 0;
+  const currentPack = isActive
+    ? allPlans.find((p) => p.duration === user.subscribepack) || null
+    : null;
 
-  const monthlyLimit = Number(safeWallet.deposit_limit);
-
-  const remainingThisMonth = Math.max(monthlyLimit - addedThisMonth, 0);
-
-  const canAddCash = remainingThisMonth > 0;
-
-  /* ================= WITHDRAW HISTORY ================= */
-
-  const [withdrawals] = await db.query(
-    `SELECT amount, status, created_at
-     FROM withdraws
-     WHERE user_id = ?
-     ORDER BY created_at DESC
-     LIMIT 3`,
-    [userId]
-  );
-
-  /* ================= SUBSCRIPTION ================= */
-
-  const subscription = await getSubscriptionStatusService(userId);
-
-  /* ================= RETURN PROFILE ================= */
+  /* ═══════════════════════ RETURN ═══════════════════════ */
 
   return {
 
-    /* ===== PERSONAL DETAILS ===== */
-
     personal: {
-      userid: user.userid,
-      usercode: user.usercode,
-      name: user.name,
-      email: user.email,
-      mobile: user.mobile,
-      nickname: user.nickname || generateNickname(user.name),
-      region: user.region,
-      accountStatus: user.account_status,  
-      isActive: user.account_status === "active",  
-      category: user.category,
-      dob: user.dob,
-      memberSince: user.created_at,
-
-      mobileVerify: user.mobile_verify,
-      emailVerify: user.email_verify,
-
-      SOFverify: user.issofverify,
-      KYCstatus: user.kyc_status,
-      KYCverify: safeWallet.iskyc,
-      Walletlimit: safeWallet.limit_reduced_once,
-
+      userid:        user.userid,
+      usercode:      user.usercode,
+      name:          user.name,
+      email:         user.email,
+      mobile:        user.mobile,
+      nickname:      user.nickname || generateNickname(user.name),
+      region:        user.region,
+      dob:           user.dob,
+      accountStatus: user.account_status,
+      isActive:      user.account_status === "active",
+      category:      user.category,
+      memberSince:   user.created_at,
+      mobileVerify:  user.mobile_verify,
+      emailVerify:   user.email_verify,
+      SOFverify:     user.issofverify,
+      KYCstatus:     user.kyc_status,
+      KYCverify:     safeWallet.iskyc,
+      Walletlimit:   safeWallet.limit_reduced_once,
       lastLoginDate: user.last_login
-        ? new Date(user.last_login).toLocaleString("en-IN")
+        ? new Date(user.last_login).toLocaleString("en-GB")
         : "First login",
-
-      lastLoginIp: user.last_login_ip || null,
-
+      lastLoginIp:      user.last_login_ip    || null,
       currentLoginDate: user.current_login
-        ? new Date(user.current_login).toLocaleString("en-IN")
+        ? new Date(user.current_login).toLocaleString("en-GB")
         : null,
-
-      currentLoginIp: user.current_login_ip || null
+      currentLoginIp:   user.current_login_ip || null,
     },
 
-    /* ===== WALLET ===== */
-
-    wallet: {
-      depositWallet,
-      withdrawWallet,  
-      bonusWallet,
-      totalWallet
+    subscription: {
+      isActive,
+      current: currentPack
+        ? {
+            packageName: currentPack.package_name,
+            price:       Number(currentPack.amount),
+            currency:    "GBP",
+            bonus:       Number(currentPack.bonus),
+            duration:    currentPack.duration,
+            startAt:     user.subscribestartdate,
+            endAt:       user.subscribeenddate,
+          }
+        : null,
+      plans: allPlans.map((p) => ({
+        id:          p.id,
+        packageName: p.package_name,
+        amount:      Number(p.amount),
+        bonus:       Number(p.bonus),
+        duration:    p.duration,
+      })),
     },
 
-    /* ===== DEPOSIT LIMIT ===== */
-
-    depositLimits: {
-      monthlyLimit,
-      addedThisMonth,
-      remainingThisMonth,
-      canAddCash
-    },
-
-    /* ===== WITHDRAW HISTORY ===== */
-
-    withdrawals: withdrawals || [],
-
-    /* ===== SUBSCRIPTION ===== */
-
-    subscription
   };
 };
+
 
 export const reduceMonthlyLimitService = async (userId, newLimit) => {
 

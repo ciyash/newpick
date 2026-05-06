@@ -642,120 +642,88 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
    GET SUBSCRIPTION STATUS
 ================================= */
 
-
 export const getSubscriptionStatusService = async (userId) => {
+ 
+  /* ── 1. User subscription fields ── */
   const [[user]] = await db.query(
     `SELECT
-       u.subscribe,
-       u.subscribepack,
-       u.subscribestartdate,
-       u.subscribeenddate,
-       s.id AS subscription_id,
-       s.amount,
-       s.period,
-       s.status AS sub_status,
-       s.subscription_date,
-       s.subscription_end
-     FROM users u
-     LEFT JOIN subscriptions s
-       ON s.user_id = u.id
-       AND s.package_name = u.subscribepack
-     WHERE u.id = ?
-     ORDER BY s.id DESC
-     LIMIT 1`,
+       subscribe,
+       subscribepack,
+       subscribestartdate,
+       subscribeenddate
+     FROM users
+     WHERE id = ?`,
     [userId]
   );
-
+ 
+  /* ── 2. All active packages — status lowercase 'active' ── */
   const [allPackages] = await db.query(
     `SELECT id, package_name, amount, bonus, duration
      FROM subscription_packages
-     WHERE status = 'Active'
-     ORDER BY id ASC`
+     WHERE LOWER(status) = 'active'
+     ORDER BY amount ASC`
   );
-
-  const formatPlan = (pkg) => {
-    const durationValue = pkg.duration === "1M" ? 1 : 3;
-    return {
-      id:       `plan_${Number(pkg.amount)}_${pkg.duration.toLowerCase()}`,
-      name:     pkg.package_name,
-      price:    Number(pkg.amount),
-      currency: "GBP",
-      bonus:    Number(pkg.bonus),
-      duration: pkg.duration  
-    };
-  };
-
+ 
+  const formatPlan = (pkg) => ({
+    id:       `plan_${Number(pkg.amount)}_${pkg.duration.toLowerCase()}`,
+    name:     pkg.package_name,
+    price:    Number(pkg.amount),
+    currency: "GBP",
+    bonus:    Number(pkg.bonus),
+    duration: pkg.duration,
+  });
+ 
   const meta = {
     timestamp: new Date().toISOString(),
-    version:   "v1"
+    version:   "v1",
   };
-
+ 
+  /* ── 3. Check active ── */
   const isActive =
     user &&
     Number(user.subscribe) === 1 &&
     user.subscribeenddate &&
     new Date(user.subscribeenddate) > new Date();
-
+ 
   if (!isActive) {
     return {
       success: true,
       data: {
-        subscription: {
-          isActive: false,
-          details:  null
-        },
-        plans: allPackages.map(formatPlan)
+        subscription: { isActive: false, details: null },
+        plans: allPackages.map(formatPlan),
       },
       error: null,
-      meta
+      meta,
     };
   }
-
-  // Current pack details
-  const [[currentPack]] = await db.query(
-    `SELECT id, package_name, amount, bonus, duration
-     FROM subscription_packages
-     WHERE duration = ? AND status = 'Active'`,
-    [user.subscribepack]
-  );
-
-  // Other packages
-
-  // Other packages — allPackages use cheyyi
-  const [otherPackages] = await db.query(
-    `SELECT id, package_name, amount, bonus, duration
-     FROM subscription_packages
-     WHERE status = 'Active'`,  
-    []
-  );
-
+ 
+  /* ── 4. Current pack from subscription_packages by duration ── */
+  const currentPack = allPackages.find(
+    (p) => p.duration === user.subscribepack
+  ) || null;
+ 
   return {
     success: true,
     data: {
       subscription: {
         isActive: true,
         details: {
-          id:          user.subscription_id,
-          name:        currentPack?.package_name,
-          price:       Number(user.amount),
-          currency:    "GBP",
-          bonus:       Number(currentPack?.bonus),
-          duration:    currentPack?.duration, 
-          billingCycle: user.period,
-          status:       user.sub_status,
-          startAt:      user.subscription_date,
-          endAt:        user.subscription_end
-        }
+          name:     currentPack?.package_name || null,
+          price:    Number(currentPack?.amount || 0),
+          currency: "GBP",
+          bonus:    Number(currentPack?.bonus  || 0),
+          duration: currentPack?.duration      || null,
+          startAt:  user.subscribestartdate,
+          endAt:    user.subscribeenddate,
+        },
       },
-      plans: otherPackages.map((pkg) => ({
-        ...formatPlan(pkg),
-        isRecommended: true
-      }))
+      plans: allPackages.map(formatPlan),
     },
     error: null,
-    meta
+    meta,
   };
 };
+ 
 
 /* ================================
    GET ALL PACKAGES
