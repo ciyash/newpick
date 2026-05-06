@@ -397,7 +397,19 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
     },
   });
 
-  /* ─── 11. Return User ─── */
+  /* ─── 11. Fetch Wallet Information ─── */
+
+ 
+  const [[wallet]] = await db.query(
+  `SELECT iskyc, issofverify, limit_reduced_once
+   FROM wallets
+   WHERE user_id = ?`,
+  [user.id]
+);
+
+     const safeWallet = wallet || { iskyc: 0, issofverify: 0, limit_reduced_once: 0 };
+
+  /* ─── 12. Return User ─── */
   return {
     id:           user.id,
     usercode:     user.usercode,
@@ -410,11 +422,12 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
       age_verified: user.age_verified,
       account_status: user.account_status,
       kyc_status:     user.kyc_status,
-  };
+      kyc_verify:   safeWallet.iskyc
+
+  
 };
 
-
-
+}
 
 /* ================= PAUSE ACCOUNT ====================== */
 
