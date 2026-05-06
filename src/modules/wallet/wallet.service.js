@@ -358,28 +358,93 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // GET MY WALLET
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 export const getMyWalletService = async (userId) => {
   if (!userId) throw new Error("Invalid user");
 
+  /* ═══════════════════════ 1. WALLET BALANCES ═══════════════════════ */
+
   const [[wallet]] = await db.query(
-    `SELECT depositwallet, earnwallet, bonusamount FROM wallets WHERE user_id = ?`,
+    `SELECT
+        depositwallet,
+        earnwallet,
+        bonusamount,
+        deposit_limit,
+        iskyc,
+        issofverify,
+        limit_reduced_once
+     FROM wallets
+     WHERE user_id = ?`,
     [userId]
   );
+
   if (!wallet) throw new Error("Wallet not found");
 
   const depositWallet = Number(wallet.depositwallet || 0);
   const earnWallet    = Number(wallet.earnwallet    || 0);
   const bonusWallet   = Number(wallet.bonusamount   || 0);
+  const totalBalance  = Number((depositWallet + earnWallet + bonusWallet).toFixed(2));
+
+  /* ═══════════════════════ 2. MONTHLY DEPOSIT LIMIT ═══════════════════════ */
+
+  const yearMonth = new Date().toISOString().slice(0, 7);
+
+  const [[monthly]] = await db.query(
+    `SELECT total_added
+     FROM monthly_deposits
+     WHERE user_id = ? AND ym = ?`,
+    [userId, yearMonth]
+  );
+
+  const monthlyLimit       = Number(wallet.deposit_limit || 0);
+  const addedThisMonth     = monthly ? Number(monthly.total_added) : 0;
+  const remainingThisMonth = Math.max(monthlyLimit - addedThisMonth, 0);
+
+  /* ═══════════════════════ 3. RECENT WITHDRAWALS ═══════════════════════ */
+
+  const [withdrawals] = await db.query(
+    `SELECT id, amount, status, created_at
+     FROM withdraws
+     WHERE user_id = ?
+     ORDER BY created_at DESC
+     LIMIT 5`,
+    [userId]
+  );
+
+  /* ═══════════════════════ RETURN ═══════════════════════ */
 
   return {
-    depositWallet,
-    earnWallet,
-    bonusWallet,
-    totalBalance: Number((depositWallet + earnWallet + bonusWallet).toFixed(2)),
+
+    balances: {
+      depositWallet,
+      earnWallet,
+      bonusWallet,
+      totalBalance,
+    },
+
+    depositLimits: {
+      monthlyLimit,
+      addedThisMonth,
+      remainingThisMonth,
+      canAddCash: remainingThisMonth > 0,
+    },
+
+    stats: {
+      isKYC:            Number(wallet.iskyc            || 0) === 1,
+      isSOFVerified:    Number(wallet.issofverify      || 0) === 1,
+      limitReducedOnce: Number(wallet.limit_reduced_once || 0) === 1,
+    },
+
+    withdrawals: (withdrawals || []).map((w) => ({
+      id:     w.id,
+      amount: Number(w.amount),
+      status: w.status,
+      date:   w.created_at,
+    })),
+
   };
 };
 

@@ -405,6 +405,10 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
     mobile:       user.mobile,
     name:         user.name,
     subscription: subscription.active,
+     email_verify: user.email_verify,
+      mobile_verify: user.mobile_verify,
+      age_verified: user.age_verified,
+       account_status: user.account_status
   };
 };
 
