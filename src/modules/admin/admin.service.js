@@ -1,8 +1,6 @@
 import db from "../../config/db.js";
 import bcrypt from "bcrypt";
 import { generatePrizeDistribution } from "./lib/prize-distribution.js";
-"use strict";
-
 
 //adminlog
 const logAdmin = async (conn, admin, action, entity, entityId, ip) => {
@@ -76,27 +74,27 @@ export const createAdmin = async (data, admin, ip) => {
 };
 
 export const getAdmins = async ({ page = 1, limit = 20 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT id, name, email, role, status, created_at
-     FROM admin
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM admin`
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT id, name, email, role, status, created_at
+       FROM admin
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
+      [safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM admin`),
+  ]);
 
   return {
     data: rows,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -128,7 +126,7 @@ export const updateAdmin = async (id, data, admin, ip) => {
   if (!Object.keys(sanitized).length) throw new Error("No valid fields to update");
 
   if (Number(id) === Number(admin.id)) {
-    if (sanitized.role || sanitized.status) {
+    if (sanitized.role !== undefined || sanitized.status !== undefined) {
       throw new Error("Admins cannot update their own role or status");
     }
   }
@@ -182,16 +180,11 @@ export const createSeries = async (data, admin, ip) => {
     );
     if (existing) throw new Error("Series with this name and season already exists");
 
-    const [[{ nextSeriesId }]] = await conn.query(
-      `SELECT IFNULL(MAX(seriesid), 0) + 1 AS nextSeriesId FROM series FOR UPDATE`
-    );
-
     const [result] = await conn.query(
       `INSERT INTO series
-       (seriesid, name, season, start_date, end_date, provider_series_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+       (name, season, start_date, end_date, provider_series_id, created_at)
+       VALUES (?, ?, ?, ?, ?, NOW())`,
       [
-        nextSeriesId,
         data.name,
         data.season,
         data.start_date,
@@ -201,10 +194,11 @@ export const createSeries = async (data, admin, ip) => {
     );
 
     if (result.affectedRows === 0) throw new Error("Failed to create series");
-    await logAdmin(conn, admin, "CREATE_SERIES", "series", nextSeriesId, ip);
+    const insertedId = result.insertId;
+    await logAdmin(conn, admin, "CREATE_SERIES", "series", insertedId, ip);
     await conn.commit();
 
-    return { seriesid: nextSeriesId };
+    return { seriesid: insertedId };
 
   } catch (err) {
     await conn.rollback();
@@ -214,34 +208,27 @@ export const createSeries = async (data, admin, ip) => {
   }
 };
 export const getSeries = async ({ page = 1, limit = 20 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT
-       seriesid,
-       name,
-       season,
-       start_date,
-       end_date,
-       provider_series_id,
-       created_at
-     FROM series
-     ORDER BY start_date DESC
-     LIMIT ? OFFSET ?`,
-    [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM series`
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT seriesid, name, season, start_date, end_date, provider_series_id, created_at
+       FROM series
+       ORDER BY start_date DESC
+       LIMIT ? OFFSET ?`,
+      [safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM series`),
+  ]);
 
   return {
     data: rows,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -376,24 +363,23 @@ export const createMatch = async (data, admin, ip) => {
   try {
     await conn.beginTransaction();
 
-    // ── Validate series ───────────────────────────────────────────────────
-    const [[series]] = await conn.query(
-      `SELECT seriesid, name AS seriesname FROM series WHERE seriesid = ?`,
-      [series_id]
-    );
-    if (!series) throw new Error("Invalid series_id — series not found");
-
-    // ── Validate teams ────────────────────────────────────────────────────
-    const [[homeTeam]] = await conn.query(
-      `SELECT id, name AS teamname FROM teams WHERE id = ?`,
-      [home_team_id]
-    );
+    // ── Validate series + teams in parallel ──────────────────────────────
+    const [[[series]], [[homeTeam]], [[awayTeam]]] = await Promise.all([
+      conn.query(
+        `SELECT seriesid, name AS seriesname FROM series WHERE seriesid = ?`,
+        [series_id]
+      ),
+      conn.query(
+        `SELECT id, name AS teamname FROM teams WHERE id = ?`,
+        [home_team_id]
+      ),
+      conn.query(
+        `SELECT id, name AS teamname FROM teams WHERE id = ?`,
+        [away_team_id]
+      ),
+    ]);
+    if (!series)   throw new Error("Invalid series_id — series not found");
     if (!homeTeam) throw new Error("Invalid home_team_id — team not found");
-
-    const [[awayTeam]] = await conn.query(
-      `SELECT id, name AS teamname FROM teams WHERE id = ?`,
-      [away_team_id]
-    );
     if (!awayTeam) throw new Error("Invalid away_team_id — team not found");
 
     // ── Duplicate match check ─────────────────────────────────────────────
@@ -561,205 +547,7 @@ export const createMatch = async (data, admin, ip) => {
     conn.release();
   }
 };
-
-export const createMatchcontastold = async (data, admin, ip) => {
-
-  if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
-
-  const { series_id, home_team_id, away_team_id, start_time,matchdate } = data;
-  if (Number(home_team_id) === Number(away_team_id)) {
-    throw new Error("Home and away teams must be different");
-  }
-console.log("DATA RECEIVED:", data);
-console.log("start_time:", start_time);
-console.log("matchdate:", matchdate);
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    const [[series]] = await conn.query(
-      `SELECT seriesid FROM series WHERE seriesid = ?`, [series_id]
-    );
-      const [[seriename]] = await conn.query(
-      `SELECT name AS seriesname FROM series WHERE seriesid = ?`,
-      [series_id]
-    );
-    if (!series) throw new Error("Invalid series_id — series not found");
-
-    const [[homeTeam]] = await conn.query(
-      `SELECT id FROM teams WHERE id = ?`, [home_team_id]
-    );
-      const [[homeTeamname]] = await conn.query(
-      `SELECT name AS teamname FROM teams WHERE id = ?`,
-      [home_team_id]
-    );
-    if (!homeTeam) throw new Error("Invalid home_team_id — team not found");
-
-    const [[awayTeam]] = await conn.query(
-      `SELECT id FROM teams WHERE id = ?`, [away_team_id]
-    );
-     const [[awayTeamname]] = await conn.query(
-      `SELECT name AS teamname FROM teams WHERE id = ?`,
-      [away_team_id]
-    );
-    if (!awayTeam) throw new Error("Invalid away_team_id — team not found");
-
-     const [[existing]] = await conn.query(
-      `SELECT id FROM matches
-       WHERE series_id = ?
-       AND home_team_id = ?
-       AND away_team_id = ?
-       AND start_time = ?
-       AND matchdate = ?`,
-      [
-        series_id,
-        home_team_id,
-        away_team_id,
-          start_time,
-          matchdate
-      ]
-    );
-
-    if (existing) {
-      throw new Error("A match with the same teams, series, time and date already exists");
-    }
-
-    // const [result] = await conn.query(
-    //   `INSERT INTO matches
-    //    (series_id, home_team_id, away_team_id, start_time, matchdate, status, created_at)
-    //    VALUES (?, ?, ?, ?, ?, 'UPCOMING', NOW())`,
-    //   [
-    //     series_id,
-    //     home_team_id,
-    //     away_team_id,
-    //    start_time,
-    //       matchdate
-    //   ]
-    // );
-    const [result] = await conn.query(
-  `INSERT INTO matches
-   (series_id, seriesname,
-    home_team_id, hometeamname,
-    away_team_id, awayteamname,
-    matchdate, start_time,
-    status, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'UPCOMING', NOW())`,
-  [
-    series_id,
-    seriename.seriesname,
-    home_team_id,
-    homeTeamname.teamname,
-    away_team_id,
-    awayTeamname.teamname,
-    matchdate,
-   start_time
-   
-  ]
-);
-    if (result.affectedRows === 0) throw new Error("Failed to create match");
-
-    const matchId = result.insertId;
-
-    // ── Auto-create contests for all categories ──────────────
-    const [categories] = await conn.query(
-      `SELECT id, name, entryfee, platformfee,percentage FROM contestcategory`
-    );
-
-    if (!categories.length) throw new Error("No contest categories found — cannot auto-create contests");
-
-    for (const category of categories) {
-      await conn.query(
-        `INSERT INTO contest
-          (match_id, contest_type, entry_fee, platform_fee_percentage,
-           prize_pool, net_pool_prize, max_entries, min_entries, current_entries,
-           is_guaranteed, winner_percentage, total_winners,
-           first_prize, prize_distribution,
-           is_cashback, cashback_percentage, cashback_amount,
-           platform_fee_amount, status, created_at)
-         VALUES (?,?,?,?,0,0,0,0,0,0,?,0,0,null,0,0,0,0,'UPCOMING',NOW())`,
-        [matchId, category.name, category.entryfee, category.platformfee,category.percentage]
-      );
-    }
-    // ─────────────────────────────────────────────────────────
-
-    await logAdmin(conn, admin, "CREATE_MATCH", "match", matchId, ip || null);
-    await conn.commit();
-
-    return { id: matchId };
-
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
-export const createMatchold = async (data, admin, ip) => {
-
-  if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
-
-  const { series_id, home_team_id, away_team_id, start_time } = data;
-  if (Number(home_team_id) === Number(away_team_id)) {
-    throw new Error("Home and away teams must be different");
-  }
-
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-
-    const [[series]] = await conn.query(
-      `SELECT seriesid FROM series WHERE seriesid = ?`,
-      [series_id]
-    );
-  
-    
-    if (!series) throw new Error("Invalid series_id — series not found");
-
-    const [[homeTeam]] = await conn.query(
-      `SELECT id FROM teams WHERE id = ?`,
-      [home_team_id]
-    );
-   
-    if (!homeTeam) throw new Error("Invalid home_team_id — team not found");
-
-    const [[awayTeam]] = await conn.query(
-      `SELECT id FROM teams WHERE id = ?`,
-      [away_team_id]
-    );
-    
-   
-    if (!awayTeam) throw new Error("Invalid away_team_id — team not found");
-
-    const [[existing]] = await conn.query(
-      `SELECT id FROM matches
-       WHERE series_id = ? AND home_team_id = ? AND away_team_id = ? AND start_time = ?`,
-      [series_id, home_team_id, away_team_id, new Date(start_time)]
-    );
-    if (existing) throw new Error("A match with the same teams, series, and time already exists");
-    const [result] = await conn.query(
-      `INSERT INTO matches
-       (series_id, home_team_id, away_team_id, start_time, status, created_at)
-       VALUES (?, ?, ?, ?, 'UPCOMING', NOW())`,
-      [series_id, home_team_id, away_team_id, new Date(start_time)]
-    );
-
-    if (result.affectedRows === 0) throw new Error("Failed to create match");
-    await logAdmin(conn, admin, "CREATE_MATCH", "match", result.insertId, ip || null);
-    await conn.commit();
-
-    return { id: result.insertId };
-
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
-
-const VALID_STATUSES = ["UPCOMING", "LIVE", "INREVIEW", "COMPLETED", "ABANDONED"];
+const VALID_STATUSES = ["UPCOMING", "LIVE", "INREVIEW", "COMPLETED", "ABANDONED"];
 const MATCH_COLUMNS = `
   m.id,
   m.series_id,
@@ -774,41 +562,40 @@ const MATCH_COLUMNS = `
 `;
 
 export const getMatches = async ({ page = 1, limit = 20, status = null } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
   if (status && !VALID_STATUSES.includes(status)) {
     throw new Error(`Invalid status. Allowed: ${VALID_STATUSES.join(", ")}`);
   }
 
   const whereClause = status ? `WHERE m.status = ?` : ``;
-  const queryParams = status
-    ? [limit, offset]
-    : [limit, offset];
 
-  const [rows] = await db.query(
-    `SELECT ${MATCH_COLUMNS}
-     FROM matches m
-     JOIN series s  ON s.seriesid = m.series_id
-     JOIN teams  ht ON ht.id      = m.home_team_id
-     JOIN teams  at ON at.id      = m.away_team_id
-     ${whereClause}
-     ORDER BY m.start_time DESC
-     LIMIT ? OFFSET ?`,
-    status ? [status, limit, offset] : [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM matches m ${whereClause}`,
-    status ? [status] : []
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${MATCH_COLUMNS}
+       FROM matches m
+       JOIN series s  ON s.seriesid = m.series_id
+       JOIN teams  ht ON ht.id      = m.home_team_id
+       JOIN teams  at ON at.id      = m.away_team_id
+       ${whereClause}
+       ORDER BY m.start_time DESC
+       LIMIT ? OFFSET ?`,
+      status ? [status, safeLimit, offset] : [safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM matches m ${whereClause}`,
+      status ? [status] : []
+    ),
+  ]);
 
   return {
     data: rows,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -841,37 +628,39 @@ export const getMatchBySeries = async (seriesId, { page = 1, limit = 20, status 
     throw new Error(`Invalid status. Allowed: ${VALID_STATUSES.join(", ")}`);
   }
 
-  const offset     = (page - 1) * limit;
+  const safeLimit  = Math.min(Number(limit) || 20, 100);
+  const offset     = (page - 1) * safeLimit;
   const conditions = status
     ? `WHERE m.series_id = ? AND m.status = ?`
     : `WHERE m.series_id = ?`;
 
   const baseParams = status ? [Number(seriesId), status] : [Number(seriesId)];
 
-  const [rows] = await db.query(
-    `SELECT ${MATCH_COLUMNS}
-     FROM matches m
-     JOIN series s  ON s.seriesid = m.series_id
-     JOIN teams  ht ON ht.id      = m.home_team_id
-     JOIN teams  at ON at.id      = m.away_team_id
-     ${conditions}
-     ORDER BY m.start_time ASC
-     LIMIT ? OFFSET ?`,
-    [...baseParams, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM matches m ${conditions}`,
-    baseParams
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${MATCH_COLUMNS}
+       FROM matches m
+       JOIN series s  ON s.seriesid = m.series_id
+       JOIN teams  ht ON ht.id      = m.home_team_id
+       JOIN teams  at ON at.id      = m.away_team_id
+       ${conditions}
+       ORDER BY m.start_time ASC
+       LIMIT ? OFFSET ?`,
+      [...baseParams, safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM matches m ${conditions}`,
+      baseParams
+    ),
+  ]);
 
   return {
     data: rows,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -977,6 +766,12 @@ export const updateMatch = async (id, data, admin, ip) => {
     await logAdmin(conn, admin, "UPDATE_MATCH", "match", Number(id), ip || null);
     await conn.commit();
 
+    return {
+      success: true,
+      id: Number(id),
+      message: "Match updated successfully"
+    };
+
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -1021,31 +816,27 @@ export const createTeam = async (data, admin, ip) => {
 };
 
 export const getTeams = async ({ page = 1, limit = 20 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT
-       id,
-       name,
-       short_name,
-       created_at
-     FROM teams
-     ORDER BY name ASC
-     LIMIT ? OFFSET ?`,
-    [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM teams`
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT id, name, short_name, created_at
+       FROM teams
+       ORDER BY name ASC
+       LIMIT ? OFFSET ?`,
+      [safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM teams`),
+  ]);
 
   return {
     data: rows,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -1123,7 +914,6 @@ export const updateTeam = async (id, data, admin, ip) => {
 
 //players
 export const createPlayer = async (data, admin, ip) => {
-  console.log("createPlayer data:", data);
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
   
@@ -1185,7 +975,8 @@ const PLAYER_COLUMNS = `
 `;
 
 export const getPlayers = async ({ page = 1, limit = 20, position = null } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
   if (position && !VALID_POSITIONS.includes(position)) {
     throw new Error(`Invalid position. Allowed: ${VALID_POSITIONS.join(", ")}`);
@@ -1193,28 +984,29 @@ export const getPlayers = async ({ page = 1, limit = 20, position = null } = {})
 
   const whereClause = position ? `WHERE p.position = ?` : ``;
 
-  const [rows] = await db.query(
-    `SELECT ${PLAYER_COLUMNS}
-     FROM players p
-     JOIN teams t ON t.id = p.team_id
-     ${whereClause}
-     ORDER BY p.name ASC
-     LIMIT ? OFFSET ?`,
-    position ? [position, limit, offset] : [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM players p ${whereClause}`,
-    position ? [position] : []
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${PLAYER_COLUMNS}
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       ${whereClause}
+       ORDER BY p.name ASC
+       LIMIT ? OFFSET ?`,
+      position ? [position, safeLimit, offset] : [safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM players p ${whereClause}`,
+      position ? [position] : []
+    ),
+  ]);
 
   return {
     data: rows,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -1243,7 +1035,8 @@ export const getPlayerByTeam = async (teamId, { page = 1, limit = 20, position =
     throw new Error(`Invalid position. Allowed: ${VALID_POSITIONS.join(", ")}`);
   }
 
-  const offset = (page - 1) * limit;
+  const safeLimit  = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
   const conditions = position
     ? `WHERE p.team_id = ? AND p.position = ?`
@@ -1253,28 +1046,29 @@ export const getPlayerByTeam = async (teamId, { page = 1, limit = 20, position =
     ? [Number(teamId), position]
     : [Number(teamId)];
 
-  const [rows] = await db.query(
-    `SELECT ${PLAYER_COLUMNS}
-     FROM players p
-     JOIN teams t ON t.id = p.team_id
-     ${conditions}
-     ORDER BY p.position ASC, p.name ASC
-     LIMIT ? OFFSET ?`,
-    [...baseParams, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM players p ${conditions}`,
-    baseParams
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${PLAYER_COLUMNS}
+       FROM players p
+       JOIN teams t ON t.id = p.team_id
+       ${conditions}
+       ORDER BY p.position ASC, p.name ASC
+       LIMIT ? OFFSET ?`,
+      [...baseParams, safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM players p ${conditions}`,
+      baseParams
+    ),
+  ]);
 
   return {
     data: rows,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -1336,390 +1130,10 @@ export const updatePlayer = async (id, data, admin, ip) => {
 };
 
 //contest
-
-export const createContestold = async (data, admin, ip) => {
-
-  // ── Validate admin context ────────────────────────────────
-  if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
-
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-    const [[match]] = await conn.query(
-      `SELECT id, status FROM matches WHERE id = ?`,
-      [data.match_id]
-    );
-    if (!match) throw new Error("Invalid match_id — match not found");
-
-    if (match.status !== "UPCOMING") {
-      throw new Error(
-        `Contests can only be created for UPCOMING matches — match is currently ${match.status}`
-      );
-    }
-
-    const [[category]] = await conn.query(
-      `SELECT id FROM contestcategory WHERE name = ?`,
-      [data.contest_type]
-    );
-    if (!category) throw new Error(`Invalid contest_type — '${data.contest_type}' not found in contest categories`);
-
-    const [[existing]] = await conn.query(
-      `SELECT id FROM contest WHERE match_id = ? AND q = ?`,
-      [data.match_id, data.contest_type]
-    );
-    if (existing) throw new Error(`Contest type '${data.contest_type}' already exists for this match`);
-
-    const defaults = {
-      prize_pool:          0,
-      net_pool_prize:      0,
-      max_entries:         0,
-      min_entries:         0,
-      current_entries:     0,
-      is_guaranteed:       0,
-      winner_percentage:   0,
-      total_winners:       0,
-      first_prize:         0,
-      prize_distribution:  null,
-      is_cashback:         0,
-      cashback_percentage: 0,
-      cashback_amount:     0,
-      platform_fee_amount: 0,
-    };
-
-    const [result] = await conn.query(
-      `INSERT INTO contest
-        (match_id, contest_type, entry_fee, platform_fee_percentage,
-         prize_pool, net_pool_prize, max_entries, min_entries, current_entries,
-         is_guaranteed, winner_percentage, total_winners,
-         first_prize, prize_distribution,
-         is_cashback, cashback_percentage, cashback_amount,
-         platform_fee_amount, status, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-      [
-        data.match_id,
-        data.contest_type,
-        data.entry_fee,
-        data.platform_fee_percentage,
-        defaults.prize_pool,
-        defaults.net_pool_prize,
-        defaults.max_entries,
-        defaults.min_entries,
-        defaults.current_entries,
-        defaults.is_guaranteed,
-        defaults.winner_percentage,
-        defaults.total_winners,
-        defaults.first_prize,
-        defaults.prize_distribution,
-        defaults.is_cashback,
-        defaults.cashback_percentage,
-        defaults.cashback_amount,
-        defaults.platform_fee_amount,
-        data.status ?? "UPCOMING",
-      ]
-    );
-
-    if (result.affectedRows === 0) throw new Error("Failed to create contest");
-
-    await logAdmin(conn, admin, "CREATE_CONTEST", "contest", result.insertId, ip || null);
-    await conn.commit();
-
-    return { id: result.insertId };
-
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
-export const createContestol = async (data, admin, ip) => {
-
-  if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
-
-  const conn = await db.getConnection();
-  try {
-    await conn.beginTransaction();
-    const [[match]] = await conn.query(
-      `SELECT id, status FROM matches WHERE id = ?`,
-      [data.match_id]
-    );
-    if (!match) throw new Error("Invalid match_id — match not found");
-    if (match.status !== "UPCOMING") {
-      throw new Error(
-        `Contests can only be created for UPCOMING matches — match is currently ${match.status}`
-      );
-    }
-
-    const [[category]] = await conn.query(
-      `SELECT id FROM contestcategory WHERE name = ?`,
-      [data.contest_type]
-    );
-    if (!category) throw new Error(`Invalid contest_type — '${data.contest_type}' not found`);
-    const [[existing]] = await conn.query(
-      `SELECT id FROM contest WHERE match_id = ? AND contest_type = ?`,
-      [data.match_id, data.contest_type]
-    );
-    if (existing) throw new Error(`Contest type '${data.contest_type}' already exists for this match`);
-    const totalCollected     = data.max_entries * data.entry_fee;
-    const platformFeeAmount  = (totalCollected * (data.platform_fee_percentage ?? 0)) / 100;
-    const netAfterFee        = totalCollected - platformFeeAmount;
-    const totalWinners       = Math.floor((data.max_entries * (data.winner_percentage ?? 0)) / 100);
-    const cashbackAmount     = data.is_cashback ? data.entry_fee : 0;
-    const cashbackPercentage = totalCollected > 0
-      ? (cashbackAmount / totalCollected) * 100
-      : 0;
-    const netPrizePool       = netAfterFee - cashbackAmount;
-
-    const prizeDistribution  = data.prize_distribution
-      ? JSON.stringify(data.prize_distribution)
-      : null;
-    const [result] = await conn.query(
-      `INSERT INTO contest
-       (match_id, contest_type, entry_fee,
-        prize_pool, net_pool_prize,
-        max_entries, min_entries, current_entries,
-        is_guaranteed, winner_percentage, total_winners,
-        first_prize, prize_distribution,
-        is_cashback, cashback_percentage, cashback_amount,
-        platform_fee_percentage, platform_fee_amount,
-        status, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-      [
-        data.match_id,
-        data.contest_type,
-        data.entry_fee,
-        netPrizePool,                          
-        netAfterFee,
-        data.max_entries,
-        data.min_entries     ?? 0,
-        0,                                     
-        data.is_guaranteed   ?? 0,
-        data.winner_percentage ?? 0,
-        totalWinners,                          
-        data.first_prize     ?? 0,
-        prizeDistribution,
-        data.is_cashback     ?? 0,
-        cashbackPercentage,                    
-        cashbackAmount,                        
-        data.platform_fee_percentage ?? 0,
-        platformFeeAmount,                     
-        data.status          ?? "UPCOMING",
-      ]
-    );
-
-    if (result.affectedRows === 0) throw new Error("Failed to create contest");
-    await logAdmin(conn, admin, "CREATE_CONTEST", "contest", result.insertId, ip || null);
-    await conn.commit();
-
-    return { id: result.insertId };
-
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
-//prvious contest last beofre update
+//prvious contest last beofre update
 
 
-
-export const createContestprevous = async (data, admin, ip) => {
-  if (!admin?.id || !admin?.email) {
-    throw new Error("Invalid admin context");
-  }
-
-  const conn = await db.getConnection();
-
-  try {
-    await conn.beginTransaction();
-    const [[match]] = await conn.query(
-      `SELECT id, status FROM matches WHERE id = ?`,
-      [data.match_id]
-    );
-
-    if (!match) throw new Error("Match not found");
-    if (match.status !== "UPCOMING") {
-      throw new Error(`Match must be UPCOMING`);
-    }
-    const [[category]] = await conn.query(
-      `SELECT name, entryfee, platformfee, percentage AS winner_percentage
-       FROM contestcategory WHERE name = ?`,
-      [data.contest_type]
-    );
-
-    if (!category) throw new Error("Invalid contest_type");
-
-    
-    const [[existing]] = await conn.query(
-      `SELECT id FROM contest WHERE match_id = ? AND contest_type = ?`,
-      [data.match_id, category.name]
-    );
-
-    if (existing) throw new Error("Contest already exists");
-
-    const max_entries = parseInt(data.max_entries);
-    if (!max_entries || max_entries < 2) {
-      throw new Error("max_entries must be >= 2");
-    }
-
-    const entry_fee = Number(category.entryfee);
-    const platform_fee_percentage = Number(category.platformfee);
-    const winner_percentage = Number(category.winner_percentage);
-    const prize_pool = max_entries * entry_fee;
-
-    const platformFeeAmount =
-      (prize_pool * platform_fee_percentage) / 100;
-
-    const netAfterFee = prize_pool - platformFeeAmount;
-
-    const totalWinners = Math.floor(
-      (max_entries * winner_percentage) / 100
-    );
-
-    const refundStart = Math.floor(totalWinners * 0.01);
-    const bonusRanks = refundStart - 1;
-
-    const refundWinners = totalWinners - bonusRanks;
-
-    const totalRefund = refundWinners * entry_fee;
-
-    const bonusPool = Math.max(0, netAfterFee - totalRefund);
-
-    if (!data.prize_distribution) {
-      throw new Error("prize_distribution is required");
-    }
-
-   let parsedDistribution;
-
-if (Array.isArray(data.prize_distribution)) {
-  parsedDistribution = data.prize_distribution;
-
-} else if (typeof data.prize_distribution === "object") {
-  parsedDistribution = Object.entries(data.prize_distribution).map(
-    ([key, amount]) => ({
-      rank: parseInt(key.replace(/\D/g, "")),
-      amount: Number(amount),
-    })
-  );
-
-} else {
-  throw new Error("Invalid prize_distribution format");
-}
-
-  
-    let coveredRanks = 0;
-
-    const totalBonusDistributed = parsedDistribution.reduce((sum, p) => {
-      if (p.rank) {
-        coveredRanks += 1;
-        return sum + Number(p.amount);
-      }
-
-      if (p.rank_from && p.rank_to) {
-        const count = p.rank_to - p.rank_from + 1;
-        coveredRanks += count;
-        return sum + count * Number(p.amount);
-      }
-
-      throw new Error("Invalid prize_distribution format");
-    }, 0);
-
-    if ((coveredRanks !== bonusRanks)&&(bonusRanks>0)) {
-      throw new Error(
-        `Distribution mismatch: covers ${coveredRanks}, expected ${bonusRanks}`
-      );
-    }
-
-    if (totalBonusDistributed > bonusPool) {
-  const scale = bonusPool / totalBonusDistributed;
-
-  parsedDistribution = parsedDistribution.map(p => {
-    if (p.rank) {
-      return { ...p, amount: Math.floor(p.amount * scale) };
-    }
-
-    if (p.rank_from && p.rank_to) {
-      return { ...p, amount: Math.floor(p.amount * scale) };
-    }
-
-    return p;
-  });
-} 
-    if (totalBonusDistributed > bonusPool) {
-      throw new Error(
-        `Bonus exceeds pool: ${totalBonusDistributed} > ${bonusPool}`
-      );
-    }
-
-    const rankOne = parsedDistribution.find(
-      (p) =>
-        p.rank === 1 ||
-        (p.rank_from && p.rank_from <= 1 && p.rank_to >= 1)
-    );
-
-    const first_prize = rankOne
-      ? Number(rankOne.amount)
-      : 0;
-
-    const [result] = await conn.query(
-      `INSERT INTO contest
-       (match_id, contest_type, entry_fee,
-        prize_pool,netpool_amount, net_pool_prize,
-        max_entries, current_entries,
-        winner_percentage, total_winners,
-        first_prize, prize_distribution,
-        refund_start_rank, bonus_ranks, refund_winners, refund_total,
-        platform_fee_percentage, platform_fee_amount,
-        status, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-      [
-        data.match_id,
-        category.name,
-        entry_fee,
-        prize_pool,
-        netAfterFee,
-        bonusPool,
-        max_entries,
-        0,
-        winner_percentage,
-        totalWinners,
-        first_prize,
-        JSON.stringify(parsedDistribution),
-
-        refundStart,
-        bonusRanks,
-        refundWinners,
-        totalRefund,
-
-        platform_fee_percentage,
-        platformFeeAmount,
-        data.status ?? "UPCOMING",
-      ]
-    );
-
-    await conn.commit();
-
-    return {
-      success: true,
-      id: result.insertId,
-      details: {
-        bonusPool,
-        first_prize,
-        totalBonusDistributed,
-      },
-    };
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
-//Update versions createcontest
+//Update versions createcontest
 
 
 
@@ -1847,8 +1261,7 @@ export const createContest = async (data, admin, ip) => {
  
   /* ── 1. Auth guard ───────────────────────────────────────────────────── */
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
-  console.log("data:", data);
- 
+
   /* ── 2. Basic input validation ───────────────────────────────────────── */
   const max_entries = parseInt(data.max_entries, 10);
   if (!max_entries || max_entries < 2) throw new Error("max_entries must be an integer >= 2");
@@ -2048,8 +1461,9 @@ export const createContest = async (data, admin, ip) => {
       ]
     );
  
+    await logAdmin(conn, admin, "CREATE_CONTEST", "contest", result.insertId, ip);
     await conn.commit();
- 
+
     /* ── 10. Response ──────────────────────────────────────────────────── */
     return {
       success:    true,
@@ -2091,10 +1505,10 @@ status, created_at
 
 export const CONTEST_STATUSES = ['UPCOMING','LIVE','INREVIEW','COMPLETED'];
 
-export const CONTEST_JOINS = ``;
 
 export const getContests = async ({ page = 1, limit = 20, status = null } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
   if (status && !CONTEST_STATUSES.includes(status)) {
     throw new Error(`Invalid status. Allowed: ${CONTEST_STATUSES.join(", ")}`);
@@ -2102,147 +1516,124 @@ export const getContests = async ({ page = 1, limit = 20, status = null } = {}) 
 
   const whereClause = status ? `WHERE c.status = ?` : ``;
 
-  const [rows] = await db.query(
-    `SELECT ${CONTEST_COLUMNS}
-     FROM contest c
-     ${CONTEST_JOINS}
-     ${whereClause}
-     ORDER BY c.created_at DESC
-     LIMIT ? OFFSET ?`,
-    status ? [status, limit, offset] : [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM contest c ${whereClause}`,
-    status ? [status] : []
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${CONTEST_COLUMNS}
+       FROM contest c
+       ${whereClause}
+       ORDER BY c.created_at DESC
+       LIMIT ? OFFSET ?`,
+      status ? [status, safeLimit, offset] : [safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM contest c ${whereClause}`,
+      status ? [status] : []
+    ),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
 export const getContestsbyusers = async ({ page = 1, limit = 20, status = null } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
   if (status && !CONTEST_STATUSES.includes(status)) {
     throw new Error(`Invalid status. Allowed: ${CONTEST_STATUSES.join(", ")}`);
   }
 
   const whereClause = status ? `WHERE c.status = ?` : ``;
-  const params = status ? [status, limit, offset] : [limit, offset];
+  const countParams = status ? [status] : [];
+  const params = status ? [status, safeLimit, offset] : [safeLimit, offset];
 
-  // . Get contests with aggregation (STRICT MODE SAFE)
-  const [contests] = await db.query(
-    `
-    SELECT 
-      c.id,
-      ANY_VALUE(c.contest_type) AS name,
-      ANY_VALUE(c.status) AS status,
-      ANY_VALUE(c.entry_fee) AS entry_fee,
-      ANY_VALUE(c.max_entries) AS max_entries,
-      ANY_VALUE(c.current_entries) AS current_entries,
-       ANY_VALUE(c.platform_fee_percentage) AS platform_fee,
-      ANY_VALUE(c.platform_fee_amount) AS platform_fee_amount,
-      ANY_VALUE(c.winner_percentage) AS winner_percentage,
-      ANY_VALUE(c.bonus_ranks) AS winner_ranks,
-      ANY_VALUE(c.rank1_percent) AS rank1_percent,
-      ANY_VALUE(c.top1_end_rank) AS top1_end_rank,
-      ANY_VALUE(c.linear_start_rank) AS linear_start_rank,
-      ANY_VALUE(c.linear_end_rank) AS linear_end_rank,
-      ANY_VALUE(c.net_pool_prize) AS winning_pool_prize,
-      ANY_VALUE(c.refund_start_rank) AS refund_start_rank,
-      ANY_VALUE(c.refund_winners) AS refund_winners,
-      ANY_VALUE(c.refund_total) AS refund_total,
-       ANY_VALUE(c.netpool_amount) AS netpool_amount,
-      ANY_VALUE(c.created_at) AS created_at,
+  // 1. Get contests + total count in parallel
+  const [[contests], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT
+        c.id,
+        ANY_VALUE(c.contest_type) AS name,
+        ANY_VALUE(c.status) AS status,
+        ANY_VALUE(c.entry_fee) AS entry_fee,
+        ANY_VALUE(c.max_entries) AS max_entries,
+        ANY_VALUE(c.current_entries) AS current_entries,
+        ANY_VALUE(c.platform_fee_percentage) AS platform_fee,
+        ANY_VALUE(c.platform_fee_amount) AS platform_fee_amount,
+        ANY_VALUE(c.winner_percentage) AS winner_percentage,
+        ANY_VALUE(c.bonus_ranks) AS winner_ranks,
+        ANY_VALUE(c.rank1_percent) AS rank1_percent,
+        ANY_VALUE(c.top1_end_rank) AS top1_end_rank,
+        ANY_VALUE(c.linear_start_rank) AS linear_start_rank,
+        ANY_VALUE(c.linear_end_rank) AS linear_end_rank,
+        ANY_VALUE(c.net_pool_prize) AS winning_pool_prize,
+        ANY_VALUE(c.refund_start_rank) AS refund_start_rank,
+        ANY_VALUE(c.refund_winners) AS refund_winners,
+        ANY_VALUE(c.refund_total) AS refund_total,
+        ANY_VALUE(c.netpool_amount) AS netpool_amount,
+        ANY_VALUE(c.created_at) AS created_at,
+        COUNT(DISTINCT ce.user_id) AS total_users,
+        COUNT(ce.user_team_id) AS total_teams
+      FROM contest c
+      LEFT JOIN contest_entries ce ON ce.contest_id = c.id
+      ${whereClause}
+      GROUP BY c.id
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?`,
+      params
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM contest c ${whereClause}`,
+      countParams
+    ),
+  ]);
 
-
-
-      COUNT(DISTINCT ce.user_id) AS total_users,
-      COUNT(ce.user_team_id) AS total_teams
-
-    FROM contest c
-
-
-
-    LEFT JOIN contest_entries ce 
-      ON ce.contest_id = c.id
-
-    ${whereClause}
-
-    GROUP BY c.id
-    ORDER BY created_at DESC
-    LIMIT ? OFFSET ?
-    `,
-    params
-  );
-
-  //  No contests case
   if (!contests.length) {
     return {
       data: [],
-      pagination: { total: 0, page, limit, totalPages: 0 }
+      pagination: { total: 0, page, limit: safeLimit, totalPages: 0 }
     };
   }
 
-  //  2. Get users + teams per contest
+  // 2. Get users + teams per contest
   const contestIds = contests.map(c => c.id);
 
   const [entries] = await db.query(
-    `
-    SELECT 
+    `SELECT
       ce.contest_id,
       ce.user_id,
       u.name AS user_name,
       COUNT(ce.user_team_id) AS team_count
-
     FROM contest_entries ce
-
-    JOIN users u 
-      ON u.id = ce.user_id
-
+    JOIN users u ON u.id = ce.user_id
     WHERE ce.contest_id IN (?)
-
-    GROUP BY ce.contest_id, ce.user_id
-    `,
+    GROUP BY ce.contest_id, ce.user_id`,
     [contestIds]
   );
 
-  //  3. Map users into contests
+  // 3. Map users into contests
   const contestMap = {};
-
   contests.forEach(contest => {
-    contestMap[contest.id] = {
-      ...contest,
-      users: []
-    };
+    contestMap[contest.id] = { ...contest, users: [] };
   });
-
   entries.forEach(row => {
     if (contestMap[row.contest_id]) {
       contestMap[row.contest_id].users.push({
-        user_id: row.user_id,
-        user_name: row.user_name,
+        user_id:    row.user_id,
+        user_name:  row.user_name,
         team_count: row.team_count
       });
     }
   });
-
-  //  4. Pagination count
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM contest c ${whereClause}`,
-    status ? [status] : []
-  );
 
   return {
     data: Object.values(contestMap),
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -2254,7 +1645,6 @@ export const getContestById = async (id) => {
   const [[row]] = await db.query(
     `SELECT ${CONTEST_COLUMNS}
      FROM contest c
-     ${CONTEST_JOINS}
      WHERE c.id = ?`,
     [Number(id)]
   );
@@ -2271,30 +1661,31 @@ export const getContestsByMatch = async (matchId, { page = 1, limit = 20, status
     throw new Error(`Invalid status. Allowed: ${CONTEST_STATUSES.join(", ")}`);
   }
 
-  const offset     = (page - 1) * limit;
+  const safeLimit  = Math.min(Number(limit) || 20, 100);
+  const offset     = (page - 1) * safeLimit;
   const conditions = status
     ? `WHERE c.match_id = ? AND c.status = ?`
     : `WHERE c.match_id = ?`;
   const baseParams = status ? [Number(matchId), status] : [Number(matchId)];
 
-  const [rows] = await db.query(
-    `SELECT ${CONTEST_COLUMNS}
-     FROM contest c
-     ${CONTEST_JOINS}
-     ${conditions}
-     ORDER BY c.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...baseParams, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM contest c ${conditions}`,
-    baseParams
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${CONTEST_COLUMNS}
+       FROM contest c
+       ${conditions}
+       ORDER BY c.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...baseParams, safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM contest c ${conditions}`,
+      baseParams
+    ),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -2306,33 +1697,35 @@ export const getContestsBySeries = async (seriesId, { page = 1, limit = 20, stat
     throw new Error(`Invalid status. Allowed: ${CONTEST_STATUSES.join(", ")}`);
   }
 
-  const offset     = (page - 1) * limit;
+  const safeLimit  = Math.min(Number(limit) || 20, 100);
+  const offset     = (page - 1) * safeLimit;
   const conditions = status
     ? `WHERE m.series_id = ? AND c.status = ?`
     : `WHERE m.series_id = ?`;
   const baseParams = status ? [Number(seriesId), status] : [Number(seriesId)];
 
-  const [rows] = await db.query(
-    `SELECT ${CONTEST_COLUMNS}
-     FROM contest c
-     ${CONTEST_JOINS}
-     ${conditions}
-     ORDER BY c.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...baseParams, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total
-     FROM contest c
-     ${CONTEST_JOINS}
-     ${conditions}`,
-    baseParams
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${CONTEST_COLUMNS}
+       FROM contest c
+       JOIN matches m ON m.id = c.match_id
+       ${conditions}
+       ORDER BY c.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...baseParams, safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total
+       FROM contest c
+       JOIN matches m ON m.id = c.match_id
+       ${conditions}`,
+      baseParams
+    ),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -2342,26 +1735,27 @@ export const getContestsByStatus = async (status, { page = 1, limit = 20 } = {})
     throw new Error(`Invalid status. Allowed: ${CONTEST_STATUSES.join(", ")}`);
   }
 
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT ${CONTEST_COLUMNS}
-     FROM contest c
-     ${CONTEST_JOINS}
-     WHERE c.status = ?
-     ORDER BY c.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [status, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM contest c WHERE c.status = ?`,
-    [status]
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${CONTEST_COLUMNS}
+       FROM contest c
+       WHERE c.status = ?
+       ORDER BY c.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [status, safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM contest c WHERE c.status = ?`,
+      [status]
+    ),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -2373,7 +1767,8 @@ export const getContestsByTeam = async (teamId, { page = 1, limit = 20, status =
     throw new Error(`Invalid status. Allowed: ${CONTEST_STATUSES.join(", ")}`);
   }
 
-  const offset     = (page - 1) * limit;
+  const safeLimit  = Math.min(Number(limit) || 20, 100);
+  const offset     = (page - 1) * safeLimit;
   const conditions = status
     ? `WHERE (m.home_team_id = ? OR m.away_team_id = ?) AND c.status = ?`
     : `WHERE (m.home_team_id = ? OR m.away_team_id = ?)`;
@@ -2381,27 +1776,28 @@ export const getContestsByTeam = async (teamId, { page = 1, limit = 20, status =
     ? [Number(teamId), Number(teamId), status]
     : [Number(teamId), Number(teamId)];
 
-  const [rows] = await db.query(
-    `SELECT DISTINCT ${CONTEST_COLUMNS}
-     FROM contest c
-     ${CONTEST_JOINS}
-     ${conditions}
-     ORDER BY c.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...baseParams, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(DISTINCT c.id) AS total
-     FROM contest c
-     ${CONTEST_JOINS}
-     ${conditions}`,
-    baseParams
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT DISTINCT ${CONTEST_COLUMNS}
+       FROM contest c
+       JOIN matches m ON m.id = c.match_id
+       ${conditions}
+       ORDER BY c.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...baseParams, safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(DISTINCT c.id) AS total
+       FROM contest c
+       JOIN matches m ON m.id = c.match_id
+       ${conditions}`,
+      baseParams
+    ),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -2443,7 +1839,7 @@ export const updateContest = async (id, data, admin, ip) => {
     }
     if (data.contest_type && data.contest_type !== contest.contest_type) {
       const [[category]] = await conn.query(
-        `SELECT id FROM contestcategory WHERE contest_type = ?`,
+        `SELECT id FROM contestcategory WHERE name = ?`,
         [data.contest_type]
       );
       if (!category) throw new Error(`Invalid contest_type — '${data.contest_type}' not found`);
@@ -2579,33 +1975,27 @@ export const createContestCategory = async (data, admin, ip) => {
 };
 
 export const getContestCategories = async ({ page = 1, limit = 20 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT
-       id,
-       name,
-       percentage,
-       entryfee,
-       platformfee,
-       created_at
-     FROM contestcategory
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM contestcategory`
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT id, name, percentage, entryfee, platformfee, created_at
+       FROM contestcategory
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
+      [safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM contestcategory`),
+  ]);
 
   return {
     data: rows,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -2615,15 +2005,9 @@ export const getContestcategoryById = async (id) => {
   if (!id || isNaN(Number(id))) throw new Error("Valid contest ID is required");
 
   const [[row]] = await db.query(
-    `SELECT SELECT
-       id,
-       name,
-       percentage,
-       entryfee,
-       platformfee,
-       created_at
+    `SELECT id, name, percentage, entryfee, platformfee, created_at
      FROM contestcategory
-     WHERE c.id = ?`,
+     WHERE id = ?`,
     [Number(id)]
   );
 
@@ -2689,84 +2073,85 @@ export const updateContestCategory = async (id, data, admin, ip) => {
 // ── Dashboard ─────────────────────────────────────────────────
 export const getHomeservice = async () => {
 
-  const [[userStats]] = await db.query(`
-    SELECT
-      COUNT(*)                                          AS totalRegistered,
-      SUM(mobile_verify = 1 AND email_verify = 1)                AS activeUsers,
-       SUM(mobile_verify = 0)                               AS phoneverify,
-        SUM(email_verify = 0)                                AS mailverify,
-      SUM(subscribe = 1)                                      AS subscribe,
-      SUM(kyc_status = 'approved')                              AS kycVerified,
-       SUM(kyc_status = 'pending')                              AS kycPending,
-      SUM(kyc_status = 'not_started')                              AS notKycVerified,
-        SUM(kyc_status = 'rejected')                              AS KycRejected,
-       SUM(issofverify = 1)                              AS SOFVerified,
-      SUM(issofverify = 0)                              AS nonSOFVerified,
-       SUM(bank_verified = 1)                              AS BankVerified,
-      SUM(bank_verified = 0)                              AS notBankVerified,
-      SUM(is_blocked = 1)                                    AS blockeduser,
-       SUM(account_status = 'paused')                              AS gamepaused,
-        SUM(account_status = 'deleted')                              AS deleteusers
-    FROM users
-  `);
-  const [[userwalletstat]] = await db.query(`
-    SELECT
-      SUM(earnwallet)                                    AS Earnwallet,
-       SUM(depositwallet)                              AS Depositewallet,
-        SUM(bonusamount)                              AS Bonuswallet
-    FROM wallets
-  `);
-
-  const [[walletStats]] = await db.query(`
-    SELECT
-      COALESCE(SUM(CASE WHEN wallettype IN ('deposit','subscribe','entry_fee') THEN amount END), 0) AS totalAmountReceived,
-      COALESCE(SUM(CASE WHEN wallettype = 'withdraw' THEN amount END), 0)                           AS totalWithdrawAmount
-    FROM wallet_transactions
-  `);
-
-  const [[matchStats]] = await db.query(`
-    SELECT
-      SUM(status = 'LIVE')      AS liveMatches,
-      SUM(status = 'UPCOMING')  AS launchedMatches,
-      SUM(status = 'COMPLETED') AS completedMatches,
-      SUM(status = 'INREVIEW')  AS reviewMatches,
-      SUM(status = 'ABANDONED') AS cancelledMatches
-    FROM matches
-  `);
-
-  const [[withdrawStats]] = await db.query(`
-    SELECT
-      SUM(status = 'pending')  AS pendingWithdrawRequests,
-      SUM(status = 'approved') AS approvedWithdrawRequests,
-      SUM(status = 'rejected') AS rejectedWithdrawRequests
-    FROM withdraws
-  `);
-
-  const [[teamStats]] = await db.query(`
-    SELECT
-      (SELECT COUNT(*) FROM teams)             AS totalTeams,
-      (SELECT COUNT(*) FROM players)           AS totalPlayers,
-      (SELECT COUNT(*) FROM user_teams)        AS totalUserTeams,
-      (SELECT COUNT(*) FROM user_team_players) AS totalUserTeamPlayers
-  `);
-
-  const [contests] = await db.query(`
-    SELECT
-      c.id,
-      c.created_at,
-      c.contest_type,
-      c.max_entries,
-      c.current_entries,
-      c.status,
-      ht.name AS home_team_name,
-      at.name AS away_team_name
-    FROM contest c
-    LEFT JOIN matches m  ON m.id  = c.match_id
-    LEFT JOIN teams   ht ON ht.id = m.home_team_id
-    LEFT JOIN teams   at ON at.id = m.away_team_id
-    ORDER BY c.created_at DESC
-    LIMIT 10
-  `);
+  const [
+    [[userStats]],
+    [[userwalletstat]],
+    [[walletStats]],
+    [[matchStats]],
+    [[withdrawStats]],
+    [[teamStats]],
+    [contests],
+  ] = await Promise.all([
+    db.query(`
+      SELECT
+        COUNT(*)                                                   AS totalRegistered,
+        SUM(mobile_verify = 1 AND email_verify = 1)               AS activeUsers,
+        SUM(mobile_verify = 0)                                     AS phoneverify,
+        SUM(email_verify = 0)                                      AS mailverify,
+        SUM(subscribe = 1)                                         AS subscribe,
+        SUM(kyc_status = 'approved')                               AS kycVerified,
+        SUM(kyc_status = 'pending')                                AS kycPending,
+        SUM(kyc_status = 'not_started')                            AS notKycVerified,
+        SUM(kyc_status = 'rejected')                               AS KycRejected,
+        SUM(issofverify = 1)                                       AS SOFVerified,
+        SUM(issofverify = 0)                                       AS nonSOFVerified,
+        SUM(bank_verified = 1)                                     AS BankVerified,
+        SUM(bank_verified = 0)                                     AS notBankVerified,
+        SUM(is_blocked = 1)                                        AS blockeduser,
+        SUM(account_status = 'paused')                             AS gamepaused,
+        SUM(account_status = 'deleted')                            AS deleteusers
+      FROM users
+    `),
+    db.query(`
+      SELECT
+        SUM(earnwallet)   AS Earnwallet,
+        SUM(depositwallet) AS Depositewallet,
+        SUM(bonusamount)   AS Bonuswallet
+      FROM wallets
+    `),
+    db.query(`
+      SELECT
+        COALESCE(SUM(CASE WHEN wallettype IN ('deposit','subscribe','entry_fee') THEN amount END), 0) AS totalAmountReceived,
+        COALESCE(SUM(CASE WHEN wallettype = 'withdraw' THEN amount END), 0)                           AS totalWithdrawAmount
+      FROM wallet_transactions
+    `),
+    db.query(`
+      SELECT
+        SUM(status = 'LIVE')      AS liveMatches,
+        SUM(status = 'UPCOMING')  AS launchedMatches,
+        SUM(status = 'COMPLETED') AS completedMatches,
+        SUM(status = 'INREVIEW')  AS reviewMatches,
+        SUM(status = 'ABANDONED') AS cancelledMatches
+      FROM matches
+    `),
+    db.query(`
+      SELECT
+        SUM(status = 'pending')  AS pendingWithdrawRequests,
+        SUM(status = 'approved') AS approvedWithdrawRequests,
+        SUM(status = 'rejected') AS rejectedWithdrawRequests
+      FROM withdraws
+    `),
+    db.query(`
+      SELECT
+        (SELECT COUNT(*) FROM teams)             AS totalTeams,
+        (SELECT COUNT(*) FROM players)           AS totalPlayers,
+        (SELECT COUNT(*) FROM user_teams)        AS totalUserTeams,
+        (SELECT COUNT(*) FROM user_team_players) AS totalUserTeamPlayers
+    `),
+    db.query(`
+      SELECT
+        c.id, c.created_at, c.contest_type,
+        c.max_entries, c.current_entries, c.status,
+        ht.name AS home_team_name,
+        at.name AS away_team_name
+      FROM contest c
+      LEFT JOIN matches m  ON m.id  = c.match_id
+      LEFT JOIN teams   ht ON ht.id = m.home_team_id
+      LEFT JOIN teams   at ON at.id = m.away_team_id
+      ORDER BY c.created_at DESC
+      LIMIT 10
+    `),
+  ]);
 
   const { liveMatches, launchedMatches, completedMatches, reviewMatches, cancelledMatches } = matchStats;
   const { pendingWithdrawRequests, approvedWithdrawRequests, rejectedWithdrawRequests }     = withdrawStats;
@@ -2834,23 +2219,20 @@ const DEPOSIT_COLUMNS = `
 `;
 
 export const getallDeposites = async ({ page = 1, limit = 20 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT ${DEPOSIT_COLUMNS}
-     FROM deposite
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM deposite`
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${DEPOSIT_COLUMNS} FROM deposite ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM deposite`),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -2869,25 +2251,21 @@ export const fetchDeposites = async (filters = {}, { page = 1, limit = 20 } = {}
   if (startDate?.trim())      { conditions.push(`createdAt >= ?`);     params.push(new Date(startDate.trim())); }
   if (endDate?.trim())        { conditions.push(`createdAt <= ?`);     params.push(new Date(endDate.trim())); }
 
-  const offset      = (page - 1) * limit;
+  const safeLimit   = Math.min(Number(limit) || 20, 100);
+  const offset      = (page - 1) * safeLimit;
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : ``;
 
-  const [rows] = await db.query(
-    `SELECT ${DEPOSIT_COLUMNS}
-     FROM deposite ${whereClause}
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [...params, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM deposite ${whereClause}`,
-    params
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${DEPOSIT_COLUMNS} FROM deposite ${whereClause} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM deposite ${whereClause}`, params),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -2925,23 +2303,20 @@ const WITHDRAW_COLUMNS = `
 `;
 
 export const getallWithdraws = async ({ page = 1, limit = 20 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT ${WITHDRAW_COLUMNS}
-     FROM withdraws
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM withdraws`
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${WITHDRAW_COLUMNS} FROM withdraws ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM withdraws`),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 //fetch
@@ -2960,25 +2335,21 @@ export const fetchWithdraws = async (filters = {}, { page = 1, limit = 20 } = {}
   if (startDate?.trim())      { conditions.push(`created_at >= ?`);     params.push(new Date(startDate.trim())); }
   if (endDate?.trim())        { conditions.push(`created_at <= ?`);     params.push(new Date(endDate.trim())); }
 
-  const offset      = (page - 1) * limit;
+  const safeLimit   = Math.min(Number(limit) || 20, 100);
+  const offset      = (page - 1) * safeLimit;
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : ``;
 
-  const [rows] = await db.query(
-    `SELECT ${WITHDRAW_COLUMNS}
-     FROM withdraws ${whereClause}
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [...params, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM withdraws ${whereClause}`,
-    params
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${WITHDRAW_COLUMNS} FROM withdraws ${whereClause} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM withdraws ${whereClause}`, params),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -3006,13 +2377,17 @@ export const fetchWithdrawsSummary = async () => {
 
 
 
-export const adminWithdrawActionService = async (withdrawId, data) => {
+export const adminWithdrawActionService = async (withdrawId, data, adminId) => {
   const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    const { action, reason } = data;
+    const { action, reason = "" } = data;
+
+    if (!["APPROVE", "REJECT"].includes(action)) {
+      throw new Error(`Invalid action: ${action}. Must be APPROVE or REJECT`);
+    }
 
     const [[withdraw]] = await conn.query(
       `SELECT id, user_id, amount, status
@@ -3028,32 +2403,49 @@ export const adminWithdrawActionService = async (withdrawId, data) => {
       throw new Error("Withdraw request already processed");
     }
 
+    const amount = parseFloat(withdraw.amount);
+
     if (action === "APPROVE") {
       await conn.query(
         `UPDATE withdraws
-         SET status = 'APPROVED',
-             approved_at = NOW()
+         SET status = 'APPROVED', approved_at = NOW()
          WHERE id = ?`,
         [withdrawId]
       );
-    }
-
-    if (action === "REJECT") {
-      // refund wallet
       await conn.query(
-        `UPDATE wallets
-         SET earnwallet = earnwallet + ?
-         WHERE user_id = ?`,
-        [withdraw.amount, withdraw.user_id]
+        `INSERT INTO withdraw_approvals
+           (withdrawal_id, admin_id, status, remarks, created_at)
+         VALUES (?, ?, 'approved', ?, NOW())`,
+        [withdrawId, adminId ?? null, reason]
       );
-
+      await conn.query(
+        `INSERT INTO wallet_transactions
+           (user_id, wallettype, transtype, amount, remark, reference_id)
+         VALUES (?, 'withdrawal', 'debit', ?, 'Withdrawal approved', ?)`,
+        [withdraw.user_id, amount, withdrawId]
+      );
+    } else {
+      await conn.query(
+        `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+        [amount, withdraw.user_id]
+      );
       await conn.query(
         `UPDATE withdraws
-         SET status = 'REJECTED',
-             reject_reason = ?,
-             rejected_at = NOW()
+         SET status = 'REJECTED', reject_reason = ?, rejected_at = NOW()
          WHERE id = ?`,
         [reason, withdrawId]
+      );
+      await conn.query(
+        `INSERT INTO withdraw_approvals
+           (withdrawal_id, admin_id, status, remarks, created_at)
+         VALUES (?, ?, 'rejected', ?, NOW())`,
+        [withdrawId, adminId ?? null, reason]
+      );
+      await conn.query(
+        `INSERT INTO wallet_transactions
+           (user_id, wallettype, transtype, amount, remark, reference_id)
+         VALUES (?, 'refund', 'credit', ?, 'Withdrawal rejected - refund', ?)`,
+        [withdraw.user_id, amount, `REJECTED-${withdrawId}`]
       );
     }
 
@@ -3076,7 +2468,8 @@ export const adminWithdrawActionService = async (withdrawId, data) => {
 };
 
 export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date();
@@ -3095,9 +2488,9 @@ export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
 
     // Withdraws paginated
     db.query(
-      `SELECT ${WITHDRAW_COLUMNS} FROM withdraws 
+      `SELECT ${WITHDRAW_COLUMNS} FROM withdraws
        ORDER BY id DESC LIMIT ? OFFSET ?`,
-      [limit, offset]
+      [safeLimit, offset]
     ),
 
     // Withdraws total count
@@ -3105,9 +2498,9 @@ export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
 
     // Deposits paginated
     db.query(
-      `SELECT ${DEPOSIT_COLUMNS} FROM deposite 
+      `SELECT ${DEPOSIT_COLUMNS} FROM deposite
        ORDER BY id DESC LIMIT ? OFFSET ?`,
-      [limit, offset]
+      [safeLimit, offset]
     ),
 
     // Deposits total count
@@ -3191,7 +2584,7 @@ export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
        LEFT JOIN users u ON u.id = s.user_id
        ORDER BY s.id DESC
        LIMIT ? OFFSET ?`,
-      [limit, offset]
+      [safeLimit, offset]
     ),
 
     // Subscriptions total count
@@ -3228,8 +2621,8 @@ export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
       data: withdrawRows,
       pagination: {
         total:      Number(withdrawTotal.total),
-        page, limit,
-        totalPages: Math.ceil(withdrawTotal.total / limit),
+        page, limit: safeLimit,
+        totalPages: Math.ceil(withdrawTotal.total / safeLimit),
       },
     },
 
@@ -3237,8 +2630,8 @@ export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
       data: depositRows,
       pagination: {
         total:      Number(depositTotal.total),
-        page, limit,
-        totalPages: Math.ceil(depositTotal.total / limit),
+        page, limit: safeLimit,
+        totalPages: Math.ceil(depositTotal.total / safeLimit),
       },
     },
 
@@ -3246,8 +2639,8 @@ export const getFinancialSummary = async ({ page = 1, limit = 20 } = {}) => {
       data: subscriptionRows,
       pagination: {
         total:      Number(subscriptionTotal.total),
-        page, limit,
-        totalPages: Math.ceil(subscriptionTotal.total / limit),
+        page, limit: safeLimit,
+        totalPages: Math.ceil(subscriptionTotal.total / safeLimit),
       },
     },
 
@@ -3263,23 +2656,20 @@ const USER_COLUMNS = `
 `;
 
 export const getallUsers = async ({ page = 1, limit = 20 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT ${USER_COLUMNS}
-     FROM users
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM users`
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${USER_COLUMNS} FROM users ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM users`),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -3298,25 +2688,21 @@ export const fetchUsers = async (filters = {}, { page = 1, limit = 20 } = {}) =>
   if (account_status?.trim()) { conditions.push(`account_status = ?`); params.push(account_status.trim()); }
   if (kyc_status?.trim())     { conditions.push(`kyc_status = ?`);     params.push(kyc_status.trim()); }
 
-  const offset      = (page - 1) * limit;
+  const safeLimit   = Math.min(Number(limit) || 20, 100);
+  const offset      = (page - 1) * safeLimit;
   const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : ``;
 
-  const [rows] = await db.query(
-    `SELECT ${USER_COLUMNS}
-     FROM users ${whereClause}
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [...params, limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM users ${whereClause}`,
-    params
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${USER_COLUMNS} FROM users ${whereClause} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM users ${whereClause}`, params),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -3325,25 +2711,20 @@ export const fetchUsersByKycStatus = async (filters = {}, { page = 1, limit = 20
 
   if (!kyc_status?.trim()) throw new Error("kyc_status is required");
 
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT ${USER_COLUMNS}
-     FROM users
-     WHERE kyc_status = ?
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [kyc_status.trim(), limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM users WHERE kyc_status = ?`,
-    [kyc_status.trim()]
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${USER_COLUMNS} FROM users WHERE kyc_status = ? ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [kyc_status.trim(), safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM users WHERE kyc_status = ?`, [kyc_status.trim()]),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -3352,25 +2733,20 @@ export const fetchUsersByAccountStatus = async (filters = {}, { page = 1, limit 
 
   if (!account_status?.trim()) throw new Error("account_status is required");
 
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
-  const [rows] = await db.query(
-    `SELECT ${USER_COLUMNS}
-     FROM users
-     WHERE account_status = ?
-     ORDER BY id DESC
-     LIMIT ? OFFSET ?`,
-    [account_status.trim(), limit, offset]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM users WHERE account_status = ?`,
-    [account_status.trim()]
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT ${USER_COLUMNS} FROM users WHERE account_status = ? ORDER BY id DESC LIMIT ? OFFSET ?`,
+      [account_status.trim(), safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM users WHERE account_status = ?`, [account_status.trim()]),
+  ]);
 
   return {
     data: rows,
-    pagination: { total, page, limit, totalPages: Math.ceil(total / limit) }
+    pagination: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) }
   };
 };
 
@@ -3379,61 +2755,75 @@ export const getUsersByType = async ({
   limit = 20,
   type = null
 } = {}) => {
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
   let where = [];
   let params = [];
   switch (type) {
     case "active":
-      where.push(`mobile_verify = 1 AND email_verify = 1`);
+      where.push(`mobile_verify = ? AND email_verify = ?`);
+      params.push(1, 1);
       break;
 
     case "mobile_notverifeid":
-      where.push(`mobile_verify = 0`);
+      where.push(`mobile_verify = ?`);
+      params.push(0);
       break;
 
     case "email_notverified":
-      where.push(`email_verify = 0`);
+      where.push(`email_verify = ?`);
+      params.push(0);
       break;
 
     case "kyc_verified":
-      where.push(`kyc_status = 'approved'`);
+      where.push(`kyc_status = ?`);
+      params.push('approved');
       break;
 
     case "kyc_pending":
-      where.push(`kyc_status = 'pending'`);
+      where.push(`kyc_status = ?`);
+      params.push('pending');
       break;
 
     case "kyc_rejected":
-      where.push(`kyc_status = 'rejected'`);
+      where.push(`kyc_status = ?`);
+      params.push('rejected');
       break;
 
     case "kyc_notstart":
-      where.push(`kyc_status = 'not_started'`);
+      where.push(`kyc_status = ?`);
+      params.push('not_started');
       break;
 
     case "sof_verified":
-      where.push(`issofverify = 1`);
+      where.push(`issofverify = ?`);
+      params.push(1);
       break;
 
-        case "sof_notverified":
-      where.push(`issofverify = 0`);
+    case "sof_notverified":
+      where.push(`issofverify = ?`);
+      params.push(0);
       break;
 
     case "bank_verified":
-      where.push(`bank_verified = 1`);
+      where.push(`bank_verified = ?`);
+      params.push(1);
       break;
 
     case "blocked":
-      where.push(`is_blocked = 1`);
+      where.push(`is_blocked = ?`);
+      params.push(1);
       break;
 
     case "game_paused":
-      where.push(`account_status = 'paused'`);
+      where.push(`account_status = ?`);
+      params.push('paused');
       break;
 
     case "deleted":
-      where.push(`account_status = 'deleted'`);
+      where.push(`account_status = ?`);
+      params.push('deleted');
       break;
 
     default:
@@ -3442,44 +2832,25 @@ export const getUsersByType = async ({
 
   const whereClause = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
-  //  Get users
-  const [users] = await db.query(
-    `
-    SELECT 
-      id,
-      name,
-      email,
-      mobile,
-      mobile_verify,
-      email_verify,
-      kyc_status,
-      issofverify,
-      bank_verified,
-      is_blocked,
-      account_status,
-      created_at
-
-    FROM users
-    ${whereClause}
-    ORDER BY created_at DESC
-    LIMIT ? OFFSET ?
-    `,
-    [...params, limit, offset]
-  );
-
-  // Total count
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM users ${whereClause}`,
-    params
-  );
+  const [[users], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT id, name, email, mobile, mobile_verify, email_verify,
+              kyc_status, issofverify, bank_verified, is_blocked, account_status, created_at
+       FROM users ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    ),
+    db.query(`SELECT COUNT(*) AS total FROM users ${whereClause}`, params),
+  ]);
 
   return {
     data: users,
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -3709,7 +3080,8 @@ export const rejectWithdrawService = async (adminId, withdrawId, body) => {
 // ── List all ─────────────────────────────────────────────────────────────────
 export const getAllWithdrawalsService = async (query) => {
   const { status, page = 1, limit = 20 } = query;
-  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const safeLimit = Math.min(parseInt(limit) || 20, 100);
+  const offset = (parseInt(page) - 1) * safeLimit;
 
   let where = "WHERE 1=1";
   const params = [];
@@ -3739,15 +3111,23 @@ export const getAllWithdrawalsService = async (query) => {
        w.snapshot_closing,
        w.created_at,
        w.processed_at,
-       -- Pull latest approval record inline — no duplicate rows
-       (SELECT wa.admin_id  FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS admin_id,
-       (SELECT wa.remarks   FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS remarks,
-       (SELECT wa.created_at FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS approval_date
+       la.admin_id,
+       la.remarks,
+       la.created_at AS approval_date
      FROM withdraws w
+     LEFT JOIN (
+       SELECT withdrawal_id, admin_id, remarks, created_at
+       FROM (
+         SELECT wa.*,
+                ROW_NUMBER() OVER (PARTITION BY wa.withdrawal_id ORDER BY wa.created_at DESC) AS rn
+         FROM withdraw_approvals wa
+       ) ranked
+       WHERE rn = 1
+     ) la ON la.withdrawal_id = w.id
      ${where}
      ORDER BY w.created_at DESC
      LIMIT ? OFFSET ?`,
-    [...params, parseInt(limit), offset]
+    [...params, safeLimit, offset]
   );
 
   return {
@@ -3756,8 +3136,8 @@ export const getAllWithdrawalsService = async (query) => {
     pagination: {
       total:      parseInt(total),
       page:       parseInt(page),
-      limit:      parseInt(limit),
-      totalPages: Math.ceil(total / parseInt(limit)),
+      limit:      safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
     },
   };
 };
@@ -3888,20 +3268,22 @@ export const addExpenditure = async (payload = {}) => {
 
     await connection.beginTransaction();
 
-    // Get last balance — locked to prevent concurrent reads
-    const [[lastTx]] = await connection.query(
-      `SELECT closing_balance FROM financial_transactions 
-       WHERE status = 'success' 
-       ORDER BY created_at DESC 
-       LIMIT 1 FOR UPDATE`
+    // Lock singleton balance row — prevents concurrent reads from racing
+    const [[balanceRow]] = await connection.query(
+      `SELECT balance FROM company_balance WHERE id = 1 FOR UPDATE`
     );
 
-    const opening_balance = lastTx ? Number(lastTx.closing_balance) : 0;
+    const opening_balance = Number(balanceRow?.balance || 0);
     const closing_balance = transaction_type === "credit"
       ? opening_balance + parsedAmount
       : opening_balance - parsedAmount;
 
     if (closing_balance < 0) throw new Error("Insufficient balance");
+
+    await connection.query(
+      `UPDATE company_balance SET balance = ? WHERE id = 1`,
+      [closing_balance]
+    );
 
     // Insert transaction
     const [txResult] = await connection.query(
@@ -3959,7 +3341,8 @@ export const getExpenditure = async ({
   wallet_type = null
 } = {}) => {
 
-  const offset = (page - 1) * limit;
+  const safeLimit = Math.min(Number(limit) || 20, 100);
+  const offset = (page - 1) * safeLimit;
 
   let where = [`status = 'success'`];
   let params = [];
@@ -3993,7 +3376,7 @@ export const getExpenditure = async ({
     ORDER BY created_at DESC
     LIMIT ? OFFSET ?
     `,
-    [...params, limit, offset]
+    [...params, safeLimit, offset]
   );
 
   //  Count Query
@@ -4007,8 +3390,8 @@ export const getExpenditure = async ({
     pagination: {
       total,
       page,
-      limit,
-      totalPages: Math.ceil(total / limit)
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit)
     }
   };
 };
@@ -4167,19 +3550,27 @@ export const processMatchResultService = async (matchId) => {
           [contest.id]
         );
 
-        for (const entry of entries) {
-          if (parseFloat(entry.entry_fee) > 0) {
-            await conn.query(
-              `UPDATE wallets SET depositwallet = depositwallet + ? WHERE user_id = ?`,
-              [entry.entry_fee, entry.user_id]
-            );
-            await conn.query(
-              `INSERT INTO wallet_transactions
-                 (user_id, wallettype, transtype, amount, remark, reference_id)
-               VALUES (?, 'deposit', 'credit', ?, 'Contest refund - min entries not met', ?)`,
-              [entry.user_id, entry.entry_fee, contest.id]
-            );
+        const refundable = entries.filter(e => parseFloat(e.entry_fee) > 0);
+        if (refundable.length) {
+          const refundByUser = {};
+          for (const e of refundable) {
+            refundByUser[e.user_id] = (refundByUser[e.user_id] || 0) + parseFloat(e.entry_fee);
           }
+          const uniqueRefunds = Object.entries(refundByUser);
+          const walletCase = uniqueRefunds.map(() => `WHEN user_id = ? THEN depositwallet + ?`).join(' ');
+          const walletVals = uniqueRefunds.flatMap(([uid, total]) => [uid, total]);
+          const walletIds  = uniqueRefunds.map(([uid]) => uid);
+          await conn.query(
+            `UPDATE wallets SET depositwallet = CASE ${walletCase} END
+             WHERE user_id IN (${walletIds.map(() => '?').join(',')})`,
+            [...walletVals, ...walletIds]
+          );
+          await conn.query(
+            `INSERT INTO wallet_transactions
+               (user_id, wallettype, transtype, amount, remark, reference_id)
+             VALUES ${refundable.map(() => '(?,?,?,?,?,?)').join(',')}`,
+            refundable.flatMap(e => [e.user_id, 'deposit', 'credit', e.entry_fee, 'Contest refund - min entries not met', contest.id])
+          );
         }
 
         await conn.query(
@@ -4224,7 +3615,7 @@ export const processMatchResultService = async (matchId) => {
         [matchId, contest.id, contest.id]
       );
 
-      // ── Step 4: Calculate & update winning_amount ─────────────────────
+      // ── Step 4: Calculate prizes for all entries ──────────────────────
       const [rankedEntries] = await conn.query(
         `SELECT id, user_id, urank, entry_fee
          FROM contest_entries
@@ -4232,7 +3623,9 @@ export const processMatchResultService = async (matchId) => {
         [contest.id]
       );
 
-      let totalWinnersPaid = 0;
+      const winners = [];
+      const loserIds = [];
+      const prizeByUser = {};
 
       for (const entry of rankedEntries) {
         const prize = getPrizeForRank(
@@ -4242,36 +3635,53 @@ export const processMatchResultService = async (matchId) => {
           contest.total_winners,
           contest.refund_start_rank
         );
-
         if (prize > 0) {
-          // Update winning_amount
-          await conn.query(
-            `UPDATE contest_entries SET winning_amount = ?, status = 'won'
-             WHERE id = ?`,
-            [prize, entry.id]
-          );
-
-          // Credit earn wallet
-          await conn.query(
-            `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
-            [prize, entry.user_id]
-          );
-
-          // Wallet transaction
-          await conn.query(
-            `INSERT INTO wallet_transactions
-               (user_id, wallettype, transtype, amount, remark, reference_id)
-             VALUES (?, 'winning', 'credit', ?, 'Contest winnings', ?)`,
-            [entry.user_id, prize, contest.id]
-          );
-
-          totalWinnersPaid++;
+          winners.push({ id: entry.id, user_id: entry.user_id, prize });
+          prizeByUser[entry.user_id] = (prizeByUser[entry.user_id] || 0) + prize;
         } else {
-          await conn.query(
-            `UPDATE contest_entries SET status = 'lost' WHERE id = ?`,
-            [entry.id]
-          );
+          loserIds.push(entry.id);
         }
+      }
+
+      // Bulk update winning_amount on contest_entries
+      if (winners.length) {
+        const caseExpr = winners.map(() => `WHEN id = ? THEN ?`).join(' ');
+        const caseVals = winners.flatMap(w => [w.id, w.prize]);
+        const winIds   = winners.map(w => w.id);
+        await conn.query(
+          `UPDATE contest_entries
+           SET winning_amount = CASE ${caseExpr} END, status = 'won'
+           WHERE id IN (${winIds.map(() => '?').join(',')})`,
+          [...caseVals, ...winIds]
+        );
+
+        // Bulk INSERT wallet_transactions
+        await conn.query(
+          `INSERT INTO wallet_transactions
+             (user_id, wallettype, transtype, amount, remark, reference_id)
+           VALUES ${winners.map(() => '(?,?,?,?,?,?)').join(',')}`,
+          winners.flatMap(w => [w.user_id, 'winning', 'credit', w.prize, 'Contest winnings', contest.id])
+        );
+
+        // Bulk UPDATE wallets — one row per unique user, summing prizes
+        const uniqueUsers = Object.entries(prizeByUser);
+        const walletCase  = uniqueUsers.map(() => `WHEN user_id = ? THEN earnwallet + ?`).join(' ');
+        const walletVals  = uniqueUsers.flatMap(([uid, total]) => [uid, total]);
+        const walletIds   = uniqueUsers.map(([uid]) => uid);
+        await conn.query(
+          `UPDATE wallets SET earnwallet = CASE ${walletCase} END
+           WHERE user_id IN (${walletIds.map(() => '?').join(',')})`,
+          [...walletVals, ...walletIds]
+        );
+      }
+
+      // Bulk update losers
+      if (loserIds.length) {
+        await conn.query(
+          `UPDATE contest_entries SET status = 'lost'
+           WHERE id IN (${loserIds.map(() => '?').join(',')})`,
+          loserIds
+        );
       }
 
       // ── Step 5: Contest status → RESULT ──────────────────────────────
@@ -4284,7 +3694,7 @@ export const processMatchResultService = async (matchId) => {
         contest_id:          contest.id,
         status:              "RESULT",
         total_entries:       rankedEntries.length,
-        total_winners_paid:  totalWinnersPaid,
+        total_winners_paid:  winners.length,
       });
     }
 
@@ -4310,26 +3720,28 @@ export const processMatchResultService = async (matchId) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const setMatchLiveService = async (matchId) => {
-  const [[match]] = await db.query(
-    `SELECT id, status FROM matches WHERE id = ?`,
-    [matchId]
-  );
-  if (!match) throw new Error("Match not found");
-  if (match.status === "RESULT") throw new Error("Match already completed");
-  if (match.status === "LIVE") throw new Error("Match already live");
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [[match]] = await conn.query(
+      `SELECT id, status FROM matches WHERE id = ? FOR UPDATE`,
+      [matchId]
+    );
+    if (!match)                    throw new Error("Match not found");
+    if (match.status === "RESULT") throw new Error("Match already completed");
+    if (match.status === "LIVE")   throw new Error("Match already live");
 
-  await db.query(
-    `UPDATE matches SET status = 'LIVE' WHERE id = ?`,
-    [matchId]
-  );
-
-  await db.query(
-    `UPDATE contest SET status = 'LIVE' WHERE match_id = ? AND status != 'CANCELLED'`,
-    [matchId]
-  );
-
-  return {
-    success: true,
-    message: `Match ${matchId} is now LIVE`,
-  };
+    await conn.query(`UPDATE matches SET status = 'LIVE' WHERE id = ?`, [matchId]);
+    await conn.query(
+      `UPDATE contest SET status = 'LIVE' WHERE match_id = ? AND status != 'CANCELLED'`,
+      [matchId]
+    );
+    await conn.commit();
+    return { success: true, message: `Match ${matchId} is now LIVE` };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
 };
