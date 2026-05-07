@@ -1506,3 +1506,127 @@ export const getPlayerBioService = async (playerId) => {
     },
   };
 };
+
+export const getTeamByIdService = async (teamId, userId) => {
+  if (!teamId) throw new Error("teamId is required");
+
+  // ── Team basic info ──
+  const [[team]] = await db.query(
+    `SELECT ut.id, ut.team_name, ut.match_id, ut.user_id,
+            m.status AS match_status
+     FROM user_teams ut
+     JOIN matches m ON m.id = ut.match_id
+     WHERE ut.id = ?`,
+    [teamId]
+  );
+  if (!team) throw new Error("Team not found");
+
+  const matchStatus = team.match_status?.toUpperCase();
+  const isLive      = matchStatus === "LIVE";
+  const isResult    = matchStatus === "RESULT";
+  const applyPoints = isLive || isResult;
+
+  // ── Players ──
+  const [rows] = await db.query(
+    `SELECT
+       p.id          AS player_id,
+       p.name,
+       p.position,
+       p.playercredits AS credits,
+       p.player_type,
+       p.playerimage,
+       p.team_id     AS real_team_id,
+       t.name        AS real_team_name,
+       t.short_name  AS real_team_short_name,
+       utp.is_captain,
+       utp.is_vice_captain,
+       utp.is_substitude,
+       COALESCE(pms.fantasy_points, 0) AS base_points,
+       CASE WHEN mp.player_id IS NOT NULL THEN 1 ELSE 0 END AS is_in_match
+     FROM user_team_players utp
+     JOIN players p      ON p.id  = utp.player_id
+     LEFT JOIN teams t   ON t.id  = p.team_id
+     LEFT JOIN match_players mp
+           ON mp.player_id = p.id AND mp.match_id = ?
+     LEFT JOIN player_match_stats pms
+           ON pms.player_id = p.id AND pms.match_id = ?
+     WHERE utp.user_team_id = ?`,
+    [team.match_id, team.match_id, teamId]
+  );
+
+  if (!rows.length) throw new Error("No players found for this team");
+
+  let players = rows.map(r => {
+    const basePoints = parseFloat(r.base_points) || 0;
+    return {
+      playerId:          r.player_id,
+      name:              r.name,
+      position:          r.position,
+      credits:           parseFloat(r.credits) || 0,
+      playerType:        r.player_type,
+      image:             r.playerimage         || null,
+      realTeamId:        r.real_team_id,
+      realTeamName:      r.real_team_name      || null,
+      realTeamShortName: r.real_team_short_name || null,
+      isCaptain:         r.is_captain      === 1,
+      isViceCaptain:     r.is_vice_captain === 1,
+      isSubstitute:      r.is_substitude   === 1,
+      isInMatch:         r.is_in_match     === 1,
+      basePoints,
+      effectivePoints:    basePoints,
+      highestScorerBonus: 0,
+    };
+  });
+
+  let totalPoints = 0;
+
+  if (!applyPoints) {
+    // UPCOMING — points 0
+    players = players.map(p => ({
+      ...p, basePoints: 0, effectivePoints: 0, highestScorerBonus: 0,
+    }));
+  } else {
+    // ── HS Bonus ──
+    const maxBase = Math.max(...players.map(p => p.basePoints));
+    if (maxBase > 0) {
+      players = players.map(p => {
+        if (p.basePoints !== maxBase) return p;
+        const hsBonus = p.isSubstitute ? 8 : 4;
+        const newBase = p.basePoints + hsBonus;
+        return {
+          ...p,
+          basePoints:         newBase,
+          effectivePoints:    newBase,
+          highestScorerBonus: hsBonus,
+        };
+      });
+    }
+
+    // ── Captain/VC multiplier ──
+    players = players.map(p => {
+      const multiplier   = p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1;
+      const effectivePts = parseFloat((p.basePoints * multiplier).toFixed(2));
+      return { ...p, effectivePoints: effectivePts };
+    });
+
+    totalPoints = parseFloat(
+      players.reduce((sum, p) => sum + p.effectivePoints, 0).toFixed(2)
+    );
+  }
+
+  const isMyTeam = team.user_id === parseInt(userId);
+
+  return {
+    success:      true,
+    teamId:       team.id,
+    teamName:     team.team_name,
+    matchId:      team.match_id,
+    matchStatus,
+    isMyTeam,
+    totalPoints,
+    totalPlayers: players.length,
+    captain:      players.find(p => p.isCaptain)     || null,
+    viceCaptain:  players.find(p => p.isViceCaptain) || null,
+    players,
+  };
+};
