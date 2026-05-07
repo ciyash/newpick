@@ -4,7 +4,7 @@ import cors from "cors";
 import morgan from "morgan";
 import routes from "./routes/index.js";
 import { stripeWebhook } from "./modules/payment/webhook.controller.js";
-
+import { bankStripeWebhook } from "./modules/bank/bank.controller.js";
 const REQUIRED_ENV = ["JWT_SECRET", "DB_HOST", "DB_USER", "DB_PASSWORD", "STRIPE_PUBLISHABLE_KEY"];
 for (const key of REQUIRED_ENV) {
   if (!process.env[key]) {
@@ -18,6 +18,15 @@ app.post(
   express.raw({ type: "application/json" }),
   stripeWebhook
 );
+
+app.post(
+  "/api/user/bank/stripe-webhook",
+  express.raw({ type: "application/json" }),
+  bankStripeWebhook
+);
+
+
+app.use(express.json());
 
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(",") || ["http://localhost:3000", "http://localhost:4200"],

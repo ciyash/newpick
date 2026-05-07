@@ -8,8 +8,8 @@ import {
   syncPlayingXIService,
   syncPlayerPointsService,
   getAllFixturesBetween,
-  getMatchesByDateRangeService,
-  getPlayerBioService,
+  getMatchesByDateRangeService
+  
 } from "./sportmonks.service.js";
 
 /* ══════════════════════════════════════════
@@ -307,12 +307,3 @@ export const getMatchesByDateRange = async (req, res) => {
 };
 
 
-export const getPlayerBio = async (req, res) => {
-  try {
-    const { playerId } = req.params;
-    const data = await getPlayerBioService(playerId);
-    res.json(data);
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-};
