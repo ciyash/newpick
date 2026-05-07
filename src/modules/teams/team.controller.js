@@ -1,6 +1,9 @@
 import db from "../../config/db.js";
-import { createTeamService,  getMyTeamsWithPlayersService, getMyTeamsXIStatusService, getPlayingXIService, getTeamComparisonService, getTeamComparisonBulkService, getTeamPlayersService, updateTeamService } from "./team.service.js";
+import { createTeamService,  getMyTeamsWithPlayersService, getMyTeamsXIStatusService, getPlayingXIService, getTeamComparisonService, getTeamComparisonBulkService, getTeamPlayersService, updateTeamService, getPlayerBioService } from "./team.service.js";
 import { createTeamSchema, updateTeamSchema } from "./team.validation.js";
+
+
+
 
 export const getAllTeams = async (req, res) => {
   try {
@@ -447,5 +450,16 @@ export const getTeamComparisonBulk = async (req, res) => {
   } catch (err) {
     console.error("[getTeamComparisonBulk]", err);
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+export const getPlayerBio = async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    const data = await getPlayerBioService(playerId);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
