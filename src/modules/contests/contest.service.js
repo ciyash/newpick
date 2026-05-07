@@ -376,31 +376,31 @@ export const getContestsService = async (matchId, userId) => {
   });
 };
 
-export const getFantasyDashboardService = async (userId, matchId) => {
-  if (!userId) throw new Error("userId is required");
-  if (!matchId) throw new Error("matchId is required");
+// export const getFantasyDashboardService = async (userId, matchId) => {
+//   if (!userId) throw new Error("userId is required");
+//   if (!matchId) throw new Error("matchId is required");
 
-  const [contests, myContests, myTeams] = await Promise.all([
-    getContestsService(matchId, userId),
-    getMyContestsService(userId, matchId),
-    getMyTeamsWithPlayersService(userId, matchId),
-  ]);
+//   const [contests, myContests, myTeams] = await Promise.all([
+//     getContestsService(matchId, userId),
+//     getMyContestsService(userId, matchId),
+//     getMyTeamsWithPlayersService(userId, matchId),
+//   ]);
 
-  return {
-    success: true,
-    match_id: Number(matchId),
-    data: {
-      contests,
-      my_contests: myContests,
-      my_teams: myTeams,
-    },
-    meta: {
-      contests_count: contests.length,
-      my_contests_count: myContests.length,
-      my_teams_count: myTeams.length,
-    },
-  };
-};
+//   return {
+//     success: true,
+//     match_id: Number(matchId),
+//     data: {
+//       contests,
+//       my_contests: myContests,
+//       my_teams: myTeams,
+//     },
+//     meta: {
+//       contests_count: contests.length,
+//       my_contests_count: myContests.length,
+//       my_teams_count: myTeams.length,
+//     },
+//   };
+// };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // JOIN CONTEST
@@ -414,6 +414,58 @@ export const getFantasyDashboardService = async (userId, matchId) => {
 //   7. Calls applyReferralContestBonus with same conn (inside transaction)
 // ─────────────────────────────────────────────────────────────────────────────
 
+export const getFantasyDashboardService = async (userId, matchId) => {
+  if (!userId) throw new Error("userId is required");
+  if (!matchId) throw new Error("matchId is required");
+
+  const [contests, myContests, myTeams, otherTeams] = await Promise.all([
+    getContestsService(matchId, userId),
+    getMyContestsService(userId, matchId),
+    getMyTeamsWithPlayersService(userId, matchId),
+    getOtherTeamsService(userId, matchId),  // ✅ add చేయి
+  ]);
+
+  return {
+    success: true,
+    match_id: Number(matchId),
+    data: {
+      contests,
+      my_contests: myContests,
+      my_teams: myTeams,
+      other_teams: otherTeams,  // ✅ add చేయి
+    },
+    meta: {
+      contests_count:    contests.length,
+      my_contests_count: myContests.length,
+      my_teams_count:    myTeams.length,
+      other_teams_count: otherTeams.length,  // ✅ add చేయి
+    },
+  };
+};
+
+// ✅ New function
+const getOtherTeamsService = async (userId, matchId) => {
+  const [rows] = await db.query(
+    `SELECT DISTINCT
+       ut.id         AS team_id,
+       ut.team_name,
+       u.nickname    AS username,
+       u.image       AS profile_image
+     FROM user_teams ut
+     JOIN users u ON u.id = ut.user_id
+     WHERE ut.match_id = ?
+       AND ut.user_id != ?
+     ORDER BY ut.id DESC`,
+    [matchId, userId]
+  );
+
+  return rows.map(r => ({
+    team_id:       r.team_id,
+    team_name:     r.team_name    || null,
+    username:      r.username     || null,
+    profile_image: r.profile_image || null,
+  }));
+};
 
 export const joinContestService = async (userId, { contestId, userTeamId, ip, device }) => {
   let conn;
