@@ -1510,174 +1510,217 @@ export const getTeamComparisonBulkService = async (teamIds = [], userId) => {
 // };
 
 
+
 export const getPlayerBioService = async (playerId) => {
 
-  // ── 1. Player basic info from DB ──
-  const [[player]] = await db.query(
-    `SELECT 
-       p.id, p.name, p.position, p.player_type,
-       p.playerimage, p.playercredits, p.selectpercent,
-       p.captainper, p.vcper, p.provider_player_id,
-       t.name AS team_name, t.short_name AS team_short,
-       t.logo AS team_logo
-     FROM players p
-     LEFT JOIN teams t ON t.id = p.team_id
-     WHERE p.id = ?`,
-    [playerId]
-  );
-  if (!player) throw new Error("Player not found");
+  // ── 1. DB queries ──
+  const [[[player]], [[currentSeries]]] = await Promise.all([
+    db.query(
+      `SELECT p.id, p.name, p.position, p.player_type,
+              p.playerimage, p.playercredits, p.selectpercent,
+              p.captainper, p.vcper, p.provider_player_id,
+              t.name AS team_name, t.short_name AS team_short, t.logo AS team_logo
+       FROM players p
+       LEFT JOIN teams t ON t.id = p.team_id
+       WHERE p.id = ?`,
+      [playerId]
+    ),
+    db.query(
+      `SELECT m.series_id, m.seriesname
+       FROM player_match_stats pms
+       JOIN matches m ON m.id = pms.match_id
+       WHERE pms.player_id = ?
+       ORDER BY m.matchdate DESC LIMIT 1`,
+      [playerId]
+    ),
+  ]);
 
-  // ── 2. Current series ──
-  const [[currentSeries]] = await db.query(
-    `SELECT m.series_id, m.seriesname
-     FROM player_match_stats pms
-     JOIN matches m ON m.id = pms.match_id
-     WHERE pms.player_id = ?
-     ORDER BY m.matchdate DESC
-     LIMIT 1`,
-    [playerId]
-  );
+  if (!player) throw new Error("Player not found");
 
   const seriesId = currentSeries?.series_id || null;
 
-  // ── 3. Season stats (current series only) ──
-  const [seasonStats] = await db.query(
-    `SELECT
-       COUNT(*)                          AS matches_played,
-       SUM(pms.started)                  AS started_matches,
-       SUM(pms.sub_appearance)           AS bench_appearances,
-       SUM(pms.minutes_played)           AS total_minutes,
-       SUM(pms.goals)                    AS total_goals,
-       SUM(pms.assists)                  AS total_assists,
-       SUM(pms.shots_on_target)          AS total_shots_on_target,
-       SUM(pms.key_passes)               AS total_key_passes,
-       SUM(pms.goals_conceded)           AS total_goals_conceded,
-       SUM(pms.saves)                    AS total_saves,
-       SUM(pms.penalty_saves)            AS total_penalty_saves,
-       SUM(pms.tackles_won)              AS total_tackles_won,
-       SUM(pms.interceptions)            AS total_interceptions,
-       SUM(pms.blocked_shots)            AS total_blocked_shots,
-       SUM(pms.own_goals)                AS total_own_goals,
-       SUM(pms.penalties_missed)         AS total_penalties_missed,
-       SUM(pms.yellow_cards)             AS total_yellow_cards,
-       SUM(pms.red_cards)                AS total_red_cards,
-       SUM(pms.fantasy_points)           AS total_fantasy_points,
-       MAX(pms.fantasy_points)           AS highest_fantasy_points,
-       ROUND(AVG(pms.fantasy_points), 1) AS avg_fantasy_points,
-       SUM(CASE WHEN pms.goals > 0 OR pms.assists > 0 THEN 1 ELSE 0 END) AS goal_contribution_matches,
-       SUM(CASE WHEN pms.goals_conceded = 0 AND (pms.started = 1 OR pms.sub_appearance = 1) THEN 1 ELSE 0 END) AS clean_sheets
-     FROM player_match_stats pms
-     JOIN matches m ON m.id = pms.match_id
-     WHERE pms.player_id = ?
-       AND pms.is_finalized = 1
-       ${seriesId ? "AND m.series_id = ?" : ""}`,
-    seriesId ? [playerId, seriesId] : [playerId]
-  );
+  // ── 2. DB stats + Sportmonks — parallel ──
+  const [[seasonStats], [recentMatches], sportmonksData] = await Promise.all([
+    db.query(
+      `SELECT COUNT(*) AS matches_played, SUM(pms.started) AS started_matches,
+              SUM(pms.sub_appearance) AS bench_appearances, SUM(pms.minutes_played) AS total_minutes,
+              SUM(pms.goals) AS total_goals, SUM(pms.assists) AS total_assists,
+              SUM(pms.shots_on_target) AS total_shots_on_target, SUM(pms.key_passes) AS total_key_passes,
+              SUM(pms.goals_conceded) AS total_goals_conceded, SUM(pms.saves) AS total_saves,
+              SUM(pms.penalty_saves) AS total_penalty_saves, SUM(pms.tackles_won) AS total_tackles_won,
+              SUM(pms.interceptions) AS total_interceptions, SUM(pms.blocked_shots) AS total_blocked_shots,
+              SUM(pms.own_goals) AS total_own_goals, SUM(pms.penalties_missed) AS total_penalties_missed,
+              SUM(pms.yellow_cards) AS total_yellow_cards, SUM(pms.red_cards) AS total_red_cards,
+              SUM(pms.fantasy_points) AS total_fantasy_points, MAX(pms.fantasy_points) AS highest_fantasy_points,
+              ROUND(AVG(pms.fantasy_points), 1) AS avg_fantasy_points,
+              SUM(CASE WHEN pms.goals > 0 OR pms.assists > 0 THEN 1 ELSE 0 END) AS goal_contribution_matches,
+              SUM(CASE WHEN pms.goals_conceded = 0 AND (pms.started = 1 OR pms.sub_appearance = 1) THEN 1 ELSE 0 END) AS clean_sheets
+       FROM player_match_stats pms
+       JOIN matches m ON m.id = pms.match_id
+       WHERE pms.player_id = ? AND pms.is_finalized = 1
+         ${seriesId ? "AND m.series_id = ?" : ""}`,
+      seriesId ? [playerId, seriesId] : [playerId]
+    ),
 
-  const s = seasonStats[0] || {};
+    db.query(
+      `SELECT pms.fantasy_points, pms.goals, pms.assists, pms.yellow_cards, pms.red_cards,
+              m.id AS match_id, ht.short_name AS home_short, at.short_name AS away_short, m.matchdate
+       FROM player_match_stats pms
+       JOIN matches m ON m.id = pms.match_id
+       JOIN teams ht ON ht.id = m.home_team_id
+       JOIN teams at ON at.id = m.away_team_id
+       WHERE pms.player_id = ? AND pms.is_finalized = 1
+         ${seriesId ? "AND m.series_id = ?" : ""}
+       ORDER BY m.matchdate DESC LIMIT 5`,
+      seriesId ? [playerId, seriesId] : [playerId]
+    ),
 
-  // ── 4. Recent 5 matches (current series only) ──
-  const [recentMatches] = await db.query(
-    `SELECT
-       pms.fantasy_points,
-       pms.goals, pms.assists,
-       pms.yellow_cards, pms.red_cards,
-       m.id AS match_id,
-       ht.short_name AS home_short,
-       at.short_name AS away_short,
-       m.matchdate
-     FROM player_match_stats pms
-     JOIN matches m   ON m.id  = pms.match_id
-     JOIN teams ht    ON ht.id = m.home_team_id
-     JOIN teams at    ON at.id = m.away_team_id
-     WHERE pms.player_id = ?
-       AND pms.is_finalized = 1
-       ${seriesId ? "AND m.series_id = ?" : ""}
-     ORDER BY m.matchdate DESC
-     LIMIT 5`,
-    seriesId ? [playerId, seriesId] : [playerId]
-  );
+    // Sportmonks — fail ayina null return, app crash kaadu
+    player.provider_player_id
+      ? apiGet(`/players/${player.provider_player_id}`, {
+          include: [
+            "trophies.league", "trophies.season", "trophies.trophy", "trophies.team",
+            "teams.team", "statistics.details.type", "statistics.team",
+            "statistics.season.league", "latest.fixture.participants",
+            "latest.fixture.league", "latest.fixture.scores",
+            "latest.details.type", "nationality", "detailedPosition",
+          ].join(";"),
+        }).catch(err => { console.error("Sportmonks failed:", err.message); return null; })
+      : Promise.resolve(null),
+  ]);
 
-  // ── 5. Smart Insights ──
+  const s  = seasonStats[0] || {};
+  const sp = sportmonksData?.data || null;
+
+  // ── 3. Sportmonks extra data extract ──
+  const age = sp?.date_of_birth
+    ? Math.floor((new Date() - new Date(sp.date_of_birth)) / (365.25 * 24 * 60 * 60 * 1000))
+    : null;
+
+  const trophies = (sp?.trophies || []).map(t => ({
+    trophy_name: t.trophy?.name        || null,
+    league_name: t.league?.name        || null,
+    league_logo: t.league?.image_path  || null,
+    season_name: t.season?.name        || null,
+    team_name:   t.team?.name          || null,
+    team_logo:   t.team?.image_path    || null,
+  }));
+
+  const career_statistics = (sp?.statistics || [])
+    .filter(s => s.goals !== null || s.assists !== null || s.appearances !== null)
+    .slice(0, 10)
+    .map(s => {
+      const getValue = (name) =>
+        s.details?.find(d => d.type?.name === name)?.value?.total ?? null;
+      return {
+        season_name:    s.season?.name               || null,
+        league_name:    s.season?.league?.name       || null,
+        league_logo:    s.season?.league?.image_path || null,
+        team_name:      s.team?.name                 || null,
+        team_logo:      s.team?.image_path           || null,
+        goals:          getValue("Goals"),
+        assists:        getValue("Assists"),
+        appearances:    getValue("Appearances"),
+        minutes_played: getValue("Minutes Played"),
+      };
+    });
+
+  const recent_matches_api = (sp?.latest || []).slice(0, 5).map(l => {
+    const fixture      = l.fixture || {};
+    const participants = fixture.participants || [];
+    const home         = participants.find(p => p.meta?.location === "home");
+    const away         = participants.find(p => p.meta?.location === "away");
+    const scores       = fixture.scores || [];
+    const homeScore    = scores.find(s => s.participant_id === home?.id && s.description === "CURRENT")?.score?.goals ?? null;
+    const awayScore    = scores.find(s => s.participant_id === away?.id && s.description === "CURRENT")?.score?.goals ?? null;
+    return {
+      fixture_id:  fixture.id                 || null,
+      league_name: fixture.league?.name       || null,
+      league_logo: fixture.league?.image_path || null,
+      home_team:   home?.name                 || null,
+      home_logo:   home?.image_path           || null,
+      home_score:  homeScore,
+      away_team:   away?.name                 || null,
+      away_logo:   away?.image_path           || null,
+      away_score:  awayScore,
+      date:        fixture.starting_at        || null,
+    };
+  });
+
+  // ── 4. Insights & Badge (same logic) ──
   const avgPts    = parseFloat(s.avg_fantasy_points) || 0;
   const recentAvg = recentMatches.length
     ? recentMatches.reduce((sum, m) => sum + (m.fantasy_points || 0), 0) / recentMatches.length
     : 0;
-  const position  = player.position;
-  const insights  = [];
+  const position = player.position;
+  const insights = [];
 
-  // Form
-  if (recentAvg >= avgPts * 1.2)
-    insights.push({ icon: "🔥", text: "In excellent scoring form" });
-  else if (recentAvg < avgPts * 0.7)
-    insights.push({ icon: "📉", text: "Below average recent form" });
-  else
-    insights.push({ icon: "📊", text: "Consistent recent form" });
+  if (recentAvg >= avgPts * 1.2)     insights.push({ icon: "🔥", text: "In excellent scoring form" });
+  else if (recentAvg < avgPts * 0.7) insights.push({ icon: "📉", text: "Below average recent form" });
+  else                               insights.push({ icon: "📊", text: "Consistent recent form" });
 
-  // Goal involvement
   const goalInvolvement = (parseInt(s.total_goals) || 0) + (parseInt(s.total_assists) || 0);
-  if (goalInvolvement >= 10)
-    insights.push({ icon: "⚽", text: "High goal involvement player" });
+  if (goalInvolvement >= 10) insights.push({ icon: "⚽", text: "High goal involvement player" });
+  if (avgPts >= 40)          insights.push({ icon: "🟢", text: "Strong Captain choice" });
 
-  // Captain choice
-  if (avgPts >= 40)
-    insights.push({ icon: "🟢", text: "Strong Captain choice" });
-
-  // Playing time
   const startedPct = parseInt(s.matches_played) > 0
-    ? (parseInt(s.started_matches) || 0) / parseInt(s.matches_played)
-    : 0;
+    ? (parseInt(s.started_matches) || 0) / parseInt(s.matches_played) : 0;
 
-  if (startedPct >= 0.8)
-    insights.push({ icon: "🟢", text: "Likely to play full match" });
-  else if (startedPct < 0.5)
-    insights.push({ icon: "⚠️", text: "Rotation risk" });
+  if (startedPct >= 0.8)     insights.push({ icon: "🟢", text: "Likely to play full match" });
+  else if (startedPct < 0.5) insights.push({ icon: "⚠️",  text: "Rotation risk" });
+  if ((parseInt(s.total_yellow_cards)     || 0) >= 5) insights.push({ icon: "🟨", text: "Caution — high yellow card count" });
+  if ((parseInt(s.total_red_cards)        || 0) >= 1) insights.push({ icon: "🟥", text: "Red card risk" });
+  if ((parseInt(s.total_penalties_missed) || 0) >= 1) insights.push({ icon: "⚠️",  text: "Misses occasional big chances" });
 
-  // Discipline
-  if ((parseInt(s.total_yellow_cards) || 0) >= 5)
-    insights.push({ icon: "🟨", text: "Caution — high yellow card count" });
-  if ((parseInt(s.total_red_cards) || 0) >= 1)
-    insights.push({ icon: "🟥", text: "Red card risk" });
-  if ((parseInt(s.total_penalties_missed) || 0) >= 1)
-    insights.push({ icon: "⚠️", text: "Misses occasional big chances" });
-
-  // ── 6. Recommendation Badge ──
   let badge = null;
-  if (avgPts >= 50)
-    badge = { label: "Captain Choice", icon: "🔥", color: "orange" };
-  else if (avgPts >= 30 && startedPct >= 0.8)
-    badge = { label: "Safe Pick", icon: "🟢", color: "green" };
-  else if ((parseFloat(player.selectpercent) || 0) < 10 && avgPts >= 20)
-    badge = { label: "Differential", icon: "💎", color: "blue" };
-  else if (startedPct < 0.5 || (parseInt(s.total_yellow_cards) || 0) >= 5)
-    badge = { label: "Risky Pick", icon: "⚠️", color: "red" };
+  if (avgPts >= 50)                                                          badge = { label: "Captain Choice", icon: "🔥", color: "orange" };
+  else if (avgPts >= 30 && startedPct >= 0.8)                                badge = { label: "Safe Pick",      icon: "🟢", color: "green"  };
+  else if ((parseFloat(player.selectpercent) || 0) < 10 && avgPts >= 20)    badge = { label: "Differential",   icon: "💎", color: "blue"   };
+  else if (startedPct < 0.5 || (parseInt(s.total_yellow_cards) || 0) >= 5) badge = { label: "Risky Pick",     icon: "⚠️",  color: "red"    };
 
-  // ── 7. Final response ──
+  // ── 5. Final Response — commented function structure exact ga ──
   return {
     success: true,
     data: {
-      // Header
-      player_id:       player.id,
-      name:            player.name,
-      image:           player.playerimage             || null,
-      position:        player.position                || null,
-      player_type:     player.player_type             || null,
-      credits:         parseFloat(player.playercredits) || 0,
-      select_percent:  parseFloat(player.selectpercent) || 0,
-      captain_percent: parseFloat(player.captainper)    || 0,
-      vc_percent:      parseFloat(player.vcper)          || 0,
+      // Basic Info
+      player_id:         player.id,
+      name:              sp?.display_name  || sp?.name   || player.name,
+      common_name:       sp?.common_name   || null,
+      image:             sp?.image_path    || player.playerimage || null,
+      date_of_birth:     sp?.date_of_birth || null,
+      age,
+      height:            sp?.height        || null,
+      weight:            sp?.weight        || null,
+      gender:            sp?.gender        || null,
+      position:          player.position   || null,
+      player_type:       player.player_type || null,
+      detailed_position: sp?.detailedPosition?.name || null,
+      credits:           parseFloat(player.playercredits) || 0,
+      select_percent:    parseFloat(player.selectpercent) || 0,
+      captain_percent:   parseFloat(player.captainper)    || 0,
+      vc_percent:        parseFloat(player.vcper)         || 0,
+
+      nationality: sp?.nationality ? {
+        name:       sp.nationality.name       || null,
+        flag_image: sp.nationality.image_path || null,
+      } : null,
+
+      // Team
       team: {
         name:       player.team_name  || null,
         short_name: player.team_short || null,
         logo:       player.team_logo  || null,
       },
+
+      // Series
       series: {
         id:   seriesId,
         name: currentSeries?.seriesname || null,
       },
+
       avg_fantasy_points: avgPts,
 
-      // Recent Form
+      // Recent Form — DB (fantasy points)
       recent_form: recentMatches.map(m => ({
         match:          `${m.home_short} vs ${m.away_short}`,
         fantasy_points: m.fantasy_points || 0,
@@ -1688,7 +1731,10 @@ export const getPlayerBioService = async (playerId) => {
         date:           m.matchdate      || null,
       })),
 
-      // Attacking Stats
+      // Recent Matches — Sportmonks (fixture + score details)
+      recent_matches: recent_matches_api,
+
+      // Stats
       attacking_stats: {
         goals:           parseInt(s.total_goals)           || 0,
         assists:         parseInt(s.total_assists)          || 0,
@@ -1696,7 +1742,6 @@ export const getPlayerBioService = async (playerId) => {
         key_passes:      parseInt(s.total_key_passes)      || 0,
       },
 
-      // Defensive Stats (DEF/GK only)
       defensive_stats: ["DEF", "GK"].includes(position) ? {
         clean_sheets:  parseInt(s.clean_sheets)        || 0,
         tackles_won:   parseInt(s.total_tackles_won)   || 0,
@@ -1706,7 +1751,6 @@ export const getPlayerBioService = async (playerId) => {
         penalty_saves: parseInt(s.total_penalty_saves) || 0,
       } : null,
 
-      // Playing Reliability
       playing_reliability: {
         matches_played:  parseInt(s.matches_played)    || 0,
         started_matches: parseInt(s.started_matches)   || 0,
@@ -1714,7 +1758,6 @@ export const getPlayerBioService = async (playerId) => {
         total_minutes:   parseInt(s.total_minutes)     || 0,
       },
 
-      // Fantasy Summary
       fantasy_summary: {
         avg_fantasy_points:        avgPts,
         highest_fantasy_points:    parseInt(s.highest_fantasy_points)    || 0,
@@ -1722,7 +1765,6 @@ export const getPlayerBioService = async (playerId) => {
         goal_contribution_matches: parseInt(s.goal_contribution_matches) || 0,
       },
 
-      // Risk Indicators
       risk_indicators: {
         yellow_cards:     parseInt(s.total_yellow_cards)     || 0,
         red_cards:        parseInt(s.total_red_cards)        || 0,
@@ -1730,10 +1772,11 @@ export const getPlayerBioService = async (playerId) => {
         own_goals:        parseInt(s.total_own_goals)        || 0,
       },
 
-      // Smart Insights
-      insights,
+      // Sportmonks only fields
+      trophies,
+      career_statistics,
 
-      // Recommendation Badge
+      insights,
       badge,
     },
   };

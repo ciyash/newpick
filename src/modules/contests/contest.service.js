@@ -464,15 +464,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       `SELECT match_id FROM contest WHERE id = ?`, [contestId]
     ))[0][0]?.match_id;
 
-    // ── 3.1. Per match 20 teams limit check ──
-    // const [[{ existingTeamCount }]] = await conn.query(
-    //   `SELECT COUNT(DISTINCT ce.user_team_id) AS existingTeamCount
-    //    FROM contest_entries ce
-    //    JOIN contest c ON c.id = ce.contest_id
-    //    WHERE ce.user_id = ?
-    //      AND c.match_id = ?`,
-    //   [userId, matchId]
-    // );
+   
 
 
     // ── 3.1. Per contest 20 teams limit check ──
@@ -882,97 +874,6 @@ export const joinContestServicesudheer = async (userId, { contestId, userTeamId,
 
 
 
-
-
-// export const getMyContestsService = async (userId, matchId) => {
-//   if (!userId) throw new Error("userId is required");
-//   if (!matchId) throw new Error("matchId is required");
-
-//   // ── Match details ──
-//   const [[match]] = await db.query(
-//     `SELECT
-//        m.status, m.matchdate,
-//        ht.name       AS home_team_name,
-//        ht.short_name AS home_team_short_name,
-//        at.name       AS away_team_name,
-//        at.short_name AS away_team_short_name
-//      FROM matches m
-//      JOIN teams ht ON ht.id = m.home_team_id
-//      JOIN teams at ON at.id = m.away_team_id
-//      WHERE m.id = ?`,
-//     [matchId]
-//   );
-//   if (!match) throw new Error("Match not found");
-
-//   const matchStatus = match.status?.toUpperCase();
-
-//   // ── User joined contests ──
-//   const [contestRows] = await db.query(
-//     `SELECT
-//        c.id                  AS contest_id,
-//        c.match_id,
-//        c.entry_fee,
-//        c.prize_pool,
-//        c.max_entries,
-//        c.current_entries,
-//        c.contest_type,
-//        c.status,
-//        c.first_prize,
-//        c.total_winners,
-//        COUNT(ce.id)          AS my_team_count
-//      FROM contest_entries ce
-//      JOIN contest c ON ce.contest_id = c.id
-//      WHERE ce.user_id = ? AND c.match_id = ?
-//      GROUP BY c.id
-//      ORDER BY MAX(ce.id) DESC`,
-//     [userId, matchId]
-//   );
-
-//   if (!contestRows?.length) return [];
-
-//   // ── My team names only ──
-//   const contestIds = contestRows.map(c => c.contest_id);
-
-//   const [teamRows] = await db.query(
-//     `SELECT
-//        ce.contest_id,
-//        ut.team_name
-//      FROM contest_entries ce
-//      JOIN user_teams ut ON ut.id = ce.user_team_id
-//      WHERE ce.user_id = ? AND ce.contest_id IN (?)`,
-//     [userId, contestIds]
-//   );
-
-//   // Group team names by contest
-//   const teamNamesByContest = {};
-//   teamRows.forEach(row => {
-//     if (!teamNamesByContest[row.contest_id]) teamNamesByContest[row.contest_id] = [];
-//     teamNamesByContest[row.contest_id].push(row.team_name || null);
-//   });
-
-//   // ── Final response ──
-//   return contestRows.map(c => ({
-//     contest_id:       c.contest_id,
-//     match_id:         c.match_id,
-//     match_status:     matchStatus,
-//     match_date:       match.matchdate            || null,
-//     home_team_name:   match.home_team_name       || null,
-//     home_team_short_name: match.home_team_short_name || null,
-//     away_team_name:   match.away_team_name       || null,
-//     away_team_short_name: match.away_team_short_name || null,
-//     entry_fee:        Number(c.entry_fee)        || 0,
-//     prize_pool:       Number(c.prize_pool)       || 0,
-//     max_entries:      c.max_entries              || 0,
-//     current_entries:  c.current_entries          || 0,
-//     contest_type:     c.contest_type             || null,
-//     status:           c.status                   || null,
-//     first_prize:      Number(c.first_prize)      || 0,
-//     total_winners:    c.total_winners            || 0,
-//     my_team_count:    Number(c.my_team_count)    || 0,
-//     my_teams:         teamNamesByContest[c.contest_id] || [],
-//   }));
-// };
-
 export const getMyContestsService = async (userId, matchId) => {
   if (!userId) throw new Error("userId is required");
   if (!matchId) throw new Error("matchId is required");
@@ -1325,7 +1226,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
         const allRanked = cached;
         const total     = allRanked.length;
 
-        // ── my_entries — నీ అన్ని teams ──
+        // ── my_entries — all teams ──
         const my_entries = userId
           ? allRanked
               .filter(e => e.user_id === parseInt(userId))
@@ -1414,7 +1315,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
 
   const isCompleted = contestStatus === 'COMPLETED';
 
-  // ── leaderboard — other users మాత్రమే ──
+  // ── leaderboard — other users teams  ──
   const leaderboard = entries
     .filter(e => userId ? e.user_id !== parseInt(userId) : true)
     .map(entry => {
@@ -1440,7 +1341,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       };
     });
 
-  // ── my_entries — నీ అన్ని teams ──
+  // ── my_entries — all teams ──
   let my_entries = [];
   if (userId) {
     const [myEntries] = await db.query(
@@ -1690,7 +1591,7 @@ export const announceWinnersService = async (contestId, adminId) => {
       [contestId, contestId]
     );
 
-    // ── 3. Already scored entries fetch (saveScoreResults లో already save అయ్యాయి) ──
+    // ── 3. Already scored entries fetch (saveScoreResults in already save ) ──
     const [winners] = await conn.query(
       `SELECT 
          ce.id AS entry_id,
