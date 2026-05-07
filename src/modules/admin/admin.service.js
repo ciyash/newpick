@@ -1,6 +1,6 @@
 import db from "../../config/db.js";
 import bcrypt from "bcrypt";
-import { generatePrizeDistribution } from "./generatePrizeDistribution.js";
+import { generatePrizeDistribution } from "./lib/prize-distribution.js";
 "use strict";
 
 
@@ -1748,7 +1748,15 @@ if (Array.isArray(data.prize_distribution)) {
  
  
 /* ─── helpers (kept here for the manual-distribution path) ─────────────── */
- 
+
+function toSlabs(ranges) {
+  return ranges.map(r =>
+    r.from === r.to
+      ? { rank: r.from, amount: r.prize }
+      : { rank_from: r.from, rank_to: r.to, amount: r.prize }
+  );
+}
+
 function parseDistribution(raw) {
   if (Array.isArray(raw)) return raw;
   if (typeof raw === "string") {
@@ -1910,22 +1918,24 @@ export const createContest = async (data, admin, ip) => {
         maxEntries:            max_entries,
         winnerPercentage:      winner_percentage,
         platformFeePercentage: platform_fee_pct,
-        rank1Percentage: Number(data.rank1Percentage ?? 8),
       });
- 
+
+      const raw = generated.debug._raw;
+      if (!raw.validation.ok)
+        throw new Error(`Prize validation failed: ${raw.validation.violations.join("; ")}`);
+
       finalDistribution = generated.prize_distribution;
- 
-      // ✅ Read ALL financial figures from the generator's debug — compute nothing here.
+
       prize_pool       = generated.debug.totalCollection;
       platform_fee_amt = generated.debug.platformFee;
       net_pool         = generated.debug.netPool;
-      safe_pool        = generated.debug.safePool;
       bonus_pool       = generated.debug.bonusPool;
+      safe_pool        = raw.platformReserve ?? 0;
       total_winners    = generated.debug.winners;
-      safe_start       = generated.debug.safeStart;
-      safe_count       = generated.debug.safeCount;
-      bonus_ranks      = safe_start - 1;
-      first_prize      = generated.debug.rank1;   // rank1 from debug is always correct
+      safe_start       = raw.contest.W + 1;   // no safe zone in File 1
+      safe_count       = 0;
+      bonus_ranks      = raw.contest.W;
+      first_prize      = generated.debug.rank1;
       total_payout     = generated.debug.totalPayout;
       } // end else (paid contest auto-generate)
 
@@ -1996,10 +2006,14 @@ export const createContest = async (data, admin, ip) => {
  
     /* ── 8. Integrity checks ───────────────────────────────────────────── */
     if (total_winners > 0) {
-      checkCoverage(finalDistribution, total_winners);
-
-      if (Math.abs(total_payout - net_pool) > 1)
-        throw new Error(`Payout mismatch: distributed ₹${total_payout} vs netPool ₹${net_pool}`);
+      if (data.prize_distribution) {
+        // Manual path: validate coverage and exact net-pool match.
+        checkCoverage(finalDistribution, total_winners);
+        if (Math.abs(total_payout - net_pool) > 1)
+          throw new Error(`Payout mismatch: distributed ₹${total_payout} vs netPool ₹${net_pool}`);
+      }
+      // Auto-generated path: build()'s validation.ok (8 rules) already verified
+      // coverage, monotonicity, and pool accounting. platformReserve is the residual.
     }
  
     /* ── 9. Insert ─────────────────────────────────────────────────────── */
