@@ -1505,6 +1505,8 @@ export const getPlayerBioService = async (playerId) => {
       statistics,
     },
   };
+
+
 };
 
 export const getTeamByIdService = async (teamId, userId) => {

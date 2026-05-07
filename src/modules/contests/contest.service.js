@@ -32,7 +32,7 @@ export const getAllContestsService = async () => {
     linearStartRank: c.linear_start_rank || 0,
     linearEndRank: c.linear_end_rank || 0,
     firstPrize: Number(c.first_prize) || 0,
-    prizeDistribution: c.prize_distribution || null,
+    prize_distribution: c.prize_distribution || null,
     platformFeePercentage: Number(c.platform_fee_percentage) || 0,
     platformFeeAmount: Number(c.platform_fee_amount) || 0,
     status: c.status || null,
@@ -242,18 +242,18 @@ const BONUS_MAX_PCT = 0.05; // max 5% of entry fee from bonus wallet
 // Zone 3 — No prize: rank > refundWinners → 0
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const getPrizeForRank = (rank, prizeDistribution, entryFee, refundWinners, refundStartRank) => {
+export const getPrizeForRank = (rank, prize_distribution, entryFee, refundWinners, refundStartRank) => {
   if (!rank || rank <= 0) return 0;
   if (rank > refundWinners) return 0;                     // Zone 3
   if (rank >= refundStartRank) return Number(entryFee) || 0; // Zone 2
 
-  if (!prizeDistribution) return 0;
+  if (!prize_distribution) return 0;
 
   let tiers;
   try {
-    tiers = typeof prizeDistribution === "string"
-      ? JSON.parse(prizeDistribution)
-      : prizeDistribution;
+    tiers = typeof prize_distribution === "string"
+      ? JSON.parse(prize_distribution)
+      : prize_distribution;
   } catch {
     return 0;
   }
@@ -338,10 +338,10 @@ export const getContestsService = async (matchId, userId) => {
   if (!rows?.length) return [];
 
   return rows.map(c => {
-    let prizeDistribution = null;
+    let prize_distribution = null; 
     try {
-      prizeDistribution = c.prize_distribution ? JSON.parse(c.prize_distribution) : null;
-    } catch { prizeDistribution = null; }
+      prize_distribution = c.prize_distribution ? JSON.parse(c.prize_distribution) : null;
+    } catch { prize_distribution = null; }
 
     const myTeamCount = Number(c.my_team_count) || 0;
 
@@ -368,7 +368,7 @@ export const getContestsService = async (matchId, userId) => {
       linearStartRank: c.linear_start_rank || 0,
       linearEndRank: c.linear_end_rank || 0,
       firstPrize: Number(c.first_prize) || 0,
-      prizeDistribution,
+      prize_distribution,
       platformFeePercentage: Number(c.platform_fee_percentage) || 0,
       status: c.status || null,
       createdAt: c.created_at || null,
@@ -376,43 +376,6 @@ export const getContestsService = async (matchId, userId) => {
   });
 };
 
-// export const getFantasyDashboardService = async (userId, matchId) => {
-//   if (!userId) throw new Error("userId is required");
-//   if (!matchId) throw new Error("matchId is required");
-
-//   const [contests, myContests, myTeams] = await Promise.all([
-//     getContestsService(matchId, userId),
-//     getMyContestsService(userId, matchId),
-//     getMyTeamsWithPlayersService(userId, matchId),
-//   ]);
-
-//   return {
-//     success: true,
-//     match_id: Number(matchId),
-//     data: {
-//       contests,
-//       my_contests: myContests,
-//       my_teams: myTeams,
-//     },
-//     meta: {
-//       contests_count: contests.length,
-//       my_contests_count: myContests.length,
-//       my_teams_count: myTeams.length,
-//     },
-//   };
-// };
-
-// ─────────────────────────────────────────────────────────────────────────────
-// JOIN CONTEST
-// Fixes applied:
-//   1. Correct signature — (userId, entryFee, { contestId, userTeamId, ip, device })
-//   2. Inserts into contest_entries (not contest_participants)
-//   3. Uses max_entries / current_entries (not max_teams / total_joined)
-//   4. Supports multi-team join (userTeamId can be array)
-//   5. Duplicate check per team in contest_entries
-//   6. Increments current_entries
-//   7. Calls applyReferralContestBonus with same conn (inside transaction)
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const getFantasyDashboardService = async (userId, matchId) => {
   if (!userId) throw new Error("userId is required");
@@ -1500,7 +1463,7 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries,
       away_team:         contest.awayteamname              || null,
       match_date:        contest.matchdate                 || null,
       start_time:        contest.start_time                || null,
-      prize_tiers:       prizeTiers,
+      prize_distribution:       prizeTiers,
     },
     refund_zone: {
       rank_from: contest.refund_start_rank || 0,
