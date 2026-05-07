@@ -1,11 +1,11 @@
 // services/createStripeAccountService.js
 
-import { stripe } from "../../config/strip.js"
+import { stripeConnect  } from "../../config/strip.js"
 import db from "../../config/db.js"
 
 export const createStripeAccountService = async (userId, email) => {
-
-  const account = await stripe.accounts.create({
+ 
+  const account = await stripeConnect.accounts.create({
     type: "express",
     country: "GB",
     email: email,
@@ -28,7 +28,7 @@ export const createStripeAccountService = async (userId, email) => {
 
 export const createOnboardingLinkService = async (accountId) => {
 
-  const link = await stripe.accountLinks.create({
+  const link = await stripeConnect.accountLinks.create({
     account: accountId,
     refresh_url: "https://pick2win.com/retry",
     return_url: "https://pick2win.com/success",

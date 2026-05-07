@@ -1,7 +1,7 @@
 import crypto from "crypto";
 
 const generateUserCode = () => {
-  return "PW" + crypto.randomBytes(4).toString("hex").toUpperCase();
+  return "P2W" + crypto.randomBytes(4).toString("hex").toUpperCase();
 };
 
 export default generateUserCode;

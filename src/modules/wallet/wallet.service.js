@@ -4,154 +4,10 @@ import db from "../../config/db.js";
 import { sendMail } from "../../utils/send.mail.js"
 import { logActivity } from "../../utils/activity.logger.js";
 
-// ─────────────────────────────────────────────────────────────────────────────
+
+
 // ADD DEPOSIT
 // ─────────────────────────────────────────────────────────────────────────────
-
-// export const addDepositService = async (userId, amount, paymentIntentId = null) => {
-
-//   if (userId === undefined || userId === null || String(userId).trim() === "")
-//     throw new Error("Invalid user");
-
-//   const sanitizedAmount = Math.round(Number(amount) * 100) / 100;
-//   if (isNaN(sanitizedAmount) || sanitizedAmount <= 0) throw new Error("Invalid deposit amount");
-//   if (sanitizedAmount < 10)   throw new Error("Minimum deposit is £10");
-//   if (sanitizedAmount > 2000) throw new Error("Maximum single deposit is £2000");
-
-//   const safePaymentIntentId = typeof paymentIntentId === "string"
-//     ? paymentIntentId.trim().slice(0, 200)
-//     : null;
-
-//   if (!safePaymentIntentId && process.env.NODE_ENV === "production")
-//     throw new Error("Invalid payment reference");
-
-//   const yearMonth = new Date().toISOString().slice(0, 7);
-//   const conn      = await db.getConnection();
-
-//   try {
-//     await conn.beginTransaction();
-
-//     const [[lockResult]] = await conn.query(
-//       `SELECT GET_LOCK('company_balance_lock', 10) AS locked`
-//     );
-//     if (!lockResult?.locked) throw new Error("Server busy, please try again");
-
-//     if (safePaymentIntentId) {
-//       const [[existing]] = await conn.query(
-//         `SELECT id FROM wallet_transactions WHERE reference_id = ? LIMIT 1`,
-//         [safePaymentIntentId]
-//       );
-//       if (existing) throw new Error("Payment already processed");
-//     }
-
-//     const [[user]] = await conn.query(
-//       `SELECT name, email, mobile FROM users WHERE id = ?`,
-//       [userId]
-//     );
-//     if (!user) throw new Error("User not found");
-
-//     const [[wallet]] = await conn.query(
-//       `SELECT deposit_limit, depositwallet, earnwallet, bonusamount
-//        FROM wallets WHERE user_id = ? FOR UPDATE`,
-//       [userId]
-//     );
-//     if (!wallet) throw new Error("Wallet not found");
-
-//     const MONTHLY_LIMIT  = Number(wallet.deposit_limit);
-//     const depositBalance = Number(wallet.depositwallet || 0);
-//     const earnBalance    = Number(wallet.earnwallet    || 0);
-//     const bonusBalance   = Number(wallet.bonusamount   || 0);
-
-//     const userOpening = Number((depositBalance + earnBalance + bonusBalance).toFixed(2));
-//     const userClosing = Number((userOpening + sanitizedAmount).toFixed(2));
-
-//     const [[monthRow]] = await conn.query(
-//       `SELECT total_added FROM monthly_deposits
-//        WHERE user_id = ? AND ym = ? FOR UPDATE`,
-//       [userId, yearMonth]
-//     );
-
-//     const alreadyAdded = monthRow ? Number(monthRow.total_added) : 0;
-//     const remaining    = MONTHLY_LIMIT - alreadyAdded;
-
-//     if (remaining <= 0)
-//       throw new Error(`Monthly deposit limit of £${MONTHLY_LIMIT} reached`);
-//     if (sanitizedAmount > remaining)
-//       throw new Error(`Only £${remaining} remaining in your monthly limit. Already deposited £${alreadyAdded} this month.`);
-
-//     const [[companyLast]] = await conn.query(
-//       `SELECT closing_balance FROM wallet_transactions
-//        WHERE closing_balance != 0 ORDER BY id DESC LIMIT 1 FOR UPDATE`
-//     );
-//     const companyOpening = Number(companyLast?.closing_balance || 0);
-//     const companyClosing = Number((companyOpening + sanitizedAmount).toFixed(2));
-
-//     if (monthRow) {
-//       await conn.query(
-//         `UPDATE monthly_deposits SET total_added = total_added + ?
-//          WHERE user_id = ? AND ym = ?`,
-//         [sanitizedAmount, userId, yearMonth]
-//       );
-//     } else {
-//       await conn.query(
-//         `INSERT INTO monthly_deposits (user_id, ym, total_added) VALUES (?, ?, ?)`,
-//         [userId, yearMonth, sanitizedAmount]
-//       );
-//     }
-
-//     await conn.query(
-//       `UPDATE wallets
-//        SET depositwallet  = depositwallet  + ?,
-//            total_deposits = total_deposits + ?
-//        WHERE user_id = ?`,
-//       [sanitizedAmount, sanitizedAmount, userId]
-//     );
-
-//     await conn.query(
-//       `INSERT INTO wallet_transactions
-//        (user_id, wallettype, transtype, remark, amount,
-//         useropeningbalance, userclosingbalance,
-//         opening_balance, closing_balance, reference_id)
-//        VALUES (?, 'deposit', 'credit', 'Stripe deposit', ?, ?, ?, ?, ?, ?)`,
-//       [userId, sanitizedAmount, userOpening, userClosing, companyOpening, companyClosing, safePaymentIntentId]
-//     );
-
-//     await conn.query(
-//       `INSERT INTO deposite
-//        (createdAt, amount, depositeType, status, userId, phone, email, name, transaction_id)
-//        VALUES (NOW(), ?, 'Stripe', 'success', ?, ?, ?, ?, ?)`,
-//       [sanitizedAmount, userId, user.mobile, user.email, user.name, safePaymentIntentId]
-//     );
-
-//     await conn.commit();
-//     await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`);
-
-//     logActivity({
-//       userId,
-//       type:        "deposit",
-//       title:       "Deposit Successful",
-//       description: `₹${sanitizedAmount} deposited via Stripe`,
-//       amount:      sanitizedAmount,
-//       icon:        "wallet",
-//     });
-
-//     return {
-//       success:               true,
-//       addedAmount:           sanitizedAmount,
-//       newBalance:            userClosing,
-//       remainingMonthlyLimit: Math.max(0, remaining - sanitizedAmount),
-//     };
-
-//   } catch (err) {
-//     await conn.rollback();
-//     try { await conn.query(`SELECT RELEASE_LOCK('company_balance_lock')`); } catch (_) {}
-//     if (process.env.NODE_ENV !== "production")
-//       console.error(`[addDepositService] userId=${userId} amount=${sanitizedAmount} error=${err.message}`);
-//     throw err;
-//   } finally {
-//     conn.release();
-//   }
-// };
 
 export const addDepositService = async (userId, amount, paymentIntentId = null) => {
 
@@ -358,31 +214,119 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // GET MY WALLET
-// ─────────────────────────────────────────────────────────────────────────────
+
+
 
 export const getMyWalletService = async (userId) => {
   if (!userId) throw new Error("Invalid user");
 
+  /* ═══════════════════════ 1. WALLET ═══════════════════════ */
+
   const [[wallet]] = await db.query(
-    `SELECT depositwallet, earnwallet, bonusamount FROM wallets WHERE user_id = ?`,
+    `SELECT
+        depositwallet,
+        earnwallet,
+        bonusamount,
+        deposit_limit,
+        total_deposits,
+        iskyc,
+        issofverify,
+        limit_reduced_once
+     FROM wallets
+     WHERE user_id = ?`,
     [userId]
   );
+
   if (!wallet) throw new Error("Wallet not found");
 
   const depositWallet = Number(wallet.depositwallet || 0);
-  const earnWallet    = Number(wallet.earnwallet    || 0);
-  const bonusWallet   = Number(wallet.bonusamount   || 0);
+  const winningsWallet = Number(wallet.earnwallet || 0);
+  const bonusWallet = Number(wallet.bonusamount || 0);
+
+  const totalBalance = Number(
+    (depositWallet + winningsWallet + bonusWallet).toFixed(2)
+  );
+
+  /* ═══════════════════════ 2. FINANCIAL SUMMARY ═══════════════════════ */
+
+  const [[financial]] = await db.query(
+    `SELECT
+        SUM(CASE WHEN wallettype = 'deposit'
+                  AND transtype = 'credit'
+             THEN amount ELSE 0 END) AS total_deposited,
+
+        SUM(CASE WHEN wallettype = 'withdrawal'
+                  AND transtype = 'debit'
+             THEN amount ELSE 0 END) AS total_withdrawn,
+
+        SUM(CASE WHEN wallettype = 'winning'
+                  AND transtype = 'credit'
+             THEN amount ELSE 0 END) AS total_winnings,
+
+        SUM(CASE WHEN wallettype = 'bonus'
+                  AND transtype = 'credit'
+             THEN amount ELSE 0 END) AS total_bonus
+
+     FROM wallet_transactions
+     WHERE user_id = ?`,
+    [userId]
+  );
+
+  /* ═══════════════════════ 3. MONTHLY LIMITS ═══════════════════════ */
+
+  const monthlyLimit = Number(wallet.deposit_limit || 0);
+  const usedThisMonth = Number(wallet.total_deposits || 0);
+
+  const remainingThisMonth = Math.max(
+    monthlyLimit - usedThisMonth,
+    0
+  );
+
+  const usedPercent =
+    monthlyLimit > 0
+      ? Number(
+          ((usedThisMonth / monthlyLimit) * 100).toFixed(1)
+        )
+      : 0;
+
+  /* ═══════════════════════ RETURN ═══════════════════════ */
 
   return {
-    depositWallet,
-    earnWallet,
-    bonusWallet,
-    totalBalance: Number((depositWallet + earnWallet + bonusWallet).toFixed(2)),
+
+    financial_summary: {
+      deposit_balance: depositWallet,
+      winnings_balance: winningsWallet,
+      bonus_balance: bonusWallet,
+      total_wallet_balance: totalBalance,
+
+      total_deposited: Number(financial?.total_deposited || 0),
+      total_withdrawn: Number(financial?.total_withdrawn || 0),
+      total_winnings: Number(financial?.total_winnings || 0),
+      total_bonus_received: Number(financial?.total_bonus || 0),
+    },
+
+    deposit_limits: {
+      monthly_limit: monthlyLimit,
+      used_this_month: usedThisMonth,
+      remaining_limit: remainingThisMonth,
+      used_percent: usedPercent,
+      can_add_cash: remainingThisMonth > 0,
+    },
+
+    verification_status: {
+      is_kyc_verified:
+        Number(wallet.iskyc || 0) === 1,
+
+      is_sof_verified:
+        Number(wallet.issofverify || 0) === 1,
+
+      limit_reduced_once:
+        Number(wallet.limit_reduced_once || 0) === 1,
+    },
   };
 };
-
 // ─────────────────────────────────────────────────────────────────────────────
 // GET MY TRANSACTIONS
 // Fix: useropeningbalance / userclosingbalance also returned
@@ -462,9 +406,8 @@ export const getMyTransactionsServiceYear = async (userId, year) => {
   };
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+
 // CREATE WALLET TRANSACTION (helper used by other services)
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const createWalletTransaction = async ({
   conn, userId, wallettype, transtype, amount,

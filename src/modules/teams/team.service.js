@@ -1,6 +1,26 @@
 import db from "../../config/db.js";
 import { logActivity } from "../../utils/activity.logger.js";
 
+import axios from "axios";
+
+const TOKEN = process.env.SPORTMONKS_TOKEN;
+const BASE_URL = "https://api.sportmonks.com/v3/football";
+
+const apiGet = async (endpoint, params = {}, retries = 3) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const { data } = await axios.get(`${BASE_URL}${endpoint}`, {
+        params: { api_token: TOKEN, ...params },
+      });
+      return data;
+    } catch (err) {
+      if (attempt === retries) throw err;
+      const delay = 1000 * attempt;
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+};
+
 
 export const createTeamService = async (
   userId,
@@ -1337,3 +1357,508 @@ export const getTeamComparisonBulkService = async (teamIds = [], userId) => {
   };
 };
 
+
+// export const getPlayerBioService = async (playerId) => {
+
+//   const [[player]] = await db.query(
+//     `SELECT id, name, position, provider_player_id 
+//      FROM players WHERE id = ?`,
+//     [playerId]
+//   );
+//   if (!player) throw new Error("Player not found");
+//   if (!player.provider_player_id) throw new Error("Provider player ID not found");
+
+//   // ── 2. Sportmonks API call ──
+//   const data = await apiGet(`/players/${player.provider_player_id}`, {
+//     include: [
+//       "trophies.league",
+//       "trophies.season",
+//       "trophies.trophy",
+//       "trophies.team",
+//       "teams.team",
+//       "statistics.details.type",
+//       "statistics.team",
+//       "statistics.season.league",
+//       "latest.fixture.participants",
+//       "latest.fixture.league",
+//       "latest.fixture.scores",
+//       "latest.details.type",
+//       "nationality",
+//       "detailedPosition",
+//     ].join(";"),
+//   });
+
+//   const p = data?.data;
+//   if (!p) throw new Error("Player data not found from provider");
+
+//   // ── 3. Age calculate ──
+//   const age = p.date_of_birth
+//     ? Math.floor(
+//         (new Date() - new Date(p.date_of_birth)) / (365.25 * 24 * 60 * 60 * 1000)
+//       )
+//     : null;
+
+//   // ── 4. Current team 
+//   const currentTeam =
+//     p.teams?.find(t => t.active && t.team?.type === "domestic") ||
+//     p.teams?.find(t => t.active) ||
+//     p.teams?.[0] ||
+//     null;
+
+//   // ── 5. Trophies ──
+//   const trophies = (p.trophies || []).map(t => ({
+//     trophy_name:  t.trophy?.name       || null,
+//     league_name:  t.league?.name       || null,
+//     league_logo:  t.league?.image_path || null,
+//     season_name:  t.season?.name       || null,
+//     team_name:    t.team?.name         || null,
+//     team_logo:    t.team?.image_path   || null,
+//   }));
+
+//   // ── 6. Recent matches ──
+//   const recent_matches = (p.latest || []).slice(0, 5).map(l => {
+//     const fixture      = l.fixture || {};
+//     const participants = fixture.participants || [];
+//     const home         = participants.find(p => p.meta?.location === "home");
+//     const away         = participants.find(p => p.meta?.location === "away");
+//     const scores       = fixture.scores || [];
+//     const homeScore    = scores.find(
+//       s => s.participant_id === home?.id && s.description === "CURRENT"
+//     )?.score?.goals ?? null;
+//     const awayScore    = scores.find(
+//       s => s.participant_id === away?.id && s.description === "CURRENT"
+//     )?.score?.goals ?? null;
+
+//     return {
+//       fixture_id:  fixture.id                || null,
+//       league_name: fixture.league?.name       || null,
+//       league_logo: fixture.league?.image_path || null,
+//       home_team:   home?.name                || null,
+//       home_logo:   home?.image_path          || null,
+//       home_score:  homeScore,
+//       away_team:   away?.name                || null,
+//       away_logo:   away?.image_path          || null,
+//       away_score:  awayScore,
+//       date:        fixture.starting_at       || null,
+//     };
+//   });
+
+//   // ── 7. Statistics — null values filter ──
+//   const statistics = (p.statistics || [])
+//     .filter(s =>
+//       s.goals !== null ||
+//       s.assists !== null ||
+//       s.appearances !== null
+//     )
+//     .slice(0, 10)
+//     .map(s => {
+//       const details   = s.details || [];
+//       const getValue  = (name) =>
+//         details.find(d => d.type?.name === name)?.value?.total ?? null;
+
+//       return {
+//         season_name:    s.season?.name               || null,
+//         league_name:    s.season?.league?.name        || null,
+//         league_logo:    s.season?.league?.image_path  || null,
+//         team_name:      s.team?.name                  || null,
+//         team_logo:      s.team?.image_path            || null,
+//         goals:          getValue("Goals"),
+//         assists:        getValue("Assists"),
+//         appearances:    getValue("Appearances"),
+//         minutes_played: getValue("Minutes Played"),
+//       };
+//     });
+
+//   // ── 8. Final response ──
+//   return {
+//     success: true,
+//     data: {
+//       player_id:      player.id,
+//       name:           p.display_name  || p.name,
+//       common_name:    p.common_name   || null,
+//       image:          p.image_path    || null,
+//       date_of_birth:  p.date_of_birth || null,
+//       age,
+//       height:         p.height        || null,
+//       weight:         p.weight        || null,
+//       gender:         p.gender        || null,
+
+//       position:          player.position          || null,
+//       detailed_position: p.detailedPosition?.name || null,
+
+//       nationality: p.nationality
+//         ? {
+//             name:       p.nationality.name       || null,
+//             flag_image: p.nationality.image_path || null,
+//           }
+//         : null,
+
+//       current_team: currentTeam?.team
+//         ? {
+//             name: currentTeam.team.name       || null,
+//             logo: currentTeam.team.image_path || null,
+//           }
+//         : null,
+
+//       trophies,
+//       recent_matches,
+//       statistics,
+//     },
+//   };
+
+
+// };
+
+
+export const getPlayerBioService = async (playerId) => {
+
+  // ── 1. Player basic info from DB ──
+  const [[player]] = await db.query(
+    `SELECT 
+       p.id, p.name, p.position, p.player_type,
+       p.playerimage, p.playercredits, p.selectpercent,
+       p.captainper, p.vcper, p.provider_player_id,
+       t.name AS team_name, t.short_name AS team_short,
+       t.logo AS team_logo
+     FROM players p
+     LEFT JOIN teams t ON t.id = p.team_id
+     WHERE p.id = ?`,
+    [playerId]
+  );
+  if (!player) throw new Error("Player not found");
+
+  // ── 2. Current series ──
+  const [[currentSeries]] = await db.query(
+    `SELECT m.series_id, m.seriesname
+     FROM player_match_stats pms
+     JOIN matches m ON m.id = pms.match_id
+     WHERE pms.player_id = ?
+     ORDER BY m.matchdate DESC
+     LIMIT 1`,
+    [playerId]
+  );
+
+  const seriesId = currentSeries?.series_id || null;
+
+  // ── 3. Season stats (current series only) ──
+  const [seasonStats] = await db.query(
+    `SELECT
+       COUNT(*)                          AS matches_played,
+       SUM(pms.started)                  AS started_matches,
+       SUM(pms.sub_appearance)           AS bench_appearances,
+       SUM(pms.minutes_played)           AS total_minutes,
+       SUM(pms.goals)                    AS total_goals,
+       SUM(pms.assists)                  AS total_assists,
+       SUM(pms.shots_on_target)          AS total_shots_on_target,
+       SUM(pms.key_passes)               AS total_key_passes,
+       SUM(pms.goals_conceded)           AS total_goals_conceded,
+       SUM(pms.saves)                    AS total_saves,
+       SUM(pms.penalty_saves)            AS total_penalty_saves,
+       SUM(pms.tackles_won)              AS total_tackles_won,
+       SUM(pms.interceptions)            AS total_interceptions,
+       SUM(pms.blocked_shots)            AS total_blocked_shots,
+       SUM(pms.own_goals)                AS total_own_goals,
+       SUM(pms.penalties_missed)         AS total_penalties_missed,
+       SUM(pms.yellow_cards)             AS total_yellow_cards,
+       SUM(pms.red_cards)                AS total_red_cards,
+       SUM(pms.fantasy_points)           AS total_fantasy_points,
+       MAX(pms.fantasy_points)           AS highest_fantasy_points,
+       ROUND(AVG(pms.fantasy_points), 1) AS avg_fantasy_points,
+       SUM(CASE WHEN pms.goals > 0 OR pms.assists > 0 THEN 1 ELSE 0 END) AS goal_contribution_matches,
+       SUM(CASE WHEN pms.goals_conceded = 0 AND (pms.started = 1 OR pms.sub_appearance = 1) THEN 1 ELSE 0 END) AS clean_sheets
+     FROM player_match_stats pms
+     JOIN matches m ON m.id = pms.match_id
+     WHERE pms.player_id = ?
+       AND pms.is_finalized = 1
+       ${seriesId ? "AND m.series_id = ?" : ""}`,
+    seriesId ? [playerId, seriesId] : [playerId]
+  );
+
+  const s = seasonStats[0] || {};
+
+  // ── 4. Recent 5 matches (current series only) ──
+  const [recentMatches] = await db.query(
+    `SELECT
+       pms.fantasy_points,
+       pms.goals, pms.assists,
+       pms.yellow_cards, pms.red_cards,
+       m.id AS match_id,
+       ht.short_name AS home_short,
+       at.short_name AS away_short,
+       m.matchdate
+     FROM player_match_stats pms
+     JOIN matches m   ON m.id  = pms.match_id
+     JOIN teams ht    ON ht.id = m.home_team_id
+     JOIN teams at    ON at.id = m.away_team_id
+     WHERE pms.player_id = ?
+       AND pms.is_finalized = 1
+       ${seriesId ? "AND m.series_id = ?" : ""}
+     ORDER BY m.matchdate DESC
+     LIMIT 5`,
+    seriesId ? [playerId, seriesId] : [playerId]
+  );
+
+  // ── 5. Smart Insights ──
+  const avgPts    = parseFloat(s.avg_fantasy_points) || 0;
+  const recentAvg = recentMatches.length
+    ? recentMatches.reduce((sum, m) => sum + (m.fantasy_points || 0), 0) / recentMatches.length
+    : 0;
+  const position  = player.position;
+  const insights  = [];
+
+  // Form
+  if (recentAvg >= avgPts * 1.2)
+    insights.push({ icon: "🔥", text: "In excellent scoring form" });
+  else if (recentAvg < avgPts * 0.7)
+    insights.push({ icon: "📉", text: "Below average recent form" });
+  else
+    insights.push({ icon: "📊", text: "Consistent recent form" });
+
+  // Goal involvement
+  const goalInvolvement = (parseInt(s.total_goals) || 0) + (parseInt(s.total_assists) || 0);
+  if (goalInvolvement >= 10)
+    insights.push({ icon: "⚽", text: "High goal involvement player" });
+
+  // Captain choice
+  if (avgPts >= 40)
+    insights.push({ icon: "🟢", text: "Strong Captain choice" });
+
+  // Playing time
+  const startedPct = parseInt(s.matches_played) > 0
+    ? (parseInt(s.started_matches) || 0) / parseInt(s.matches_played)
+    : 0;
+
+  if (startedPct >= 0.8)
+    insights.push({ icon: "🟢", text: "Likely to play full match" });
+  else if (startedPct < 0.5)
+    insights.push({ icon: "⚠️", text: "Rotation risk" });
+
+  // Discipline
+  if ((parseInt(s.total_yellow_cards) || 0) >= 5)
+    insights.push({ icon: "🟨", text: "Caution — high yellow card count" });
+  if ((parseInt(s.total_red_cards) || 0) >= 1)
+    insights.push({ icon: "🟥", text: "Red card risk" });
+  if ((parseInt(s.total_penalties_missed) || 0) >= 1)
+    insights.push({ icon: "⚠️", text: "Misses occasional big chances" });
+
+  // ── 6. Recommendation Badge ──
+  let badge = null;
+  if (avgPts >= 50)
+    badge = { label: "Captain Choice", icon: "🔥", color: "orange" };
+  else if (avgPts >= 30 && startedPct >= 0.8)
+    badge = { label: "Safe Pick", icon: "🟢", color: "green" };
+  else if ((parseFloat(player.selectpercent) || 0) < 10 && avgPts >= 20)
+    badge = { label: "Differential", icon: "💎", color: "blue" };
+  else if (startedPct < 0.5 || (parseInt(s.total_yellow_cards) || 0) >= 5)
+    badge = { label: "Risky Pick", icon: "⚠️", color: "red" };
+
+  // ── 7. Final response ──
+  return {
+    success: true,
+    data: {
+      // Header
+      player_id:       player.id,
+      name:            player.name,
+      image:           player.playerimage             || null,
+      position:        player.position                || null,
+      player_type:     player.player_type             || null,
+      credits:         parseFloat(player.playercredits) || 0,
+      select_percent:  parseFloat(player.selectpercent) || 0,
+      captain_percent: parseFloat(player.captainper)    || 0,
+      vc_percent:      parseFloat(player.vcper)          || 0,
+      team: {
+        name:       player.team_name  || null,
+        short_name: player.team_short || null,
+        logo:       player.team_logo  || null,
+      },
+      series: {
+        id:   seriesId,
+        name: currentSeries?.seriesname || null,
+      },
+      avg_fantasy_points: avgPts,
+
+      // Recent Form
+      recent_form: recentMatches.map(m => ({
+        match:          `${m.home_short} vs ${m.away_short}`,
+        fantasy_points: m.fantasy_points || 0,
+        goals:          m.goals          || 0,
+        assists:        m.assists        || 0,
+        yellow_cards:   m.yellow_cards   || 0,
+        red_cards:      m.red_cards      || 0,
+        date:           m.matchdate      || null,
+      })),
+
+      // Attacking Stats
+      attacking_stats: {
+        goals:           parseInt(s.total_goals)           || 0,
+        assists:         parseInt(s.total_assists)          || 0,
+        shots_on_target: parseInt(s.total_shots_on_target) || 0,
+        key_passes:      parseInt(s.total_key_passes)      || 0,
+      },
+
+      // Defensive Stats (DEF/GK only)
+      defensive_stats: ["DEF", "GK"].includes(position) ? {
+        clean_sheets:  parseInt(s.clean_sheets)        || 0,
+        tackles_won:   parseInt(s.total_tackles_won)   || 0,
+        interceptions: parseInt(s.total_interceptions) || 0,
+        blocked_shots: parseInt(s.total_blocked_shots) || 0,
+        saves:         parseInt(s.total_saves)         || 0,
+        penalty_saves: parseInt(s.total_penalty_saves) || 0,
+      } : null,
+
+      // Playing Reliability
+      playing_reliability: {
+        matches_played:  parseInt(s.matches_played)    || 0,
+        started_matches: parseInt(s.started_matches)   || 0,
+        bench:           parseInt(s.bench_appearances) || 0,
+        total_minutes:   parseInt(s.total_minutes)     || 0,
+      },
+
+      // Fantasy Summary
+      fantasy_summary: {
+        avg_fantasy_points:        avgPts,
+        highest_fantasy_points:    parseInt(s.highest_fantasy_points)    || 0,
+        total_fantasy_points:      parseInt(s.total_fantasy_points)      || 0,
+        goal_contribution_matches: parseInt(s.goal_contribution_matches) || 0,
+      },
+
+      // Risk Indicators
+      risk_indicators: {
+        yellow_cards:     parseInt(s.total_yellow_cards)     || 0,
+        red_cards:        parseInt(s.total_red_cards)        || 0,
+        penalties_missed: parseInt(s.total_penalties_missed) || 0,
+        own_goals:        parseInt(s.total_own_goals)        || 0,
+      },
+
+      // Smart Insights
+      insights,
+
+      // Recommendation Badge
+      badge,
+    },
+  };
+};
+
+export const getTeamByIdService = async (teamId, userId) => {
+  if (!teamId) throw new Error("teamId is required");
+
+  // ── Team basic info ──
+  const [[team]] = await db.query(
+    `SELECT ut.id, ut.team_name, ut.match_id, ut.user_id,
+            m.status AS match_status
+     FROM user_teams ut
+     JOIN matches m ON m.id = ut.match_id
+     WHERE ut.id = ?`,
+    [teamId]
+  );
+  if (!team) throw new Error("Team not found");
+
+  const matchStatus = team.match_status?.toUpperCase();
+  const isLive      = matchStatus === "LIVE";
+  const isResult    = matchStatus === "RESULT";
+  const applyPoints = isLive || isResult;
+
+  // ── Players ──
+  const [rows] = await db.query(
+    `SELECT
+       p.id          AS player_id,
+       p.name,
+       p.position,
+       p.playercredits AS credits,
+       p.player_type,
+       p.playerimage,
+       p.team_id     AS real_team_id,
+       t.name        AS real_team_name,
+       t.short_name  AS real_team_short_name,
+       utp.is_captain,
+       utp.is_vice_captain,
+       utp.is_substitude,
+       COALESCE(pms.fantasy_points, 0) AS base_points,
+       CASE WHEN mp.player_id IS NOT NULL THEN 1 ELSE 0 END AS is_in_match
+     FROM user_team_players utp
+     JOIN players p      ON p.id  = utp.player_id
+     LEFT JOIN teams t   ON t.id  = p.team_id
+     LEFT JOIN match_players mp
+           ON mp.player_id = p.id AND mp.match_id = ?
+     LEFT JOIN player_match_stats pms
+           ON pms.player_id = p.id AND pms.match_id = ?
+     WHERE utp.user_team_id = ?`,
+    [team.match_id, team.match_id, teamId]
+  );
+
+  if (!rows.length) throw new Error("No players found for this team");
+
+  let players = rows.map(r => {
+    const basePoints = parseFloat(r.base_points) || 0;
+    return {
+      playerId:          r.player_id,
+      name:              r.name,
+      position:          r.position,
+      credits:           parseFloat(r.credits) || 0,
+      playerType:        r.player_type,
+      image:             r.playerimage         || null,
+      realTeamId:        r.real_team_id,
+      realTeamName:      r.real_team_name      || null,
+      realTeamShortName: r.real_team_short_name || null,
+      isCaptain:         r.is_captain      === 1,
+      isViceCaptain:     r.is_vice_captain === 1,
+      isSubstitute:      r.is_substitude   === 1,
+      isInMatch:         r.is_in_match     === 1,
+      basePoints,
+      effectivePoints:    basePoints,
+      highestScorerBonus: 0,
+    };
+  });
+
+  let totalPoints = 0;
+
+  if (!applyPoints) {
+    // UPCOMING — points 0
+    players = players.map(p => ({
+      ...p, basePoints: 0, effectivePoints: 0, highestScorerBonus: 0,
+    }));
+  } else {
+    // ── HS Bonus ──
+    const maxBase = Math.max(...players.map(p => p.basePoints));
+    if (maxBase > 0) {
+      players = players.map(p => {
+        if (p.basePoints !== maxBase) return p;
+        const hsBonus = p.isSubstitute ? 8 : 4;
+        const newBase = p.basePoints + hsBonus;
+        return {
+          ...p,
+          basePoints:         newBase,
+          effectivePoints:    newBase,
+          highestScorerBonus: hsBonus,
+        };
+      });
+    }
+
+    // ── Captain/VC multiplier ──
+    players = players.map(p => {
+      const multiplier   = p.isCaptain ? 2 : p.isViceCaptain ? 1.5 : 1;
+      const effectivePts = parseFloat((p.basePoints * multiplier).toFixed(2));
+      return { ...p, effectivePoints: effectivePts };
+    });
+
+    totalPoints = parseFloat(
+      players.reduce((sum, p) => sum + p.effectivePoints, 0).toFixed(2)
+    );
+  }
+
+  const isMyTeam = team.user_id === parseInt(userId);
+
+  return {
+    success:      true,
+    teamId:       team.id,
+    teamName:     team.team_name,
+    matchId:      team.match_id,
+    matchStatus,
+    isMyTeam,
+    totalPoints,
+    totalPlayers: players.length,
+    captain:      players.find(p => p.isCaptain)     || null,
+    viceCaptain:  players.find(p => p.isViceCaptain) || null,
+    players,
+  };
+};

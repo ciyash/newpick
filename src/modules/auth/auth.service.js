@@ -241,167 +241,6 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 /* ================= LOGIN ====================================== */
 
 
-// export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo = {}) => {
-
-//   /* ─── Find User ─── */
-//   const [users] = await db.query(
-//     `SELECT id, usercode, email, mobile, name,
-//             loginotp, loginotpexpires, account_status,
-//             email_verify, mobile_verify, age_verified
-//      FROM users
-//      WHERE (email = ? OR mobile = ?)
-//      LIMIT 1`,
-//     [email || null, mobile || null]
-//   );
-
-//   if (!users.length) throw new Error("User not found");
-
-//   const user = users[0];
-
-//   /* ─── Account Status ─── */
-//   if (user.account_status === "deleted")
-//     throw new Error("This account has been deleted");
-//   if (user.account_status === "paused")
-//     throw new Error("Your account is temporarily paused");
-
-//   /* ─── Verification Checks ─── */
-//   if (user.mobile_verify !== 1)
-//     throw new Error("Please verify your mobile number first");
-//   if (user.email_verify !== 1)
-//     throw new Error("Please verify your email before login");
-//   if (user.age_verified !== 1)
-//     throw new Error("Age verification required before login");
-
-//   /* ─── OTP Validation ─── */
-//   if (!user.loginotp)
-//     throw new Error("OTP not requested");
-//   if (user.loginotp !== otp)
-//     throw new Error("Invalid OTP");
-//   if (new Date(user.loginotpexpires) < new Date())
-//     throw new Error("OTP expired");
-
-//   /* ─── Shift Login Times ─── */
-//   const [result] = await db.query(
-//     `UPDATE users
-//      SET loginotp         = NULL,
-//          loginotpexpires  = NULL,
-//          last_login       = current_login,
-//          current_login    = NOW(),
-//          last_login_ip    = current_login_ip,
-//          current_login_ip = ?
-//      WHERE id = ?`,
-//     [ipAddress || null, user.id]
-//   );
-
-//   if (result.affectedRows === 0)
-//     throw new Error("Login state update failed");
-
-//   /* ─── Login Method Detect ─── */
-//   const login_method = email ? "email" : mobile ? "mobile" : null;
-
-//   /* ─── Device Info Parse ─── */
-//   let parsedDevice = {
-//     device_id:   deviceInfo.device_id   || null,
-//     device_name: deviceInfo.device_name || null,
-//     device_type: deviceInfo.device_type || null,
-//     push_token:  deviceInfo.push_token  || null,
-//   };
-
-//   // Frontend పంపకపోతే user-agent నుండి extract చేయి
-//   if (!parsedDevice.device_name && deviceInfo.user_agent) {
-//     const parser = new UAParser(deviceInfo.user_agent);
-//     const result = parser.getResult();
-
-//     const os      = result.os?.name      || null;
-//     const browser = result.browser?.name || null;
-//     const device  = result.device?.model || null;
-
-//     parsedDevice.device_name = device
-//       ? `${device} (${os || "Unknown OS"})`
-//       : `${browser || "Unknown"} on ${os || "Unknown"}`;
-
-//     parsedDevice.device_type =
-//       os?.toLowerCase().includes("android") ? "android"
-//       : os?.toLowerCase().includes("ios")   ? "ios"
-//       : os?.toLowerCase().includes("windows") ? "windows"
-//       : os?.toLowerCase().includes("mac")   ? "mac"
-//       : "web";
-//   }
-
-//   /* ─── Device Info Save ─── */
-//   if (parsedDevice.device_id) {
-//     await db.query(
-//       `INSERT INTO user_devices
-//          (user_id, device_id, device_name, device_type, login_method, push_token, ip_address, last_login_at, is_active)
-//        VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 1)
-//        ON DUPLICATE KEY UPDATE
-//          device_name   = VALUES(device_name),
-//          device_type   = VALUES(device_type),
-//          login_method  = VALUES(login_method),
-//          push_token    = VALUES(push_token),
-//          ip_address    = VALUES(ip_address),
-//          last_login_at = NOW(),
-//          is_active     = 1`,
-//       [
-//         user.id,
-//         parsedDevice.device_id,
-//         parsedDevice.device_name || null,
-//         parsedDevice.device_type || null,
-//         login_method,
-//         parsedDevice.push_token  || null,
-//         ipAddress                || null,
-//       ]
-//     );
-//   } else {
-//     await db.query(
-//       `INSERT INTO user_devices
-//          (user_id, device_id, device_name, device_type, login_method, push_token, ip_address, last_login_at, is_active)
-//        VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), 1)`,
-//       [
-//         user.id,
-//         null,
-//         parsedDevice.device_name || null,
-//         parsedDevice.device_type || null,
-//         login_method,
-//         parsedDevice.push_token  || null,
-//         ipAddress                || null,
-//       ]
-//     );
-//   }
-
-//   /* ─── Fetch Subscription Status ─── */
-//   const subscription = await getSubscriptionStatusService(user.id);
-
-//   logActivity({
-//     userId:      user.id,
-//     type:        "login",
-//     title:       "Login Successful",
-//     description: `Logged in from IP: ${ipAddress || "unknown"}`,
-//     icon:        "login",
-//     meta:        {
-//       ip:           ipAddress                || null,
-//       device_id:    parsedDevice.device_id   || null,
-//       device_name:  parsedDevice.device_name || null,
-//       device_type:  parsedDevice.device_type || null,
-//       login_method: login_method             || null,
-//     },
-//   });
-
-//   /* ─── Return User ─── */
-//   return {
-//     id:           user.id,
-//     usercode:     user.usercode,
-//     email:        user.email,
-//     mobile:       user.mobile,
-//     name:         user.name,
-//     subscription: subscription.active,
-//   };
-// };
-
-
-// ── Allowed countries — England, Scotland, Wales = GB ──
-
-
 const ALLOWED_COUNTRIES = ['GB', 'IN'];
 
 export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo = {}) => {
@@ -418,7 +257,7 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
   /* ─── 2. Find User ─── */
   const [users] = await db.query(
     `SELECT id, usercode, email, mobile, name,
-            loginotp, loginotpexpires, account_status,
+            loginotp, loginotpexpires, account_status,kyc_status,
             email_verify, mobile_verify, age_verified
      FROM users
      WHERE (email = ? OR mobile = ?)
@@ -558,7 +397,19 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
     },
   });
 
-  /* ─── 11. Return User ─── */
+  /* ─── 11. Fetch Wallet Information ─── */
+
+ 
+  const [[wallet]] = await db.query(
+  `SELECT iskyc, issofverify, limit_reduced_once
+   FROM wallets
+   WHERE user_id = ?`,
+  [user.id]
+);
+
+     const safeWallet = wallet || { iskyc: 0, issofverify: 0, limit_reduced_once: 0 };
+
+  /* ─── 12. Return User ─── */
   return {
     id:           user.id,
     usercode:     user.usercode,
@@ -566,11 +417,17 @@ export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo
     mobile:       user.mobile,
     name:         user.name,
     subscription: subscription.active,
-  };
+     email_verify: user.email_verify,
+      mobile_verify: user.mobile_verify,
+      age_verified: user.age_verified,
+      account_status: user.account_status,
+      kyc_status:     user.kyc_status,
+      kyc_verify:   safeWallet.iskyc
+
+  
 };
 
-
-
+}
 
 /* ================= PAUSE ACCOUNT ====================== */
 
