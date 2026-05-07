@@ -423,7 +423,7 @@ export const getFantasyDashboardService = async (userId, matchId) => {
     getContestsService(matchId, userId),
     getMyContestsService(userId, matchId),
     getMyTeamsWithPlayersService(userId, matchId),
-    getOtherTeamsService(userId, matchId),  // ✅ add చేయి
+    getOtherTeamsService(userId, matchId),  
   ]);
 
   return {
@@ -433,13 +433,13 @@ export const getFantasyDashboardService = async (userId, matchId) => {
       contests,
       my_contests: myContests,
       my_teams: myTeams,
-      other_teams: otherTeams,  // ✅ add చేయి
+      other_teams: otherTeams,  
     },
     meta: {
       contests_count:    contests.length,
       my_contests_count: myContests.length,
       my_teams_count:    myTeams.length,
-      other_teams_count: otherTeams.length,  // ✅ add చేయి
+      other_teams_count: otherTeams.length,  
     },
   };
 };
