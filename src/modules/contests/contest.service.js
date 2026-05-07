@@ -1251,16 +1251,72 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   console.log(`Contest ${contestId} — matchStatus: ${matchStatus}, contestStatus: ${contestStatus}`);
 
   // ── UPCOMING ──
+
   if (matchStatus === "UPCOMING") {
-    return {
-      success:     true,
-      contest:     { id: contest.id, match_status: matchStatus, status: contestStatus },
-      leaderboard: [],
-      my_entries:  [],
-      message:     "Match has not started yet",
-    };
+  // ── My entries ──
+  let my_entries = [];
+  if (userId) {
+    const [myEntries] = await db.query(
+      `SELECT
+         ce.user_team_id, ce.urank, ce.winning_amount,
+         ut.team_name, u.name, u.nickname, u.image
+       FROM contest_entries ce
+       LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+       LEFT JOIN users      u  ON u.id  = ce.user_id
+       WHERE ce.contest_id = ? AND ce.user_id = ?`,
+      [contestId, userId]
+    );
+
+    my_entries = myEntries.map(e => ({
+      user_team_id:   e.user_team_id,
+      team_name:      e.team_name   || null,
+      username:       e.nickname || e.name || `User${userId}`,
+      profile_image:  e.image       || null,
+      rank:           null,
+      points:         0,
+      winning_amount: 0,
+      is_winner:      false,
+    }));
   }
 
+  // ── Leaderboard — other users ──
+  const [otherEntries] = await db.query(
+    `SELECT
+       ce.user_id, ce.user_team_id,
+       ut.team_name, u.name, u.nickname, u.image
+     FROM contest_entries ce
+     JOIN users           u  ON u.id  = ce.user_id
+     LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+     WHERE ce.contest_id = ?
+       ${userId ? "AND ce.user_id != ?" : ""}
+     ORDER BY ce.id ASC
+     LIMIT ? OFFSET ?`,
+    userId ? [contestId, userId, limit, offset] : [contestId, limit, offset]
+  );
+
+  const [[{ total }]] = await db.query(
+    `SELECT COUNT(*) AS total FROM contest_entries 
+     WHERE contest_id = ? ${userId ? "AND user_id != ?" : ""}`,
+    userId ? [contestId, userId] : [contestId]
+  );
+
+  const leaderboard = otherEntries.map(e => ({
+    rank:           null,
+    user_id:        e.user_id,
+    username:       e.nickname || e.name || `User${e.user_id}`,
+    profile_image:  e.image     || null,
+    team_name:      e.team_name || null,
+    user_team_id:   e.user_team_id,
+    points:         0,
+    winning_amount: 0,
+    is_winner:      false,
+    is_me:          false,
+  }));
+
+  return buildLeaderboardResponse(
+    contest, matchStatus, leaderboard, my_entries, parseInt(total), page, limit, offset
+  );
+}
   // ── LIVE → Redis cache ──
   if (matchStatus === "LIVE") {
     try {
