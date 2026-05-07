@@ -547,7 +547,8 @@ export const createMatch = async (data, admin, ip) => {
     conn.release();
   }
 };
-const VALID_STATUSES = ["UPCOMING", "LIVE", "INREVIEW", "COMPLETED", "ABANDONED"];
+
+const VALID_STATUSES = ["UPCOMING", "LIVE", "INREVIEW", "COMPLETED", "ABANDONED"];
 const MATCH_COLUMNS = `
   m.id,
   m.series_id,
@@ -1130,10 +1131,12 @@ export const updatePlayer = async (id, data, admin, ip) => {
 };
 
 //contest
-//prvious contest last beofre update
+
+//prvious contest last beofre update
 
 
-//Update versions createcontest
+
+//Update versions createcontest
 
 
 
@@ -2119,7 +2122,7 @@ export const getHomeservice = async () => {
       SELECT
         SUM(status = 'LIVE')      AS liveMatches,
         SUM(status = 'UPCOMING')  AS launchedMatches,
-        SUM(status = 'COMPLETED') AS completedMatches,
+        SUM(status = 'RESULT') AS completedMatches,
         SUM(status = 'INREVIEW')  AS reviewMatches,
         SUM(status = 'ABANDONED') AS cancelledMatches
       FROM matches
