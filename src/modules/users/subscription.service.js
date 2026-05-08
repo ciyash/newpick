@@ -398,42 +398,32 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
     /* ================================
        4️⃣ VALIDATE SUBSCRIPTION STATE
     ================================= */
+  
+  
     const now = new Date();
+
     const hasActive =
       Number(user.subscribe) === 1 &&
       user.subscribeenddate &&
       new Date(user.subscribeenddate) > now;
 
-    let startDate, endDate;
-
     if (hasActive) {
-      if (Number(user.nextsubscribe) === 1) {
-        throw new Error("Next subscription already queued");
-      }
-
-      const expiryDate = new Date(user.subscribeenddate);
-      const diffDays   = (expiryDate - now) / (1000 * 60 * 60 * 24);
-
-      if (diffDays > 5) {
-        const availableFrom = new Date(expiryDate);
-        availableFrom.setDate(availableFrom.getDate() - 5);
-        const formatted = availableFrom.toLocaleDateString("en-GB", {
-          day: "2-digit", month: "long", year: "numeric",
-        });
-        throw new Error(`Next subscription can be purchased from ${formatted}`);
-      }
-
-      startDate = new Date(user.subscribeenddate);
-      endDate   = new Date(startDate);
-      endDate.setMonth(endDate.getMonth() + months);
-    } else {
-      startDate = now;
-      endDate   = new Date(now);
-      endDate.setMonth(endDate.getMonth() + months);
+      throw new Error(
+        `You already have an active subscription until ${new Date(
+          user.subscribeenddate
+        ).toLocaleDateString("en-GB")}`
+      );
     }
 
-    if (isNaN(endDate.getTime())) throw new Error("Failed to calculate subscription end date");
+    const startDate = now;
 
+    const endDate = new Date(now);
+    endDate.setMonth(endDate.getMonth() + months);
+
+    if (isNaN(endDate.getTime())) {
+      throw new Error("Failed to calculate subscription end date");
+    }
+  
     /* ================================
        5️⃣ WALLET DEDUCTION LOGIC
     ================================= */
@@ -538,7 +528,7 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       );
     }
 
-    // ── Bonus credit (first sub only) ──
+     // ── Bonus credit (first sub only) ──
     if (Number(user.subscription_bonus_given) === 0 && bonus > 0) {
       const uOpen  = bonusRunning;
       const uClose = Number((bonusRunning + bonus).toFixed(2));
@@ -569,31 +559,16 @@ export const buySubscriptionService = async (userId, pack, meta = {}) => {
       );
     }
 
-    /* ================================
-       1️⃣1️⃣ ACTIVATE OR QUEUE
-    ================================= */
-    if (hasActive) {
-      await conn.query(
-        `UPDATE users SET
-           nextsubscribe          = 1,
-           nextsubscribepack      = ?,
-           nextsubscribestartdate = ?,
-           nextsubscribeenddate   = ?
-         WHERE id = ?`,
-        [safePack, startDate, endDate, safeUserId]
-      );
-    } else {
-      await conn.query(
-        `UPDATE users SET
-           subscribe          = 1,
-           subscribepack      = ?,
-           subscribestartdate = ?,
-           subscribeenddate   = ?
-         WHERE id = ?`,
-        [safePack, startDate, endDate, safeUserId]
-      );
-    }
-
+    // ── Activate subscription ──
+    await conn.query(
+      `UPDATE users SET
+         subscribe          = 1,
+         subscribepack      = ?,
+         subscribestartdate = ?,
+         subscribeenddate   = ?
+       WHERE id = ?`,
+      [safePack, startDate, endDate, safeUserId]
+    );
     /* ================================
        1️⃣2️⃣ INSERT INTO SUBSCRIPTIONS
     ================================= */

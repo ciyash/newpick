@@ -1,5 +1,5 @@
 import db from "../../config/db.js";
-import { createOnboardingLinkService, createStripeAccountService } from "./bank.service.js";
+import { createOnboardingLinkService, createStripeAccountService, getBankDetailsService } from "./bank.service.js";
 import { logActivity } from "../../utils/activity.logger.js";
 
 import { stripeConnect } from "../../config/strip.js";  
@@ -143,4 +143,39 @@ export const bankStripeWebhook = async (req, res) => {
 
   res.json({ received: true });
 
+};
+
+
+export const getBankDetails = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const [[user]] = await db.query(
+      `SELECT stripe_account_id, bank_verified FROM users WHERE id = ?`,
+      [userId]
+    );
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.stripe_account_id) {
+      return res.status(404).json({ message: "No bank account linked yet" });
+    }
+
+    const banks = await getBankDetailsService(user.stripe_account_id);
+
+    if (!banks) {
+      return res.status(404).json({ message: "No bank accounts found on Stripe" });
+    }
+
+    res.json({
+      success:      true,
+      verified:     user.bank_verified === 1,
+      bank_accounts: banks,
+    });
+
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };

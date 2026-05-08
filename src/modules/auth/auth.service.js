@@ -15,7 +15,8 @@ import {
   MAX_FAILED_ATTEMPTS,
   JOINING_BONUS,
   PAUSE_PLANS,
-  MAX_USERCODE_RETRIES
+  MAX_USERCODE_RETRIES,
+  ALLOWED_COUNTRIES
 } from "../../config/constants.js";
 
 //* =================== ADMIN SERVICES =================== */
@@ -246,7 +247,7 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 /* ================= LOGIN ====================================== */
 
 
-const ALLOWED_COUNTRIES = ['GB', 'IN'];
+// const ALLOWED_COUNTRIES = ['GB', 'IN'];
 
 export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo = {}) => {
 
@@ -880,10 +881,10 @@ export const signupService = async ({ mobile, otp }) => {
     );
 
     const nextNumber = lastUser?.userid
-      ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
+      ? parseInt(lastUser.userid.replace("P2W", ""), 10) + 1
       : 1;
 
-    const userid = "PTW" + String(nextNumber).padStart(6, "0");
+    const userid = "P2W" + String(nextNumber).padStart(6, "0");
 
     /* ─── 7️⃣ Insert User ─── */
     const [result] = await conn.query(
