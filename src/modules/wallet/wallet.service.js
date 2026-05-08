@@ -80,9 +80,9 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
       );
 
       if (daysSinceDeposit <= 30) {
-        // ── 30 days లోపు → no check, allow directly ✅ ──
+        // ── 30 days  → no check, allow directly  ──
       } else {
-        // ── 30 days దాటింది → contest join check ──
+        // ── 30 days  → contest join check ──
         const [[activityCheck]] = await conn.query(
           `SELECT COUNT(*) AS contest_count
            FROM contest_entries ce
@@ -103,7 +103,7 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
         }
       }
     }
-    // ── New user (no previous deposit) → no check ✅ ──
+    // ── New user (no previous deposit) → no check  ──
 
     // ── Monthly limit check ──
     const MONTHLY_LIMIT  = Number(wallet.deposit_limit);
@@ -843,7 +843,7 @@ if (!type || type === "withdrawal") {
   }
 
 
-  // ── 7. Referral Rewards ── లో fix
+  // ── 7. Referral Rewards ──  fix
 const [rows] = await db.query(
   `SELECT
      rr.id,
@@ -935,7 +935,7 @@ const getWithdrawTitle = (status) => {
 };
 
 const getKycTitle = (status) => {
-  if (status === "approved") return "KYC Verified ✅";
+  if (status === "approved") return "KYC Verified ";
   if (status === "rejected") return "KYC Rejected";
   return "KYC Update";
 };

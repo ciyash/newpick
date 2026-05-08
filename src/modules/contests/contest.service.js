@@ -2134,10 +2134,10 @@ export const getCompletedMatchLeaderboardService = async (matchId, userId, page 
       },
     },
     my_summary: {
-      total_contests_joined: contestsData.filter(c => c.my_entries_count > 0).length, // ✅ unique contests
-      total_teams:           totalMyEntries,                                            // ✅ total teams
-      total_winning:         parseFloat(totalMyWinning.toFixed(2)),                    // ✅ total winning
-      wallet_balance: totalWalletBalance,
+      total_contests_joined: contestsData.filter(c => c.my_entries_count > 0).length,   //  unique contests
+      total_teams:           totalMyEntries,                                            // total teams
+      total_winning:         parseFloat(totalMyWinning.toFixed(2)),                     //  total winning
+      wallet_balance: totalWalletBalance,                                               //  current wallet balance
     },
     total_contests: contestsData.length,
     contests:       contestsData,
