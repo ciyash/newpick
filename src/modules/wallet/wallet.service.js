@@ -506,14 +506,19 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
   const entryWhere = entryConditions.join(" AND ");
 
   const [entries] = await db.query(
-    `SELECT
-       ce.contest_id, ce.entry_fee, ce.joined_at, ce.status, c.match_id
-     FROM contest_entries ce
-     JOIN contest c ON ce.contest_id = c.id
-     WHERE ${entryWhere}
-     ORDER BY ce.joined_at DESC`,
-    entryParams
-  );
+  `SELECT
+     ce.contest_id, ce.entry_fee, ce.joined_at, ce.status, 
+     c.match_id,
+     c.contest_type,                    -- ✅ add చేయి
+     c.prize_pool,                      -- ✅ add చేయి
+     m.hometeamname, m.awayteamname     -- ✅ add చేయి
+   FROM contest_entries ce
+   JOIN contest c ON ce.contest_id = c.id
+   JOIN matches m ON m.id = c.match_id  -- ✅ add చేయి
+   WHERE ${entryWhere}
+   ORDER BY ce.joined_at DESC`,
+  entryParams
+);
 
   // ── Active days ──
   let walletDateParams  = [userId];
@@ -588,6 +593,18 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
     ? Number(((usedThisMonth / monthlyLimit) * 100).toFixed(1))
     : 0;
 
+
+    // ── Contests list ──
+const contestsList = entries.map(e => ({
+  contest_id:   e.contest_id,
+  contest_type: e.contest_type  || null,
+  prize_pool:   Number(e.prize_pool) || 0,
+  entry_fee:    Number(e.entry_fee)  || 0,
+  match:        `${e.hometeamname} vs ${e.awayteamname}`,
+  joined_at:    e.joined_at     || null,
+  status:       e.status        || null,
+}));
+
   return {
     financial: {
       money_deposited:    deposits,
@@ -605,6 +622,7 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
       avg_contests_per_match: avgContests,
       active_days:            activeDays,
       last_contest_played:    lastContestPlayed,
+       contests_list:          contestsList,
     },
     account: {
       member_since: userRow?.member_since || null,

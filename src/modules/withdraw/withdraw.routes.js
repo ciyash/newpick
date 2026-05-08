@@ -3,7 +3,8 @@ import {
   requestWithdraw,
   approveWithdraw,
   rejectWithdraw,
-  getMyWithdrawRequests
+  getMyWithdrawRequests,
+  getAllWithdrawRequests
 } from "./withdraw.controller.js";
 
 import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
@@ -16,6 +17,7 @@ router.post("/request", authenticate, checkAccountActive, requestWithdrawValidat
 router.get("/history", authenticate, getMyWithdrawRequests);
 
 /* ================= ADMIN ================= */
+router.get("/requests-list", adminAuth(), getAllWithdrawRequests);
 router.post("/approve", adminAuth(), approveWithdraw);
 router.post("/reject", adminAuth(), rejectWithdraw);
 

@@ -2,7 +2,8 @@ import {
   requestWithdrawService,
   approveWithdrawService,
   rejectWithdrawService,
-  getMyWithdrawRequestsService
+  getMyWithdrawRequestsService,
+  getAllWithdrawRequestsService
 } from "./withdraw.service.js";
 
 /* User */
@@ -19,10 +20,15 @@ export const requestWithdraw = async (req, res) => {
 /* Admin Approve */
 export const approveWithdraw = async (req, res) => {
   try {
-   const adminId = req.admin.id;
+    const adminId = req.admin.id;
     const { withdrawId } = req.body;
 
-    const response = await approveWithdrawService(adminId, withdrawId);
+    // String గా directly pass చేయి — Number() 
+    if (!withdrawId) {
+      return res.status(400).json({ success: false, message: "withdrawId is required" });
+    }
+
+    const response = await approveWithdrawService(adminId, String(withdrawId));
     res.status(200).json(response);
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -32,15 +38,18 @@ export const approveWithdraw = async (req, res) => {
 /* Admin Reject */
 export const rejectWithdraw = async (req, res) => {
   try {
-   const adminId = req.admin.id;
+    const adminId = req.admin.id;
     const { withdrawId, remarks } = req.body;
+
+    if (!withdrawId) {
+      return res.status(400).json({ success: false, message: "withdrawId is required" });
+    }
 
     const response = await rejectWithdrawService(
       adminId,
-      withdrawId,
+      String(withdrawId),  // String గా pass 
       remarks
     );
-
     res.status(200).json(response);
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -68,3 +77,14 @@ export const getMyWithdrawRequests = async (req, res) => {
 
   }
 };  
+
+
+export const getAllWithdrawRequests = async (req, res) => {
+  try {
+    const { status, page, limit } = req.query;
+    const result = await getAllWithdrawRequestsService({ status, page, limit });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+};
