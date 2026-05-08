@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { manualPlayerPointsService, manualPlayingXIService } from './test.service.js';
+import { getMatchSquadsOnly } from './test.controller.js';
 
 const router = express.Router();
 
@@ -38,5 +39,9 @@ router.post("/matches/points/manual", async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 });
+
+
+// GET FULL SQUADS
+router.get("/matches/squads/:id", getMatchSquadsOnly);
 
 export default router;

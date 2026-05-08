@@ -617,6 +617,23 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       );
     }
 
+
+    // Entry fee debit
+await conn.query(
+  `INSERT INTO financial_transactions
+     (user_id, entity_type, wallet_type, transaction_type, amount,
+      opening_balance, closing_balance, reference_table, reference_id, remark, status, created_at)
+   VALUES (?, 'user', 'game_wallet', 'debit', ?, ?, ?, 'contest_entries', ?, ?, 'success', NOW(6))`,
+  [
+    userId,
+    entryFee,
+    openingBalance,
+    closingBalance,
+    entryId,
+    `Contest #${contestId} entry fee`,
+  ]
+);
+
     // ── 13. Increment current_entries ──
     await conn.query(
       `UPDATE contest SET current_entries = current_entries + ? WHERE id = ?`,

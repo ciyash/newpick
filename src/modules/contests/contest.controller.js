@@ -314,10 +314,29 @@ const creditWinningsToWallets = async (contestId, conn) => {
         `CONTEST_${contestId}`,
       ]
     );
+
+
+   // Winning credit
+await conn.query(
+  `INSERT INTO financial_transactions
+     (user_id, entity_type, wallet_type, transaction_type, amount,
+      opening_balance, closing_balance, reference_table, reference_id, remark, status, created_at)
+   VALUES (?, 'user', 'game_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
+  [
+    winner.user_id,
+    winner.total_winning,
+    openingBalance,
+    closingBalance,
+    contestId,
+    `Contest #${contestId} winning`,
+  ]
+);
   }
 
   return winners.length;
 };
+
+
 
 // ── POST /admin/contests/:contestId/approve ──
 export const approveContestResults = async (req, res) => {

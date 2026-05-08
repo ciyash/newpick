@@ -17,13 +17,11 @@ export const requestWithdraw = async (req, res) => {
   }
 };
 
-/* Admin Approve */
 export const approveWithdraw = async (req, res) => {
   try {
     const adminId = req.admin.id;
     const { withdrawId } = req.body;
 
-    // String గా directly pass చేయి — Number() 
     if (!withdrawId) {
       return res.status(400).json({ success: false, message: "withdrawId is required" });
     }
@@ -35,7 +33,6 @@ export const approveWithdraw = async (req, res) => {
   }
 };
 
-/* Admin Reject */
 export const rejectWithdraw = async (req, res) => {
   try {
     const adminId = req.admin.id;
@@ -45,11 +42,7 @@ export const rejectWithdraw = async (req, res) => {
       return res.status(400).json({ success: false, message: "withdrawId is required" });
     }
 
-    const response = await rejectWithdrawService(
-      adminId,
-      String(withdrawId),  // String గా pass 
-      remarks
-    );
+    const response = await rejectWithdrawService(adminId, String(withdrawId), remarks);
     res.status(200).json(response);
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
