@@ -244,7 +244,6 @@ const BONUS_MAX_PCT = 0.05; // max 5% of entry fee from bonus wallet
 
 export const getPrizeForRank = (rank, prizeDistribution, entryFee, refundWinners, refundStartRank) => {
   if (!rank || rank <= 0) return 0;
-  if (rank > refundWinners) return 0;                     // Zone 3
 
   if (!prizeDistribution) return 0;
 
@@ -257,13 +256,21 @@ export const getPrizeForRank = (rank, prizeDistribution, entryFee, refundWinners
     return 0;
   }
 
+  const maxTierRank = tiers.reduce((max, t) => {
+    const to = t.to ?? t.rank ?? t.rank_to;
+    return Number.isFinite(Number(to)) ? Math.max(max, Number(to)) : max;
+  }, Number(refundWinners) || 0);
+
+  if (rank > maxTierRank) return 0;                     // Zone 3
+
   const tier = tiers.find(t => {
-    if (t.rank !== undefined) return t.rank === rank;
-    return rank >= t.rank_from && rank <= t.rank_to;
+    const from = t.from ?? t.rank ?? t.rank_from;
+    const to = t.to ?? t.rank ?? t.rank_to;
+    return from !== undefined && to !== undefined && rank >= from && rank <= to;
   });
 
-  if (tier) return Number(tier.amount) || 0;
-  if (rank >= refundStartRank) return Number(entryFee) || 0; // legacy fallback
+  if (tier) return Number(tier.prize ?? tier.amount) || 0;
+  if (rank >= refundStartRank && rank <= maxTierRank) return Number(entryFee) || 0; // legacy fallback
   return 0;
 };
 

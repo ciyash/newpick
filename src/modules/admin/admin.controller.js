@@ -1,6 +1,11 @@
 import * as s from "./admin.service.js";
 import { getClientIp } from "../../utils/ip.js";
 import redis from "../../config/redis.js";
+import {
+  buildPrizeDistribution,
+  SAFE_PRIZE_SLAB_LIMIT,
+  validateDistribution,
+} from "./lib/prize_distributionv2.js";
 
 // ERROR HELPER 
 
@@ -836,3 +841,254 @@ const creditWinningsToWallets = async (contestId, conn) => {
   return winners.length;
 };
 
+
+// ─── previewPrizeDistributionController ───────────────────────────────────────
+ 
+/**
+ * POST /api/admin/contest/preview-prizes
+ *
+ * Preview the prize distribution without creating a contest.
+ * Useful for admin UI to show prize breakdown before submitting.
+ *
+ * Request body:
+ *   {
+ *     "entry_fee":           3,
+ *     "platform_fee_pct":    6,
+ *     "max_entries":         100000,
+ *     "winner_percent":      55
+ *   }
+ */
+
+ export const newCreateContestController = async (req, res) => {
+  try {
+    const admin = req.admin;
+    const ip    = req.ip || req.headers["x-forwarded-for"] || null;
+ 
+    // ── Body presence check ──────────────────────────────────────────────────
+    const { match_id, contest_type, max_entries, winner_percent, status } = req.body;
+ 
+    if (!match_id)
+      return res.status(400).json({ success: false, message: "match_id is required" });
+ 
+    if (!contest_type)
+      return res.status(400).json({ success: false, message: "contest_type is required" });
+ 
+    if (max_entries === undefined || max_entries === null)
+      return res.status(400).json({ success: false, message: "max_entries is required" });
+ 
+    if (winner_percent === undefined || winner_percent === null)
+      return res.status(400).json({ success: false, message: "winner_percent is required (20–60)" });
+ 
+    // ── Numeric type coercion guard ──────────────────────────────────────────
+    const parsedEntries = parseInt(max_entries, 10);
+    if (isNaN(parsedEntries))
+      return res.status(400).json({ success: false, message: "max_entries must be a valid integer" });
+ 
+    const parsedWinnerPct = Number(winner_percent);
+    if (isNaN(parsedWinnerPct))
+      return res.status(400).json({ success: false, message: "winner_percent must be a valid number" });
+ 
+    // ── Range checks ─────────────────────────────────────────────────────────
+    if (parsedEntries < 5000 || parsedEntries > 5000000)
+      return res.status(400).json({
+        success: false,
+        message: "max_entries must be between 5,000 and 5,000,000",
+      });
+ 
+    if (parsedWinnerPct < 20 || parsedWinnerPct > 60)
+      return res.status(400).json({
+        success: false,
+        message: "winner_percent must be between 20 and 60",
+      });
+ 
+    // ── Call service ─────────────────────────────────────────────────────────
+    const result = await s.newCreateContestService(
+      { match_id, contest_type, max_entries: parsedEntries, winner_percent: parsedWinnerPct, status },
+      admin,
+      ip
+    );
+ 
+    return res.status(201).json(result);
+ 
+  } catch (err) {
+    // Known business logic errors → 400
+    const knownErrors = [
+      "not found",
+      "must be",
+      "already exists",
+      "Invalid",
+      "UPCOMING",
+      "entry fee",
+      "validation failed",
+    ];
+    const isKnown = knownErrors.some(e => err.message?.includes(e));
+ 
+    return res.status(isKnown ? 400 : 500).json({
+      success: false,
+      message: err.message || "Internal server error",
+    });
+  }
+};
+ 
+// ─── previewPrizeDistributionController ───────────────────────────────────────
+ 
+/**
+ * POST /api/admin/contest/preview-prizes
+ *
+ * Preview the prize distribution without creating a contest.
+ * Useful for admin UI to show prize breakdown before submitting.
+ *
+ * Request body:
+ *   {
+ *     "entry_fee":           3,
+ *     "platform_fee_pct":    6,
+ *     "max_entries":         100000,
+ *     "winner_percent":      55
+ *   }
+ */
+
+ 
+export const previewPrizeDistributionController = async (req, res) => {
+  const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const labels = {
+    total: `preview-prizes:${requestId}:total`,
+    build: `preview-prizes:${requestId}:buildPrizeDistribution`,
+    validate: `preview-prizes:${requestId}:validateDistribution`,
+    serialize: `preview-prizes:${requestId}:jsonSerialization`,
+    send: `preview-prizes:${requestId}:responseSend`,
+  };
+  const startedAt = process.hrtime.bigint();
+  const timings = {};
+  const markMs = (from) => Number(process.hrtime.bigint() - from) / 1e6;
+
+  console.time(labels.total);
+
+  try {
+    const { entry_fee, platform_fee_pct, max_entries, winner_percent } = req.body;
+ 
+    const entryFee         = Number(entry_fee);
+    const platformFeePct   = Number(platform_fee_pct);
+    const maxEntries       = parseInt(max_entries, 10);
+    const winnerPercent    = Number(winner_percent);
+ 
+    if (isNaN(entryFee) || entryFee <= 0)
+      return res.status(400).json({ success: false, message: "entry_fee must be a positive number" });
+    if (isNaN(platformFeePct) || platformFeePct < 0)
+      return res.status(400).json({ success: false, message: "platform_fee_pct must be >= 0" });
+    if (isNaN(maxEntries) || maxEntries < 5000)
+      return res.status(400).json({ success: false, message: "max_entries must be >= 5,000" });
+    if (isNaN(winnerPercent) || winnerPercent < 20 || winnerPercent > 60)
+      return res.status(400).json({ success: false, message: "winner_percent must be 20–60" });
+ 
+    const buildStartedAt = process.hrtime.bigint();
+    let distribution;
+    console.time(labels.build);
+    try {
+      distribution = buildPrizeDistribution({
+        maxEntries,
+        entryFee,
+        platformFeePercent: platformFeePct,
+        winnerPercent,
+      });
+    } finally {
+      timings.buildDistributionMs = Number(markMs(buildStartedAt).toFixed(2));
+      console.timeEnd(labels.build);
+    }
+ 
+    // Full validation is intentionally a non-production guard. Preview must
+    // stay fast for very large contests, and responses should never include the
+    // complete prize distribution payload.
+    let validation = { ok: true, violations: [] };
+    const slabCount = distribution.prize_distribution.length;
+    const slabLimitExceeded = slabCount > SAFE_PRIZE_SLAB_LIMIT;
+    if (process.env.NODE_ENV !== "production" && !slabLimitExceeded) {
+      const validationStartedAt = process.hrtime.bigint();
+      console.time(labels.validate);
+      try {
+        validation = validateDistribution(distribution);
+      } finally {
+        timings.validationMs = Number(markMs(validationStartedAt).toFixed(2));
+        console.timeEnd(labels.validate);
+      }
+    } else {
+      timings.validationMs = 0;
+    }
+
+    const response = {
+      success:    true,
+      valid:      validation.ok,
+      violations: validation.violations,
+      summary:    distribution.summary,
+      zones:      slabLimitExceeded ? [] : distribution.zones,
+      // Return only first 20 slabs in preview to keep response light.
+      // The API must never serialize or send full prize ladders for large contests.
+      prize_distribution_preview: slabLimitExceeded
+        ? []
+        : distribution.prize_distribution.slice(0, 20),
+      total_slabs: slabCount,
+    };
+
+    if (slabLimitExceeded) {
+      response.optimized_summary_only = true;
+      response.message = "Prize distribution exceeded safe preview slab limit; returning summary only";
+    }
+
+    console.time(labels.serialize);
+    const serializationStartedAt = process.hrtime.bigint();
+    let payload = JSON.stringify(response);
+    timings.serializationMs = Number(markMs(serializationStartedAt).toFixed(2));
+    timings.totalMs = Number(markMs(startedAt).toFixed(2));
+    if (process.env.NODE_ENV !== "production") {
+      response.timings = timings;
+      payload = JSON.stringify(response);
+    }
+    console.timeEnd(labels.serialize);
+
+    let payloadBytes = Buffer.byteLength(payload);
+    console.log("[preview-prizes] payload bytes:", payloadBytes);
+
+    const maxPayloadBytes = 64 * 1024;
+    if (payloadBytes > maxPayloadBytes) {
+      response.zones = [];
+      response.prize_distribution_preview = [];
+      response.optimized_summary_only = true;
+      response.message = "Preview payload exceeded safe size; returning summary only";
+      timings.payloadReduced = true;
+      timings.totalMs = Number(markMs(startedAt).toFixed(2));
+      if (process.env.NODE_ENV !== "production") {
+        response.timings = timings;
+      }
+
+      console.time(labels.serialize);
+      const retrySerializationStartedAt = process.hrtime.bigint();
+      payload = JSON.stringify(response);
+      timings.serializationMs = Number(markMs(retrySerializationStartedAt).toFixed(2));
+      timings.totalMs = Number(markMs(startedAt).toFixed(2));
+      if (process.env.NODE_ENV !== "production") {
+        response.timings = timings;
+        payload = JSON.stringify(response);
+      }
+      console.timeEnd(labels.serialize);
+      payloadBytes = Buffer.byteLength(payload);
+      console.log("[preview-prizes] reduced payload bytes:", payloadBytes);
+    }
+
+    res.once("finish", () => {
+      console.timeEnd(labels.send);
+      console.timeEnd(labels.total);
+      console.log("[preview-prizes] complete:", {
+        statusCode: res.statusCode,
+        payloadBytes,
+        totalMs: Number(markMs(startedAt).toFixed(2)),
+        ...timings,
+      });
+    });
+
+    console.time(labels.send);
+    return res.status(200).type("application/json").send(payload);
+ 
+  } catch (err) {
+    console.timeEnd(labels.total);
+    return res.status(400).json({ success: false, message: err.message });
+  }
+};

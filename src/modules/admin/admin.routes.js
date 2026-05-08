@@ -49,6 +49,10 @@ router.get("/getcontestbyseries/:seriesId", adminAuth(),             c.getContes
 router.get("/getcontestbyteam/:teamId",     adminAuth(),             c.getContestsByTeam);
 router.get("/getContestsbyusers",            adminAuth(),                   c.getContestsbyusers);
 
+
+router.post("/contest/new", adminAuth, c.newCreateContestController);
+router.post("/contest/preview-prizes", adminAuth, c.previewPrizeDistributionController);
+
 //contest category
 router.post("/createcontestcategory", adminAuth(), v.createContestCategory, c.createContestCategory);
 router.get("/getcontestcategory",     adminAuth(),  c.getContestCategories);

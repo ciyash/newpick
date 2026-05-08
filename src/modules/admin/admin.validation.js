@@ -423,6 +423,7 @@ export const createContest = validate(
     max_entries:       Joi.number().integer().min(2).required(),
     is_guaranteed:     Joi.number().valid(0, 1).default(0),
     rank1Percentage:   Joi.number().min(1).max(10).precision(2).default(8),
+    winner_percentage: Joi.number().integer().min(1).max(100).optional(),
     top1_end_rank:     Joi.number().integer().positive().optional(),
     linear_start_rank: Joi.number().integer().positive().optional(),
     linear_end_rank:   Joi.number().integer().positive().optional(),
