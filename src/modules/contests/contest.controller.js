@@ -13,7 +13,8 @@ import {
   getContestHistoryService,
   announceWinnersService,
   cancelContestService,
-  getCompletedLeaderboardService,
+  getCompletedMatchLeaderboardService,
+  
 } from "./contest.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -418,15 +419,36 @@ export const cancelContest = async (req, res) => {
 
 
 
-export const getCompletedLeaderboard = async (req, res) => {
+// export const getCompletedLeaderboard = async (req, res) => {
+//   try {
+//     const { contestId } = req.params;
+//     const userId = req.user?.id;
+//     const page   = parseInt(req.query.page)  || 1;
+//     const limit  = parseInt(req.query.limit) || 50;
+
+//     const result = await getCompletedLeaderboardService(
+//       contestId, userId, page, limit
+//     );
+
+//     if (!result.success)
+//       return res.status(400).json(result);
+
+//     return res.status(200).json(result);
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+
+export const getCompletedMatchLeaderboard = async (req, res) => {
   try {
-    const { contestId } = req.params;
+    const { matchId } = req.params;
     const userId = req.user?.id;
     const page   = parseInt(req.query.page)  || 1;
     const limit  = parseInt(req.query.limit) || 50;
 
-    const result = await getCompletedLeaderboardService(
-      contestId, userId, page, limit
+    const result = await getCompletedMatchLeaderboardService(
+      matchId, userId, page, limit
     );
 
     if (!result.success)

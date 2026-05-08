@@ -1732,167 +1732,372 @@ export const cancelContestService = async (contestId) => {
 };
 
    
-export const getCompletedLeaderboardService = async (contestId, userId, page = 1, limit = 50) => {
+// export const getCompletedLeaderboardService = async (contestId, userId, page = 1, limit = 50) => {
+//   const offset = (page - 1) * limit;
+
+//   const [[contest]] = await db.query(
+//     `SELECT
+//        c.id, c.match_id, c.prize_pool, c.net_pool_prize,
+//        c.first_prize, c.prize_distribution,
+//        c.current_entries, c.max_entries, c.min_entries,
+//        c.entry_fee, c.status, c.is_guaranteed,
+//        c.contest_type, c.winner_percentage,
+//        c.bonus_ranks, c.refund_start_rank, c.refund_winners,
+//        m.status AS match_status,
+//        m.seriesname, m.hometeamname, m.awayteamname,
+//        m.matchdate, m.start_time
+//      FROM contest c
+//      JOIN matches m ON m.id = c.match_id
+//      WHERE c.id = ?`,
+//     [contestId]
+//   );
+//   if (!contest) return { success: false, message: "Contest not found" };
+
+//   const contestStatus = contest.status?.toUpperCase();
+//   if (contestStatus !== 'COMPLETED')
+//     return { success: false, message: "Contest is not completed yet" };
+
+//   // ── All entries ──
+//   const [allEntries] = await db.query(
+//     `SELECT
+//        ce.user_id, ce.user_team_id, ce.urank, ce.winning_amount,
+//        u.name, u.nickname, u.image,
+//        ut.team_name,
+//        COALESCE(SUM(utp.points), 0) AS total_points
+//      FROM contest_entries ce
+//      JOIN users u ON u.id = ce.user_id
+//      LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+//      LEFT JOIN user_team_players utp ON utp.user_team_id = ce.user_team_id
+//      WHERE ce.contest_id = ?
+//      GROUP BY ce.id, ce.user_id, ce.user_team_id, ce.urank,
+//               ce.winning_amount, u.name, u.nickname, u.image, ut.team_name
+//      ORDER BY ce.urank ASC`,
+//     [contestId]
+//   );
+
+//   const total = allEntries.length;
+
+//   // ── All team ids ──
+//   const allTeamIds = allEntries.map(e => e.user_team_id).filter(Boolean);
+
+//   // ── Players for all teams ──
+//   let playersMap = {};
+//   if (allTeamIds.length > 0) {
+//     const [playerRows] = await db.query(
+//       `SELECT
+//          utp.user_team_id,
+//          utp.is_captain,
+//          utp.is_vice_captain,
+//          utp.is_substitude,
+//          utp.points          AS final_points,
+//          p.id                AS player_id,
+//          p.name              AS player_name,
+//          p.playerimage       AS player_image,
+//          p.position,
+//          p.player_type,
+//          t.short_name        AS team_short,
+//          COALESCE(pms.fantasy_points, 0) AS base_points
+//        FROM user_team_players utp
+//        JOIN players p ON p.id = utp.player_id
+//        LEFT JOIN teams t ON t.id = p.team_id
+//        LEFT JOIN player_match_stats pms
+//              ON pms.player_id = utp.player_id
+//             AND pms.match_id  = ?
+//        WHERE utp.user_team_id IN (?)
+//        ORDER BY utp.is_captain DESC, utp.is_vice_captain DESC`,
+//       [contest.match_id, allTeamIds]
+//     );
+
+//     // Group by user_team_id
+//     playerRows.forEach(r => {
+//       if (!playersMap[r.user_team_id]) playersMap[r.user_team_id] = [];
+//       playersMap[r.user_team_id].push({
+//         player_id:      r.player_id,
+//         player_name:    r.player_name,
+//         player_image:   r.player_image  || null,
+//         position:       r.position      || null,
+//         player_type:    r.player_type   || null,
+//         team_short:     r.team_short    || null,
+//         is_captain:     r.is_captain    === 1,
+//         is_vice_captain: r.is_vice_captain === 1,
+//         is_substitute:  r.is_substitude === 1,
+//         base_points:    parseFloat(r.base_points)   || 0,
+//         final_points:   parseFloat(r.final_points)  || 0,
+//       });
+//     });
+//   }
+
+//   // ── Format entry ──
+//   const formatEntry = (e, isMe) => ({
+//     user_team_id:   e.user_team_id,
+//     team_name:      e.team_name                   || null,
+//     username:       e.nickname || e.name          || `User${e.user_id}`,
+//     profile_image:  e.image                       || null,
+//     rank:           e.urank                       || null,
+//     points:         parseFloat(e.total_points)    || 0,
+//     winning_amount: parseFloat(e.winning_amount)  || 0,
+//     is_winner:      parseFloat(e.winning_amount)  > 0,
+//     is_me:          isMe,
+//     players:        playersMap[e.user_team_id]    || [],
+//   });
+
+//   // ── My entries ──
+//   const my_entries = userId
+//     ? allEntries
+//         .filter(e => e.user_id === parseInt(userId))
+//         .map(e => formatEntry(e, true))
+//     : [];
+
+//   // ── Leaderboard — paginated ──
+//   const paginated  = allEntries.slice(offset, offset + limit);
+//   const leaderboard = paginated.map(e =>
+//     formatEntry(e, userId ? e.user_id === parseInt(userId) : false)
+//   );
+
+//   // ── Prize tiers ──
+//   let prizeTiers = [];
+//   try {
+//     prizeTiers = typeof contest.prize_distribution === 'string'
+//       ? JSON.parse(contest.prize_distribution)
+//       : contest.prize_distribution || [];
+//   } catch { prizeTiers = []; }
+
+//   return {
+//     success: true,
+//     contest: {
+//       id:                contest.id,
+//       prize_pool:        Number(contest.prize_pool)        || 0,
+//       net_pool_prize:    Number(contest.net_pool_prize)    || 0,
+//       first_prize:       Number(contest.first_prize)       || 0,
+//       entry_fee:         Number(contest.entry_fee)         || 0,
+//       total_entries:     Number(contest.current_entries)   || 0,
+//       total_spots:       Number(contest.max_entries)       || 0,
+//       contest_type:      contest.contest_type              || null,
+//       status:            contestStatus,
+//       match_status:      contest.match_status?.toUpperCase() || null,
+//       series_name:       contest.seriesname                || null,
+//       home_team:         contest.hometeamname              || null,
+//       away_team:         contest.awayteamname              || null,
+//       match_date:        contest.matchdate                 || null,
+//       start_time:        contest.start_time                || null,
+//       winner_percentage: Number(contest.winner_percentage) || 0,
+//       refund_start_rank: Number(contest.refund_start_rank) || 0,
+//       bonus_ranks:       Number(contest.bonus_ranks)       || 0,
+//       prize_distribution:       prizeTiers,
+//     },
+//     my_entries,
+//     leaderboard,
+//     pagination: {
+//       current_page:  page,
+//       per_page:      limit,
+//       total_entries: total,
+//       total_pages:   Math.ceil(total / limit),
+//       has_more:      offset + limit < total,
+//     },
+//   };
+// }; 
+
+
+export const getCompletedMatchLeaderboardService = async (matchId, userId, page = 1, limit = 50) => {
   const offset = (page - 1) * limit;
 
-  const [[contest]] = await db.query(
+  // ── Match details ──
+  const [[match]] = await db.query(
+    `SELECT m.id, m.status, m.seriesname, m.matchdate, m.start_time,
+            m.hometeamname, m.awayteamname,
+            ht.logo AS home_logo, ht.short_name AS home_short,
+            at.logo AS away_logo, at.short_name AS away_short
+     FROM matches m
+     LEFT JOIN teams ht ON ht.id = m.home_team_id
+     LEFT JOIN teams at ON at.id = m.away_team_id
+     WHERE m.id = ?`,
+    [matchId]
+  );
+  if (!match) return { success: false, message: "Match not found" };
+  if (match.status !== 'RESULT')
+    return { success: false, message: "Match is not completed yet" };
+
+  // ── All COMPLETED contests ──
+  const [contests] = await db.query(
     `SELECT
-       c.id, c.match_id, c.prize_pool, c.net_pool_prize,
-       c.first_prize, c.prize_distribution,
-       c.current_entries, c.max_entries, c.min_entries,
-       c.entry_fee, c.status, c.is_guaranteed,
-       c.contest_type, c.winner_percentage,
-       c.bonus_ranks, c.refund_start_rank, c.refund_winners,
-       m.status AS match_status,
-       m.seriesname, m.hometeamname, m.awayteamname,
-       m.matchdate, m.start_time
+       c.id, c.contest_type, c.entry_fee, c.prize_pool,
+       c.net_pool_prize, c.first_prize,
+       c.current_entries, c.max_entries, c.status,
+       c.winner_percentage, c.refund_start_rank,
+       c.bonus_ranks, c.refund_winners,
+       COUNT(DISTINCT ce.id)                            AS total_entries,
+       SUM(CASE WHEN ce.user_id = ? THEN 1 ELSE 0 END) AS my_entries_count,
+       SUM(CASE WHEN ce.user_id = ? THEN ce.winning_amount ELSE 0 END) AS my_total_winning
      FROM contest c
-     JOIN matches m ON m.id = c.match_id
-     WHERE c.id = ?`,
-    [contestId]
-  );
-  if (!contest) return { success: false, message: "Contest not found" };
-
-  const contestStatus = contest.status?.toUpperCase();
-  if (contestStatus !== 'COMPLETED')
-    return { success: false, message: "Contest is not completed yet" };
-
-  // ── All entries ──
-  const [allEntries] = await db.query(
-    `SELECT
-       ce.user_id, ce.user_team_id, ce.urank, ce.winning_amount,
-       u.name, u.nickname, u.image,
-       ut.team_name,
-       COALESCE(SUM(utp.points), 0) AS total_points
-     FROM contest_entries ce
-     JOIN users u ON u.id = ce.user_id
-     LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
-     LEFT JOIN user_team_players utp ON utp.user_team_id = ce.user_team_id
-     WHERE ce.contest_id = ?
-     GROUP BY ce.id, ce.user_id, ce.user_team_id, ce.urank,
-              ce.winning_amount, u.name, u.nickname, u.image, ut.team_name
-     ORDER BY ce.urank ASC`,
-    [contestId]
+     LEFT JOIN contest_entries ce ON ce.contest_id = c.id
+     WHERE c.match_id = ? AND c.status = 'COMPLETED'
+     GROUP BY c.id
+     ORDER BY c.id ASC`,
+    [userId || 0, userId || 0, matchId]
   );
 
-  const total = allEntries.length;
+  if (!contests.length)
+    return { success: false, message: "No completed contests found for this match" };
 
-  // ── All team ids ──
-  const allTeamIds = allEntries.map(e => e.user_team_id).filter(Boolean);
+  // ── For each contest ──
+  const contestsData = await Promise.all(
+    contests.map(async (contest) => {
 
-  // ── Players for all teams ──
-  let playersMap = {};
-  if (allTeamIds.length > 0) {
-    const [playerRows] = await db.query(
-      `SELECT
-         utp.user_team_id,
-         utp.is_captain,
-         utp.is_vice_captain,
-         utp.is_substitude,
-         utp.points          AS final_points,
-         p.id                AS player_id,
-         p.name              AS player_name,
-         p.playerimage       AS player_image,
-         p.position,
-         p.player_type,
-         t.short_name        AS team_short,
-         COALESCE(pms.fantasy_points, 0) AS base_points
-       FROM user_team_players utp
-       JOIN players p ON p.id = utp.player_id
-       LEFT JOIN teams t ON t.id = p.team_id
-       LEFT JOIN player_match_stats pms
-             ON pms.player_id = utp.player_id
-            AND pms.match_id  = ?
-       WHERE utp.user_team_id IN (?)
-       ORDER BY utp.is_captain DESC, utp.is_vice_captain DESC`,
-      [contest.match_id, allTeamIds]
-    );
+      // ── All entries ──
+      const [allEntries] = await db.query(
+        `SELECT
+           ce.user_id, ce.user_team_id, ce.urank, ce.winning_amount,
+           u.name, u.nickname, u.image,
+           ut.team_name,
+           COALESCE(SUM(utp.points), 0) AS total_points
+         FROM contest_entries ce
+         JOIN users u ON u.id = ce.user_id
+         LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+         LEFT JOIN user_team_players utp ON utp.user_team_id = ce.user_team_id
+         WHERE ce.contest_id = ?
+         GROUP BY ce.id, ce.user_id, ce.user_team_id, ce.urank,
+                  ce.winning_amount, u.name, u.nickname, u.image, ut.team_name
+         ORDER BY ce.urank ASC`,
+        [contest.id]
+      );
 
-    // Group by user_team_id
-    playerRows.forEach(r => {
-      if (!playersMap[r.user_team_id]) playersMap[r.user_team_id] = [];
-      playersMap[r.user_team_id].push({
-        player_id:      r.player_id,
-        player_name:    r.player_name,
-        player_image:   r.player_image  || null,
-        position:       r.position      || null,
-        player_type:    r.player_type   || null,
-        team_short:     r.team_short    || null,
-        is_captain:     r.is_captain    === 1,
-        is_vice_captain: r.is_vice_captain === 1,
-        is_substitute:  r.is_substitude === 1,
-        base_points:    parseFloat(r.base_points)   || 0,
-        final_points:   parseFloat(r.final_points)  || 0,
+      const allTeamIds = allEntries.map(e => e.user_team_id).filter(Boolean);
+
+      // ── Players for all teams ──
+      let playersMap = {};
+      if (allTeamIds.length > 0) {
+        const [playerRows] = await db.query(
+          `SELECT
+             utp.user_team_id,
+             utp.is_captain,
+             utp.is_vice_captain,
+             utp.is_substitude,
+             utp.points              AS final_points,
+             p.id                    AS player_id,
+             p.name                  AS player_name,
+             p.playerimage           AS player_image,
+             p.position,
+             p.player_type,
+             t.short_name            AS team_short,
+             COALESCE(pms.fantasy_points, 0) AS base_points
+           FROM user_team_players utp
+           JOIN players p ON p.id = utp.player_id
+           LEFT JOIN teams t ON t.id = p.team_id
+           LEFT JOIN player_match_stats pms
+                 ON pms.player_id = utp.player_id
+                AND pms.match_id  = ?
+           WHERE utp.user_team_id IN (?)
+           ORDER BY utp.is_captain DESC, utp.is_vice_captain DESC`,
+          [matchId, allTeamIds]
+        );
+
+        playerRows.forEach(r => {
+          if (!playersMap[r.user_team_id]) playersMap[r.user_team_id] = [];
+          playersMap[r.user_team_id].push({
+            player_id:       r.player_id,
+            player_name:     r.player_name,
+            player_image:    r.player_image    || null,
+            position:        r.position        || null,
+            player_type:     r.player_type     || null,
+            team_short:      r.team_short      || null,
+            is_captain:      r.is_captain      === 1,
+            is_vice_captain: r.is_vice_captain === 1,
+            is_substitute:   r.is_substitude   === 1,
+            base_points:     parseFloat(r.base_points)  || 0,
+            final_points:    parseFloat(r.final_points) || 0,
+          });
+        });
+      }
+
+      // ── Format entry ──
+      const formatEntry = (e, isMe) => ({
+        user_team_id:   e.user_team_id,
+        team_name:      e.team_name                  || null,
+        username:       e.nickname || e.name         || `User${e.user_id}`,
+        profile_image:  e.image                      || null,
+        rank:           e.urank                      || null,
+        points:         parseFloat(e.total_points)   || 0,
+        winning_amount: parseFloat(e.winning_amount) || 0,
+        is_winner:      parseFloat(e.winning_amount) > 0,
+        is_me:          isMe,
+        players:        playersMap[e.user_team_id]   || [],
       });
-    });
-  }
 
-  // ── Format entry ──
-  const formatEntry = (e, isMe) => ({
-    user_team_id:   e.user_team_id,
-    team_name:      e.team_name                   || null,
-    username:       e.nickname || e.name          || `User${e.user_id}`,
-    profile_image:  e.image                       || null,
-    rank:           e.urank                       || null,
-    points:         parseFloat(e.total_points)    || 0,
-    winning_amount: parseFloat(e.winning_amount)  || 0,
-    is_winner:      parseFloat(e.winning_amount)  > 0,
-    is_me:          isMe,
-    players:        playersMap[e.user_team_id]    || [],
-  });
+      // ── My entries ──
+      const my_entries = userId
+        ? allEntries
+            .filter(e => e.user_id === parseInt(userId))
+            .map(e => formatEntry(e, true))
+        : [];
 
-  // ── My entries ──
-  const my_entries = userId
-    ? allEntries
-        .filter(e => e.user_id === parseInt(userId))
-        .map(e => formatEntry(e, true))
-    : [];
+      // ── Leaderboard paginated ──
+      const paginated   = allEntries.slice(offset, offset + limit);
+      const leaderboard = paginated.map(e =>
+        formatEntry(e, userId ? e.user_id === parseInt(userId) : false)
+      );
 
-  // ── Leaderboard — paginated ──
-  const paginated  = allEntries.slice(offset, offset + limit);
-  const leaderboard = paginated.map(e =>
-    formatEntry(e, userId ? e.user_id === parseInt(userId) : false)
+      return {
+        contest_id:        contest.id,
+        contest_type:      contest.contest_type           || null,
+        status:            contest.status                 || null,
+        entry_fee:         Number(contest.entry_fee)      || 0,
+        prize_pool:        Number(contest.prize_pool)     || 0,
+        net_pool_prize:    Number(contest.net_pool_prize) || 0,
+        first_prize:       Number(contest.first_prize)    || 0,
+        total_entries:     Number(contest.total_entries)  || 0,
+        total_spots:       Number(contest.max_entries)    || 0,
+        winner_percentage: Number(contest.winner_percentage) || 0,
+        refund_start_rank: Number(contest.refund_start_rank) || 0,
+        bonus_ranks:       Number(contest.bonus_ranks)       || 0,
+        my_entries_count:  Number(contest.my_entries_count)  || 0,
+        my_total_winning:  Number(contest.my_total_winning)  || 0,
+        my_entries,
+        leaderboard,
+        pagination: {
+          current_page:  page,
+          per_page:      limit,
+          total_entries: allEntries.length,
+          total_pages:   Math.ceil(allEntries.length / limit),
+          has_more:      offset + limit < allEntries.length,
+        },
+      };
+    })
   );
 
-  // ── Prize tiers ──
-  let prizeTiers = [];
-  try {
-    prizeTiers = typeof contest.prize_distribution === 'string'
-      ? JSON.parse(contest.prize_distribution)
-      : contest.prize_distribution || [];
-  } catch { prizeTiers = []; }
+  // ── Match level summary ──
+  const totalMyWinning = contestsData.reduce(
+    (sum, c) => sum + (c.my_total_winning || 0), 0
+  );
+  const totalMyEntries = contestsData.reduce(
+    (sum, c) => sum + (c.my_entries_count || 0), 0
+  );
 
   return {
     success: true,
-    contest: {
-      id:                contest.id,
-      prize_pool:        Number(contest.prize_pool)        || 0,
-      net_pool_prize:    Number(contest.net_pool_prize)    || 0,
-      first_prize:       Number(contest.first_prize)       || 0,
-      entry_fee:         Number(contest.entry_fee)         || 0,
-      total_entries:     Number(contest.current_entries)   || 0,
-      total_spots:       Number(contest.max_entries)       || 0,
-      contest_type:      contest.contest_type              || null,
-      status:            contestStatus,
-      match_status:      contest.match_status?.toUpperCase() || null,
-      series_name:       contest.seriesname                || null,
-      home_team:         contest.hometeamname              || null,
-      away_team:         contest.awayteamname              || null,
-      match_date:        contest.matchdate                 || null,
-      start_time:        contest.start_time                || null,
-      winner_percentage: Number(contest.winner_percentage) || 0,
-      refund_start_rank: Number(contest.refund_start_rank) || 0,
-      bonus_ranks:       Number(contest.bonus_ranks)       || 0,
-      prize_distribution:       prizeTiers,
+    match: {
+      match_id:    match.id,
+      status:      match.status,
+      series_name: match.seriesname   || null,
+      match_date:  match.matchdate    || null,
+      start_time:  match.start_time   || null,
+      home_team: {
+        name:       match.hometeamname || null,
+        short_name: match.home_short   || null,
+        logo:       match.home_logo    || null,
+      },
+      away_team: {
+        name:       match.awayteamname || null,
+        short_name: match.away_short   || null,
+        logo:       match.away_logo    || null,
+      },
     },
-    my_entries,
-    leaderboard,
-    pagination: {
-      current_page:  page,
-      per_page:      limit,
-      total_entries: total,
-      total_pages:   Math.ceil(total / limit),
-      has_more:      offset + limit < total,
+    my_summary: {
+      total_contests_joined: contestsData.filter(c => c.my_entries_count > 0).length, // ✅ unique contests
+      total_teams:           totalMyEntries,                                            // ✅ total teams
+      total_winning:         parseFloat(totalMyWinning.toFixed(2)),                    // ✅ total winning
     },
+    total_contests: contestsData.length,
+    contests:       contestsData,
   };
-}; 
+};
+

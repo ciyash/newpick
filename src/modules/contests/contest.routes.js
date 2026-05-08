@@ -15,7 +15,7 @@ import {
   approveContestResults,
   announceWinners,
   cancelContest,
-  getCompletedLeaderboard,
+  getCompletedMatchLeaderboard,
 } from "./contest.controller.js";
 import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
@@ -33,7 +33,7 @@ router.get("/my-contests/:match_id", authenticate, checkAccountActive, getMyCont
 // ── Leaderboard + Winnings (two tabs in the UI) ───────────────────────────────
 router.get("/leaderboard/:contest_id", authenticate, checkAccountActive, getLeaderboard);    
 
-router.get("/leaderboard/completed/:contestId", authenticate, getCompletedLeaderboard);
+router.get("/leaderboard/completed/match/:matchId", authenticate, checkAccountActive, getCompletedMatchLeaderboard);
 
 // ── Rank / Score breakdown ────────────────────────────────────────────────────
 router.get("/my-rank/:contest_id/:teamId", authenticate, checkAccountActive, getMyRank);
