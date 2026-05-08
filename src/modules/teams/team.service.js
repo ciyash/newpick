@@ -1633,18 +1633,22 @@ export const getPlayerBioService = async (playerId) => {
     const scores       = fixture.scores || [];
     const homeScore    = scores.find(s => s.participant_id === home?.id && s.description === "CURRENT")?.score?.goals ?? null;
     const awayScore    = scores.find(s => s.participant_id === away?.id && s.description === "CURRENT")?.score?.goals ?? null;
+   
     return {
-      fixture_id:  fixture.id                 || null,
-      league_name: fixture.league?.name       || null,
-      league_logo: fixture.league?.image_path || null,
-      home_team:   home?.name                 || null,
-      home_logo:   home?.image_path           || null,
-      home_score:  homeScore,
-      away_team:   away?.name                 || null,
-      away_logo:   away?.image_path           || null,
-      away_score:  awayScore,
-      date:        fixture.starting_at        || null,
-    };
+  fixture_id:  fixture.id                 || null,
+  league_name: fixture.league?.name       || null,
+  league_logo: fixture.league?.image_path || null,
+
+  home_team:   home?.short_code || home?.name || null,
+  home_logo:   home?.image_path || null,
+  home_score:  homeScore,
+
+  away_team:   away?.short_code || away?.name || null,
+  away_logo:   away?.image_path || null,
+  away_score:  awayScore,
+
+  date:        fixture.starting_at || null,
+};
   });
 
   // ── 4. Insights & Badge (same logic) ──
