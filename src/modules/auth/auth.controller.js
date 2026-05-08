@@ -19,7 +19,6 @@ import redis from "../../config/redis.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SIGNUP — step 1: request OTP
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const signup = async (req, res) => {
   try {
@@ -37,7 +36,6 @@ export const signup = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // RESEND SIGNUP OTP
 // Fix: OTP never returned in production
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const resendSignupOtp = async (req, res) => {
   try {
@@ -104,7 +102,6 @@ export const verifySignupOtp = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SEND LOGIN OTP
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const sendLoginOtp = async (req, res) => {
   try {
@@ -122,25 +119,7 @@ export const sendLoginOtp = async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LOGIN
-// ─────────────────────────────────────────────────────────────────────────────
 
-// export const login = async (req, res) => {
-//   try {
-//     await loginSchema.validateAsync(req.body);
-//     const ipAddress = getClientIp(req);
-//     const user      = await loginService(req.body, ipAddress);
-
-//     const token = jwt.sign(
-//       { id: user.id, usercode: user.usercode, email: user.email },
-//       process.env.JWT_SECRET,
-//       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" }
-//     );
-
-//     res.status(200).json({ success: true, message: "Login successful", token, data: user });
-//   } catch (err) {
-//     res.status(400).json({ success: false, message: err.message });
-//   }
-// };
 
 export const login = async (req, res) => {
   try {
@@ -171,7 +150,7 @@ export const login = async (req, res) => {
 };
 // ─────────────────────────────────────────────────────────────────────────────
 // ADMIN LOGIN
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 export const adminLogin = async (req, res) => {
   try {

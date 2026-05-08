@@ -10,10 +10,10 @@ import {
   getLeaderboardService,
   getMyRankService,
   getScoreBreakdownService,
-  compareTeamService,
   getContestHistoryService,
   announceWinnersService,
   cancelContestService,
+  getCompletedLeaderboardService,
 } from "./contest.service.js";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,40 +136,11 @@ export const getFantasyDashboard = async (req, res) => {
 };
 
 
-
-// Controller
-export const compareTeam = async (req, res) => {
-  try {
-    const { contest_id }               = req.params;
-    const { my_team_id, opp_team_id }  = req.body;   
-    const userId                       = req.user?.id;
-
-    if (!contest_id || !my_team_id || !opp_team_id)
-      return res.status(400).json({
-        success: false,
-        message: "contest_id, my_team_id and opp_team_id are required",
-      });
-
-    const result = await compareTeamService(
-      contest_id,
-      parseInt(my_team_id),
-      parseInt(opp_team_id),
-      userId
-    );
-
-    if (!result.success)
-      return res.status(404).json(result);
-
-    return res.status(200).json(result);
-  } catch (err) {
-  
-    return res.status(500).json({ success: false, message:err.message });
-  }
-};
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/contests/leaderboard/:contest_id?page=1&limit=50
 // Full leaderboard + my_entry pinned card
 // ─────────────────────────────────────────────────────────────────────────────
+
 export const getLeaderboard = async (req, res) => {
   try {
     const { contest_id }           = req.params;
@@ -445,3 +416,24 @@ export const cancelContest = async (req, res) => {
   }
 };
 
+
+
+export const getCompletedLeaderboard = async (req, res) => {
+  try {
+    const { contestId } = req.params;
+    const userId = req.user?.id;
+    const page   = parseInt(req.query.page)  || 1;
+    const limit  = parseInt(req.query.limit) || 50;
+
+    const result = await getCompletedLeaderboardService(
+      contestId, userId, page, limit
+    );
+
+    if (!result.success)
+      return res.status(400).json(result);
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};

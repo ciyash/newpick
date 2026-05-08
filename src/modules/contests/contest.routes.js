@@ -10,12 +10,12 @@ import {
   getMyRank,
   getScoreBreakdown,
   joinContest,
-  compareTeam,
   getContestHistory,
   getInReviewContests,
   approveContestResults,
   announceWinners,
   cancelContest,
+  getCompletedLeaderboard,
 } from "./contest.controller.js";
 import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
@@ -31,10 +31,9 @@ router.get("/dashboard/:match_id", authenticate, checkAccountActive, getFantasyD
 router.get("/my-contests/:match_id", authenticate, checkAccountActive, getMyContests);
 
 // ── Leaderboard + Winnings (two tabs in the UI) ───────────────────────────────
-router.get("/leaderboard/:contest_id", authenticate, checkAccountActive, getLeaderboard);    // Leaderboard tab  
+router.get("/leaderboard/:contest_id", authenticate, checkAccountActive, getLeaderboard);    
 
-
-router.post("/leaderboard/compare/:contest_id", authenticate, checkAccountActive, compareTeam);
+router.get("/leaderboard/completed/:contestId", authenticate, getCompletedLeaderboard);
 
 // ── Rank / Score breakdown ────────────────────────────────────────────────────
 router.get("/my-rank/:contest_id/:teamId", authenticate, checkAccountActive, getMyRank);
@@ -61,6 +60,5 @@ router.post("/contests/:contestId/cancel", adminAuth(), cancelContest);
 
 
 export default router;  
-  
 
-  
+
