@@ -617,23 +617,6 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       );
     }
 
-
-    // Entry fee debit
-await conn.query(
-  `INSERT INTO financial_transactions
-     (user_id, entity_type, wallet_type, transaction_type, amount,
-      opening_balance, closing_balance, reference_table, reference_id, remark, status, created_at)
-   VALUES (?, 'user', 'game_wallet', 'debit', ?, ?, ?, 'contest_entries', ?, ?, 'success', NOW(6))`,
-  [
-    userId,
-    entryFee,
-    openingBalance,
-    closingBalance,
-    entryId,
-    `Contest #${contestId} entry fee`,
-  ]
-);
-
     // ── 13. Increment current_entries ──
     await conn.query(
       `UPDATE contest SET current_entries = current_entries + ? WHERE id = ?`,
@@ -1042,7 +1025,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
        c.entry_fee, c.status, c.is_guaranteed,
        c.contest_type, c.winner_percentage,
        c.bonus_ranks, c.refund_start_rank, c.refund_winners,
-       c.refund_total, c.netpool_amount,
+       c.refund_total, c.netpool_amount,c.platform_fee_amount,
        c.rank1_percent, c.top1_end_rank,
        c.linear_start_rank, c.linear_end_rank,
        m.status    AS match_status,
@@ -1307,6 +1290,7 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries,
       id:                contest.id,
       prize_pool:        Number(contest.prize_pool)        || 0,
       net_pool_prize:    Number(contest.net_pool_prize)    || 0,
+      platform_fee_amount: Number(contest.platform_fee_amount) || 0,
       first_prize:       Number(contest.first_prize)       || 0,
       entry_fee:         Number(contest.entry_fee)         || 0,
       total_entries:     contest.current_entries           || 0,

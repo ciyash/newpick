@@ -319,11 +319,12 @@ const creditWinningsToWallets = async (contestId, conn) => {
    // Winning credit
 await conn.query(
   `INSERT INTO financial_transactions
-     (user_id, entity_type, wallet_type, transaction_type, amount,
+     (user_id, entity_type, wallet_type,platform_fee_amount, transaction_type, amount,
       opening_balance, closing_balance, reference_table, reference_id, remark, status, created_at)
-   VALUES (?, 'user', 'game_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
+   VALUES (?, 'user', 'game_wallet', ?, 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
   [
     winner.user_id,
+    contest.platform_fee_amount || 0,
     winner.total_winning,
     openingBalance,
     closingBalance,
