@@ -1352,7 +1352,7 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries,
 // MY RANK
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const getMyRankService = async (contestId, userId, userTeamId) => {
+export const getMyRankService = async (contestId, userId) => {
   const [[contest]] = await db.query(
     `SELECT id, match_id, prize_pool, first_prize,
             prize_distribution, current_entries, entry_fee,
@@ -1362,40 +1362,74 @@ export const getMyRankService = async (contestId, userId, userTeamId) => {
   );
   if (!contest) return { success: false, message: "Contest not found" };
 
-  const [[entry]] = await db.query(
-    `SELECT ce.id, ce.user_team_id, ce.urank, ce.winning_amount,
-            u.name, u.nickname, u.image
+  // ── నీ అన్ని entries ──
+  const [entries] = await db.query(
+    `SELECT
+       ce.id, ce.user_team_id, ce.urank, ce.winning_amount,
+       ut.team_name,
+       u.name, u.nickname, u.image,
+       COALESCE(SUM(utp.points), 0) AS total_points
      FROM contest_entries ce
      JOIN users u ON u.id = ce.user_id
-     WHERE ce.contest_id = ? AND ce.user_id = ? AND ce.user_team_id = ?`,
-    [contestId, userId, userTeamId]
+     LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+     LEFT JOIN user_team_players utp ON utp.user_team_id = ce.user_team_id
+     WHERE ce.contest_id = ? AND ce.user_id = ?
+     GROUP BY ce.id, ce.user_team_id, ce.urank, ce.winning_amount,
+              ut.team_name, u.name, u.nickname, u.image
+     ORDER BY ce.urank ASC`,
+    [contestId, userId]
   );
-  if (!entry) return { success: false, message: "Team not found in this contest" };
 
-  const points = await calcTeamPoints(entry.user_team_id, contest.match_id);
+  if (!entries.length)
+    return { success: false, message: "You have not joined this contest" };
 
-  const prize = entry.winning_amount || getPrizeForRank(
-    entry.urank, contest.prize_distribution, contest.entry_fee,
-    contest.refund_winners, contest.refund_start_rank
+  const isCompleted = contest.status === 'COMPLETED';
+
+  const my_teams = entries.map(e => {
+    const prize = isCompleted
+      ? (Number(e.winning_amount) || getPrizeForRank(
+          e.urank, contest.prize_distribution,
+          contest.entry_fee, contest.refund_winners,
+          contest.refund_start_rank
+        ))
+      : 0;
+
+    return {
+      user_team_id:   e.user_team_id,
+      team_name:      e.team_name                 || null,
+      rank:           e.urank                     || null,
+      points:         parseFloat(e.total_points)  || 0,
+      winning_amount: prize,
+      is_winner:      prize > 0,
+    };
+  });
+
+  // ── Summary ──
+  const total_winning = my_teams.reduce((sum, t) => sum + t.winning_amount, 0);
+  const best_team     = my_teams.reduce((best, t) =>
+    (t.rank !== null && (best.rank === null || t.rank < best.rank)) ? t : best,
+    my_teams[0]
   );
 
   return {
-    success: true,
-    user_id: parseInt(userId),
-    username: entry.nickname || entry.name || `User${userId}`,
-    profile_image: entry.image || null,
-    user_team_id: entry.user_team_id,
-    rank: entry.urank,
-    points,
-    winning_amount: prize,
-    is_winner: prize > 0,
-    total_entries: contest.current_entries,
+    success:        true,
+    user_id:        parseInt(userId),
+    username:       entries[0].nickname || entries[0].name || `User${userId}`,
+    profile_image:  entries[0].image    || null,
+    contest_id:     parseInt(contestId),
+    contest_status: contest.status,
+    total_entries:  contest.current_entries,
+    my_teams_count: my_teams.length,
+    total_winning:  parseFloat(total_winning.toFixed(2)),
+    best_rank:      best_team?.rank   || null,
+    best_points:    best_team?.points || 0,
+    my_teams,
   };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCORE BREAKDOWN
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 export const getScoreBreakdownService = async (contestId, userTeamId, matchId) => {
   if (!contestId || !userTeamId || !matchId)

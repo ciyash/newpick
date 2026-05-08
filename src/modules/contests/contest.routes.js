@@ -36,7 +36,7 @@ router.get("/leaderboard/:contest_id", authenticate, checkAccountActive, getLead
 router.get("/leaderboard/completed/match/:matchId", authenticate, checkAccountActive, getCompletedMatchLeaderboard);
 
 // ── Rank / Score breakdown ────────────────────────────────────────────────────
-router.get("/my-rank/:contest_id/:teamId", authenticate, checkAccountActive, getMyRank);
+router.get("/my-rank/:contest_id", authenticate, checkAccountActive, getMyRank);
 
 router.get("/breakdown/:contestId/:userTeamId", authenticate, checkAccountActive, getScoreBreakdown);
 

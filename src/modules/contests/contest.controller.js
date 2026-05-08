@@ -168,35 +168,31 @@ export const getLeaderboard = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/my-rank/:contest_id/:teamId
+
 // Current rank + points for a specific user team in a contest
-// ─────────────────────────────────────────────────────────────────────────────
+
+
 export const getMyRank = async (req, res) => {
   try {
-    const { contest_id, teamId } = req.params;
-    const userId                 = req.user?.id;
+    const { contest_id } = req.params;
+    const userId         = req.user?.id;
 
     if (!userId)     return res.status(401).json({ success: false, message: "Unauthorized" });
     if (!contest_id) return res.status(400).json({ success: false, message: "contest_id is required" });
-    if (!teamId)     return res.status(400).json({ success: false, message: "teamId is required" });
 
-    const result = await getMyRankService(contest_id, userId, teamId);
+    const result = await getMyRankService(contest_id, userId);
 
     if (!result.success)
       return res.status(404).json(result);
 
     return res.status(200).json(result);
   } catch (err) {
-   
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/breakdown/:contestId/:userTeamId?matchId=xxx
 // Per-player fantasy points breakdown for a user's team
-// ─────────────────────────────────────────────────────────────────────────────
+
 export const getScoreBreakdown = async (req, res) => {
   try {
     const { contestId, userTeamId } = req.params;
@@ -219,10 +215,8 @@ export const getScoreBreakdown = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/history
 // Query: ?year=2026&month=4&status=COMPLETED&page=1&limit=10
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 
 export const getContestHistory = async (req, res) => {
