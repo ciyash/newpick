@@ -1883,7 +1883,7 @@ export const getCompletedLeaderboardService = async (contestId, userId, page = 1
       winner_percentage: Number(contest.winner_percentage) || 0,
       refund_start_rank: Number(contest.refund_start_rank) || 0,
       bonus_ranks:       Number(contest.bonus_ranks)       || 0,
-      prize_tiers:       prizeTiers,
+      prize_distribution:       prizeTiers,
     },
     my_entries,
     leaderboard,
