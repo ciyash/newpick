@@ -1,4 +1,3 @@
-
 import db from "../../config/db.js";
 import redis from "../../config/redis.js";
 import { calculateTeamPoints } from "../scoring/scoring.engine.js";
@@ -40,9 +39,7 @@ export const getAllContestsService = async () => {
   }));
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
 // CONTEST HISTORY SERVICE
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const getContestHistoryService = async (userId, { year, month, page, limit }) => {
   const offset = (page - 1) * limit;
@@ -284,9 +281,7 @@ const buildCompetitionRankMap = (scoredRows = []) => {
   return rankMap;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
 // HELPER — Team total points WITH captain ×2 / vice-captain ×1.5
-// ─────────────────────────────────────────────────────────────────────────────
 
 const calcTeamPoints = async (userTeamId, matchId) => {
   const [rows] = await db.query(
@@ -313,9 +308,7 @@ const calcTeamPoints = async (userTeamId, matchId) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
   
-// ─────────────────────────────────────────────────────────────────────────────
 // GET CONTESTS BY MATCH  (user-facing, includes join status)
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const getContestsService = async (matchId, userId) => {
   if (!matchId) throw new Error("matchId is required");
@@ -634,7 +627,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     if (contestEntryFee > 0) {
       await applyReferralContestBonus(
         userId, contestId, ip, device, conn,
-        teamIds.length  // ✅ correctly pass చేశాం
+        teamIds.length  // ✅ correctly pass 
       );
     }
 
@@ -988,7 +981,7 @@ const getTeamPlayers = async (userTeamId, matchId) => {
        p.player_type AS player_role, p.playercredits AS player_credits,
        t.short_name AS team_short,
        COALESCE(pms.fantasy_points, 0) AS base_points,
-       COALESCE(utp.points, 0)         AS final_points  -- ✅ add చేయి
+       COALESCE(utp.points, 0)         AS final_points  
      FROM user_team_players utp
      JOIN players p  ON p.id = utp.player_id
      LEFT JOIN teams t ON t.id = p.team_id
@@ -1011,7 +1004,7 @@ const getTeamPlayers = async (userTeamId, matchId) => {
       is_vice_captain: !!r.is_vice_captain,
       base_points:    parseFloat(r.base_points),
       multiplier,
-      // ✅ utp.points use చేయి (HS Bonus included)
+      // ✅ utp.points use  (HS Bonus included)
       effective_points: parseFloat(r.final_points) || parseFloat((r.base_points * multiplier).toFixed(2)),
     };
   });
@@ -1020,9 +1013,6 @@ const getTeamPlayers = async (userTeamId, matchId) => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEADERBOARD
-// ─────────────────────────────────────────────────────────────────────────────
-
 
 export const getLeaderboardService = async (contestId, userId, page = 1, limit = 50) => {
   const offset = (page - 1) * limit;
@@ -1362,7 +1352,7 @@ export const getMyRankService = async (contestId, userId) => {
   );
   if (!contest) return { success: false, message: "Contest not found" };
 
-  // ── నీ అన్ని entries ──
+  // ──  entries ──
   const [entries] = await db.query(
     `SELECT
        ce.id, ce.user_team_id, ce.urank, ce.winning_amount,
@@ -2097,6 +2087,24 @@ export const getCompletedMatchLeaderboardService = async (matchId, userId, page 
       };
     })
   );
+    // ── User Wallet ──
+  let totalWalletBalance = 0;
+
+  if (userId) {
+    const [[wallet]] = await db.query(
+      `SELECT depositwallet, earnwallet
+       FROM wallets
+       WHERE user_id = ?`,
+      [userId]
+    );
+
+    const depositWallet = Number(wallet?.depositwallet || 0);
+    const winningWallet = Number(wallet?.earnwallet || 0);
+
+    totalWalletBalance = Number(
+      (depositWallet + winningWallet).toFixed(2)
+    );
+  }
 
   // ── Match level summary ──
   const totalMyWinning = contestsData.reduce(
@@ -2129,6 +2137,7 @@ export const getCompletedMatchLeaderboardService = async (matchId, userId, page 
       total_contests_joined: contestsData.filter(c => c.my_entries_count > 0).length, // ✅ unique contests
       total_teams:           totalMyEntries,                                            // ✅ total teams
       total_winning:         parseFloat(totalMyWinning.toFixed(2)),                    // ✅ total winning
+      wallet_balance: totalWalletBalance,
     },
     total_contests: contestsData.length,
     contests:       contestsData,

@@ -17,8 +17,7 @@ import {
   
 } from "./contest.service.js";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests
+
 // All contests (admin / debug)
 // ─────────────────────────────────────────────────────────────────────────────
 export const getAllContests = async (req, res) => {
@@ -30,8 +29,7 @@ export const getAllContests = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/:match_id
+
 // Contests for a match — includes user's join status
 // ─────────────────────────────────────────────────────────────────────────────
 export const getContestsByMatchId = async (req, res) => {
@@ -56,9 +54,7 @@ export const getContestsByMatchId = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/contests/join contsj
-// Body: { contestId, userTeamId, entryFee }
+
 // userTeamId can be a single ID or an array of IDs (multi-team join)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -85,8 +81,6 @@ export const joinContest = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/my-contests/:match_id
 // Contests this user has joined for a specific match
 // ─────────────────────────────────────────────────────────────────────────────
 export const getMyContests = async (req, res) => {
@@ -114,8 +108,7 @@ export const getMyContests = async (req, res) => {
 }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/dashboard/:match_id
+
 // Aggregated payload for fantasy page (contests + my-contests + my-teams)
 // ─────────────────────────────────────────────────────────────────────────────
 export const getFantasyDashboard = async (req, res) => {
@@ -137,8 +130,6 @@ export const getFantasyDashboard = async (req, res) => {
 };
 
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/leaderboard/:contest_id?page=1&limit=50
 // Full leaderboard + my_entry pinned card
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -171,7 +162,7 @@ export const getLeaderboard = async (req, res) => {
 
 // Current rank + points for a specific user team in a contest
 
-
+  
 export const getMyRank = async (req, res) => {
   try {
     const { contest_id } = req.params;

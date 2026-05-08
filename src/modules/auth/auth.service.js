@@ -11,12 +11,17 @@ import geoip from 'geoip-lite';
 import { UAParser } from 'ua-parser-js';
 
 
+import {
+  MAX_FAILED_ATTEMPTS,
+  JOINING_BONUS,
+  PAUSE_PLANS,
+  MAX_USERCODE_RETRIES
+} from "../../config/constants.js";
+
 //* =================== ADMIN SERVICES =================== */
 
 
-/* ================= ADMIN LOGIN ========================= */
-
-const MAX_FAILED_ATTEMPTS = 5;
+// const MAX_FAILED_ATTEMPTS = 5;
 
 export const adminLoginService = async ({ email, password }, ipAddress) => {
 
@@ -91,11 +96,11 @@ export const adminLoginService = async ({ email, password }, ipAddress) => {
 
 /* ================= PAUSE PLANS ================= */
 
-const PAUSE_PLANS = {
-  "1d": 1,
-  "7d": 7,
-  "30d": 30,
-};
+// const PAUSE_PLANS = {
+//   "1d": 1,
+//   "7d": 7,
+//   "30d": 30,
+// };
 
 
 /* ================= REQUEST SIGNUP OTP ================= */
@@ -174,8 +179,8 @@ export const requestSignupOtpService = async (data) => {
 
 /* ================= VERIFY SIGNUP OTP ================= */
 
-const JOINING_BONUS = 5;
-const MAX_USERCODE_RETRIES = 10;
+// const JOINING_BONUS = 5;
+// const MAX_USERCODE_RETRIES = 10;
 
 
 /* ================= SEND LOGIN OTP ================= */
