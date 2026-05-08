@@ -1,7 +1,10 @@
 import db from "../../config/db.js";
 import bcrypt from "bcrypt";
 import { generatePrizeDistribution } from "./lib/prize-distribution.js";
-
+import {
+  buildPrizeDistribution,
+  validateDistribution,
+}  from "./lib/prize_distributionv2.js";
 
 //adminlog
 const logAdmin = async (conn, admin, action, entity, entityId, ip) => {
@@ -3512,13 +3515,12 @@ const getPrizeForRank = (rank, prizeDistribution, entryFee, totalWinners, refund
     return 0;
   }
 
-  // Single rank tier (e.g. { rank: 1, amount: 4450 })
-  const single = tiers.find(t => t.rank === rank);
-  if (single) return Number(single.amount) || 0;
-
-  // Range tier (e.g. { rank_from: 11, rank_to: 20, amount: 700 })
-  const range = tiers.find(t => rank >= t.rank_from && rank <= t.rank_to);
-  if (range) return Number(range.amount) || 0;
+  const tier = tiers.find(t => {
+    const from = t.from ?? t.rank ?? t.rank_from;
+    const to = t.to ?? t.rank ?? t.rank_to;
+    return from !== undefined && to !== undefined && rank >= from && rank <= to;
+  });
+  if (tier) return Number(tier.prize ?? tier.amount) || 0;
   if (rank >= refundStartRank) return Number(entryFee) || 0;
   return 0;
 };
@@ -3736,6 +3738,194 @@ export const setMatchLiveService = async (matchId) => {
     );
     await conn.commit();
     return { success: true, message: `Match ${matchId} is now LIVE` };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+
+
+ 
+// ─── newCreateContestService ──────────────────────────────────────────────────
+ 
+/**
+ * Create a contest using the new 40-25-15-10-10 prize model.
+ *
+ * @param {object} data
+ * @param {number}  data.match_id       - Must exist and be UPCOMING
+ * @param {string}  data.contest_type   - Must exist in contestcategory table
+ * @param {number}  data.max_entries    - 5,000 – 5,000,000
+ * @param {number}  data.winner_percent - 20–60 (shown to users as "X% Winners")
+ * @param {string}  [data.status]       - Defaults to "UPCOMING"
+ *
+ * @param {object} admin  - { id, email }
+ * @param {string} ip     - Caller IP address
+ *
+ * @returns {Promise<object>} Full contest creation result
+ */
+export const newCreateContestService = async (data, admin, ip) => {
+ 
+  // ── 1. Auth guard ──────────────────────────────────────────────────────────
+  if (!admin?.id || !admin?.email)
+    throw new Error("Invalid admin context");
+ 
+  // ── 2. Input validation ────────────────────────────────────────────────────
+  const max_entries = parseInt(data.max_entries, 10);
+  if (isNaN(max_entries) || max_entries < 5000 || max_entries > 5000000)
+    throw new Error("max_entries must be between 5,000 and 5,000,000");
+ 
+  const winner_percent = Number(data.winner_percent);
+  if (isNaN(winner_percent) || winner_percent < 20 || winner_percent > 60)
+    throw new Error("winner_percent must be between 20 and 60");
+ 
+  if (!data.match_id)
+    throw new Error("match_id is required");
+ 
+  if (!data.contest_type?.trim())
+    throw new Error("contest_type is required");
+ 
+  const conn = await db.getConnection();
+ 
+  try {
+    await conn.beginTransaction();
+ 
+    // ── 3. Validate match ────────────────────────────────────────────────────
+    // Match and category checks are independent, so run them together to avoid
+    // paying two DB round trips before prize generation starts.
+    const [[[match]], [[category]]] = await Promise.all([
+      conn.query(
+        `SELECT id, status FROM matches WHERE id = ? LIMIT 1`,
+        [data.match_id]
+      ),
+      conn.query(
+        `SELECT name, entryfee, platformfee
+         FROM contestcategory
+         WHERE name = ? LIMIT 1`,
+        [data.contest_type.trim()]
+      ),
+    ]);
+    if (!match)
+      throw new Error(`Match ${data.match_id} not found`);
+    if (match.status !== "UPCOMING")
+      throw new Error(`Match must be UPCOMING (current: ${match.status})`);
+ 
+    // ── 4. Load contest category ─────────────────────────────────────────────
+    if (!category)
+      throw new Error(`Contest type "${data.contest_type}" not found in contestcategory table`);
+ 
+    const entry_fee        = Number(category.entryfee);
+    const platform_fee_pct = Number(category.platformfee);
+ 
+    if (entry_fee <= 0)
+      throw new Error(`Contest type "${category.name}" has entry fee = 0. Configure it first.`);
+ 
+    // ── 5. Duplicate guard ───────────────────────────────────────────────────
+    const [[existing]] = await conn.query(
+      `SELECT id FROM contest
+       WHERE match_id = ? AND contest_type = ? LIMIT 1`,
+      [data.match_id, category.name]
+    );
+    if (existing)
+      throw new Error(`A "${category.name}" contest already exists for match ${data.match_id}`);
+ 
+    // ── 6. Build prize distribution ──────────────────────────────────────────
+    const distribution = buildPrizeDistribution({
+      maxEntries:         max_entries,
+      entryFee:           entry_fee,
+      platformFeePercent: platform_fee_pct,
+      winnerPercent:      winner_percent,
+    });
+ 
+    // ── 7. Validate distribution ─────────────────────────────────────────────
+    // Full validation is useful while tuning prize math. Production skips it
+    // because buildPrizeDistribution is deterministic and large contest
+    // creation should avoid extra CPU on the request path.
+    if (process.env.NODE_ENV !== "production") {
+      const validation = validateDistribution(distribution);
+      if (!validation.ok)
+        throw new Error(`Prize validation failed: ${validation.violations.join("; ")}`);
+    }
+ 
+    const s = distribution.summary;
+ 
+    // ── 8. Insert contest ────────────────────────────────────────────────────
+    const [result] = await conn.query(
+      `INSERT INTO contest
+         (match_id, contest_type, entry_fee,
+          prize_pool, netpool_amount, net_pool_prize,
+          max_entries, current_entries,
+          winner_percentage, total_winners,
+          first_prize, prize_distribution,
+          refund_start_rank, refund_winners, refund_total,
+          platform_fee_percentage, platform_fee_amount,
+          status, created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
+      [
+        data.match_id,
+        category.name,
+        entry_fee,
+        s.collected,          // prize_pool      = total collected
+        s.bonusPool,          // netpool_amount   = after platform fee
+        s.prizePool,          // net_pool_prize   = ladder budget (after refund)
+        max_entries,
+        0,                    // current_entries  starts at 0
+        s.winnerPercent,      // winner_percentage shown to user
+        s.totalWinners,       // total_winners    = prize + refund zone
+        s.rank1Prize,         // first_prize
+        // Store compressed { from, to, prize } slabs instead of per-rank rows;
+        // this preserves payouts while keeping JSON tiny for million-entry contests.
+        JSON.stringify(distribution.prize_distribution),
+        s.prizeWinners + 1,   // refund_start_rank
+        s.refundWinners,      // refund_winners
+        s.refundCost,         // refund_total
+        platform_fee_pct,
+        s.platformFee,        // platform_fee_amount
+        data.status ?? "UPCOMING",
+      ]
+    );
+ 
+    if (result.affectedRows === 0)
+      throw new Error("Failed to insert contest into database");
+ 
+    // ── 9. Audit log ─────────────────────────────────────────────────────────
+    await logAdmin(conn, admin, "NEW_CREATE_CONTEST", "contest", result.insertId, ip);
+    await conn.commit();
+ 
+    // ── 10. Return ───────────────────────────────────────────────────────────
+    return {
+      success:    true,
+      contest_id: result.insertId,
+      summary: {
+        contest_type:      category.name,
+        max_entries,
+        entry_fee,
+        platform_fee_pct,
+        winner_percent:    s.winnerPercent,
+        collected:         s.collected,
+        platform_revenue:  s.platformFee,
+        bonus_pool:        s.bonusPool,
+        refund_cost:       s.refundCost,
+        prize_pool:        s.prizePool,
+        total_winners:     s.totalWinners,
+        prize_winners:     s.prizeWinners,
+        refund_winners:    s.refundWinners,
+        refund_start_rank: s.prizeWinners + 1,
+        rank1_prize:       s.rank1Prize,
+        rank10_prize:      s.rank10Prize,
+        rank100_prize:     s.rank100Prize,
+        total_payout:      s.totalPayout,
+        platform_reserve:  s.platformReserve,
+      },
+      zones:              distribution.zones,
+      // Keep create responses lightweight. The full compressed slab JSON is
+      // stored in MySQL; the frontend only needs a small preview here.
+      prize_distribution_preview: distribution.prize_distribution.slice(0, 20),
+      total_slabs: distribution.prize_distribution.length,
+    };
+ 
   } catch (err) {
     await conn.rollback();
     throw err;
