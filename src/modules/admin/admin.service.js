@@ -548,7 +548,7 @@ export const createMatch = async (data, admin, ip) => {
   }
 };
 
-const VALID_STATUSES = ["UPCOMING", "LIVE", "INREVIEW", "COMPLETED", "ABANDONED"];
+const VALID_STATUSES = ["UPCOMING", "LIVE", "INREVIEW", "RESULT", "ABANDONED"];
 const MATCH_COLUMNS = `
   m.id,
   m.series_id,
@@ -674,7 +674,7 @@ export const updateMatch = async (id, data, admin, ip) => {
   const VALID_TRANSITIONS = {
     UPCOMING:  ["LIVE", "ABANDONED"],
     LIVE:      ["INREVIEW", "ABANDONED"],
-    INREVIEW:  ["COMPLETED", "ABANDONED"],
+    INREVIEW:  ["RESULT", "ABANDONED"],
     COMPLETED: [],   // terminal
     ABANDONED: [],   // terminal
   };
@@ -2142,7 +2142,7 @@ export const getHomeservice = async () => {
       SELECT
         SUM(status = 'LIVE')      AS liveMatches,
         SUM(status = 'UPCOMING')  AS launchedMatches,
-        SUM(status = 'COMPLETED') AS completedMatches,
+        SUM(status = 'RESULT') AS completedMatches,
         SUM(status = 'INREVIEW')  AS reviewMatches,
         SUM(status = 'ABANDONED') AS cancelledMatches
       FROM matches
