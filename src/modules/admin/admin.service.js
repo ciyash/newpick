@@ -2,6 +2,7 @@ import db from "../../config/db.js";
 import bcrypt from "bcrypt";
 import { generatePrizeDistribution } from "./lib/prize-distribution.js";
 
+
 //adminlog
 const logAdmin = async (conn, admin, action, entity, entityId, ip) => {
 
@@ -194,11 +195,10 @@ export const createSeries = async (data, admin, ip) => {
     );
 
     if (result.affectedRows === 0) throw new Error("Failed to create series");
-    const insertedId = result.insertId;
-    await logAdmin(conn, admin, "CREATE_SERIES", "series", insertedId, ip);
+    await logAdmin(conn, admin, "CREATE_SERIES", "series", result.insertId, ip);
     await conn.commit();
 
-    return { seriesid: insertedId };
+    return { seriesid: result.insertId };
 
   } catch (err) {
     await conn.rollback();
@@ -213,7 +213,14 @@ export const getSeries = async ({ page = 1, limit = 20 } = {}) => {
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT seriesid, name, season, start_date, end_date, provider_series_id, created_at
+      `SELECT
+         seriesid,
+         name,
+         season,
+         start_date,
+         end_date,
+         provider_series_id,
+         created_at
        FROM series
        ORDER BY start_date DESC
        LIMIT ? OFFSET ?`,
@@ -363,20 +370,11 @@ export const createMatch = async (data, admin, ip) => {
   try {
     await conn.beginTransaction();
 
-    // ── Validate series + teams in parallel ──────────────────────────────
+    // ── Validate series + teams in parallel ───────────────────────────────
     const [[[series]], [[homeTeam]], [[awayTeam]]] = await Promise.all([
-      conn.query(
-        `SELECT seriesid, name AS seriesname FROM series WHERE seriesid = ?`,
-        [series_id]
-      ),
-      conn.query(
-        `SELECT id, name AS teamname FROM teams WHERE id = ?`,
-        [home_team_id]
-      ),
-      conn.query(
-        `SELECT id, name AS teamname FROM teams WHERE id = ?`,
-        [away_team_id]
-      ),
+      conn.query(`SELECT seriesid, name AS seriesname FROM series WHERE seriesid = ?`, [series_id]),
+      conn.query(`SELECT id, name AS teamname FROM teams WHERE id = ?`, [home_team_id]),
+      conn.query(`SELECT id, name AS teamname FROM teams WHERE id = ?`, [away_team_id]),
     ]);
     if (!series)   throw new Error("Invalid series_id — series not found");
     if (!homeTeam) throw new Error("Invalid home_team_id — team not found");
@@ -452,7 +450,6 @@ export const createMatch = async (data, admin, ip) => {
       const platformFeeAmount = (prize_pool * platform_fee_percentage) / 100;             // platform cut
       const netAfterFee       = prize_pool - platformFeeAmount;                           // after platform fee
       const totalWinners      = Math.floor((max_entries * winner_percentage) / 100);      // winning players
-      const totalLosers       = max_entries - totalWinners;                               // losers only get cashback
       const cashbackPerUser   = is_cashback ? entry_fee : 0;                             // per user cashback
       const totalCashback     = is_cashback ? cashbackPerUser * totalWinners : 0;         // cashback for losers only
       const netPrizePool      = Math.max(0, netAfterFee - totalCashback);                // final prize pool
@@ -767,12 +764,6 @@ export const updateMatch = async (id, data, admin, ip) => {
     await logAdmin(conn, admin, "UPDATE_MATCH", "match", Number(id), ip || null);
     await conn.commit();
 
-    return {
-      success: true,
-      id: Number(id),
-      message: "Match updated successfully"
-    };
-
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -822,7 +813,11 @@ export const getTeams = async ({ page = 1, limit = 20 } = {}) => {
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT id, name, short_name, created_at
+      `SELECT
+         id,
+         name,
+         short_name,
+         created_at
        FROM teams
        ORDER BY name ASC
        LIMIT ? OFFSET ?`,
@@ -1036,7 +1031,7 @@ export const getPlayerByTeam = async (teamId, { page = 1, limit = 20, position =
     throw new Error(`Invalid position. Allowed: ${VALID_POSITIONS.join(", ")}`);
   }
 
-  const safeLimit  = Math.min(Number(limit) || 20, 100);
+  const safeLimit = Math.min(Number(limit) || 20, 100);
   const offset = (page - 1) * safeLimit;
 
   const conditions = position
@@ -1132,10 +1127,6 @@ export const updatePlayer = async (id, data, admin, ip) => {
 
 //contest
 
-//prvious contest last beofre update
-
-
-
 //Update versions createcontest
 
 
@@ -1165,14 +1156,6 @@ export const updatePlayer = async (id, data, admin, ip) => {
  
  
 /* ─── helpers (kept here for the manual-distribution path) ─────────────── */
-
-function toSlabs(ranges) {
-  return ranges.map(r =>
-    r.from === r.to
-      ? { rank: r.from, amount: r.prize }
-      : { rank_from: r.from, rank_to: r.to, amount: r.prize }
-  );
-}
 
 function parseDistribution(raw) {
   if (Array.isArray(raw)) return raw;
@@ -1256,14 +1239,22 @@ function extractFirstPrize(slabs) {
  * @param {string} [data.status]               - Defaults to "UPCOMING"
  * @param {Array|Object|string} [data.prize_distribution]  - Optional; auto-generated if omitted
  * @param {number} [data.rank1Percentage]      - % of bonusPool for rank 1 (auto-gen only; default 8)
+ * @param {number} [data.winner_percentage]  - % of entries that win. Overrides category default if supplied. Must be 0–100 integer.
  *
  * @param {Object} admin - { id, email }
  * @param {string} ip    - Caller IP
  */
+
 export const createContest = async (data, admin, ip) => {
  
   /* ── 1. Auth guard ───────────────────────────────────────────────────── */
   if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
+
+  console.log("DEBUG winner_percentage:", {
+    from_input: data.winner_percentage,
+    type: typeof data.winner_percentage,
+    cat_winner_pct: "category not loaded yet"
+  });
 
   /* ── 2. Basic input validation ───────────────────────────────────────── */
   const max_entries = parseInt(data.max_entries, 10);
@@ -1284,7 +1275,7 @@ export const createContest = async (data, admin, ip) => {
  
     /* ── 4. Category ───────────────────────────────────────────────────── */
     const [[category]] = await conn.query(
-      `SELECT name, entryfee, platformfee, percentage AS winner_percentage
+      `SELECT name, entryfee, platformfee, percentage AS cat_winner_pct
        FROM   contestcategory WHERE name = ? LIMIT 1`,
       [data.contest_type]
     );
@@ -1300,8 +1291,17 @@ export const createContest = async (data, admin, ip) => {
     /* ── 6. Category inputs (raw values only — no derived financials here) */
     const entry_fee         = Number(category.entryfee);
     const platform_fee_pct  = Number(category.platformfee);
-    const winner_percentage = Number(category.winner_percentage);
- 
+    const winner_percentage = (data.winner_percentage != null && data.winner_percentage !== '')
+      ? Number(data.winner_percentage)
+      : Number(category.cat_winner_pct);
+
+    if (isNaN(winner_percentage) || winner_percentage <= 0 || winner_percentage > 100) {
+      throw new Error("winner_percentage must be a number between 1 and 100");
+    }
+    if (!Number.isInteger(winner_percentage)) {
+      throw new Error("winner_percentage must be a whole number (e.g. 20, 40, 50)");
+    }
+
     /* ── 7. Prize distribution ─────────────────────────────────────────── */
     let finalDistribution;
  
@@ -1508,7 +1508,6 @@ status, created_at
 
 export const CONTEST_STATUSES = ['UPCOMING','LIVE','INREVIEW','COMPLETED'];
 
-
 export const getContests = async ({ page = 1, limit = 20, status = null } = {}) => {
   const safeLimit = Math.min(Number(limit) || 20, 100);
   const offset = (page - 1) * safeLimit;
@@ -1549,13 +1548,13 @@ export const getContestsbyusers = async ({ page = 1, limit = 20, status = null }
   }
 
   const whereClause = status ? `WHERE c.status = ?` : ``;
-  const countParams = status ? [status] : [];
   const params = status ? [status, safeLimit, offset] : [safeLimit, offset];
 
-  // 1. Get contests + total count in parallel
+  // . Get contests with aggregation (STRICT MODE SAFE)
   const [[contests], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT
+      `
+      SELECT
         c.id,
         ANY_VALUE(c.contest_type) AS name,
         ANY_VALUE(c.status) AS status,
@@ -1583,15 +1582,17 @@ export const getContestsbyusers = async ({ page = 1, limit = 20, status = null }
       ${whereClause}
       GROUP BY c.id
       ORDER BY created_at DESC
-      LIMIT ? OFFSET ?`,
+      LIMIT ? OFFSET ?
+      `,
       params
     ),
     db.query(
       `SELECT COUNT(*) AS total FROM contest c ${whereClause}`,
-      countParams
+      status ? [status] : []
     ),
   ]);
 
+  //  No contests case
   if (!contests.length) {
     return {
       data: [],
@@ -1599,11 +1600,12 @@ export const getContestsbyusers = async ({ page = 1, limit = 20, status = null }
     };
   }
 
-  // 2. Get users + teams per contest
+  //  2. Get users + teams per contest
   const contestIds = contests.map(c => c.id);
 
   const [entries] = await db.query(
-    `SELECT
+    `
+    SELECT
       ce.contest_id,
       ce.user_id,
       u.name AS user_name,
@@ -1611,20 +1613,23 @@ export const getContestsbyusers = async ({ page = 1, limit = 20, status = null }
     FROM contest_entries ce
     JOIN users u ON u.id = ce.user_id
     WHERE ce.contest_id IN (?)
-    GROUP BY ce.contest_id, ce.user_id`,
+    GROUP BY ce.contest_id, ce.user_id
+    `,
     [contestIds]
   );
 
-  // 3. Map users into contests
+  //  3. Map users into contests
   const contestMap = {};
+
   contests.forEach(contest => {
     contestMap[contest.id] = { ...contest, users: [] };
   });
+
   entries.forEach(row => {
     if (contestMap[row.contest_id]) {
       contestMap[row.contest_id].users.push({
-        user_id:    row.user_id,
-        user_name:  row.user_name,
+        user_id: row.user_id,
+        user_name: row.user_name,
         team_count: row.team_count
       });
     }
@@ -1983,7 +1988,13 @@ export const getContestCategories = async ({ page = 1, limit = 20 } = {}) => {
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT id, name, percentage, entryfee, platformfee, created_at
+      `SELECT
+         id,
+         name,
+         percentage,
+         entryfee,
+         platformfee,
+         created_at
        FROM contestcategory
        ORDER BY id DESC
        LIMIT ? OFFSET ?`,
@@ -2008,7 +2019,13 @@ export const getContestcategoryById = async (id) => {
   if (!id || isNaN(Number(id))) throw new Error("Valid contest ID is required");
 
   const [[row]] = await db.query(
-    `SELECT id, name, percentage, entryfee, platformfee, created_at
+    `SELECT
+       id,
+       name,
+       percentage,
+       entryfee,
+       platformfee,
+       created_at
      FROM contestcategory
      WHERE id = ?`,
     [Number(id)]
@@ -2087,29 +2104,29 @@ export const getHomeservice = async () => {
   ] = await Promise.all([
     db.query(`
       SELECT
-        COUNT(*)                                                   AS totalRegistered,
-        SUM(mobile_verify = 1 AND email_verify = 1)               AS activeUsers,
-        SUM(mobile_verify = 0)                                     AS phoneverify,
-        SUM(email_verify = 0)                                      AS mailverify,
-        SUM(subscribe = 1)                                         AS subscribe,
-        SUM(kyc_status = 'approved')                               AS kycVerified,
-        SUM(kyc_status = 'pending')                                AS kycPending,
-        SUM(kyc_status = 'not_started')                            AS notKycVerified,
-        SUM(kyc_status = 'rejected')                               AS KycRejected,
-        SUM(issofverify = 1)                                       AS SOFVerified,
-        SUM(issofverify = 0)                                       AS nonSOFVerified,
-        SUM(bank_verified = 1)                                     AS BankVerified,
-        SUM(bank_verified = 0)                                     AS notBankVerified,
-        SUM(is_blocked = 1)                                        AS blockeduser,
-        SUM(account_status = 'paused')                             AS gamepaused,
-        SUM(account_status = 'deleted')                            AS deleteusers
+        COUNT(*)                                          AS totalRegistered,
+        SUM(mobile_verify = 1 AND email_verify = 1)      AS activeUsers,
+        SUM(mobile_verify = 0)                           AS phoneverify,
+        SUM(email_verify = 0)                            AS mailverify,
+        SUM(subscribe = 1)                               AS subscribe,
+        SUM(kyc_status = 'approved')                     AS kycVerified,
+        SUM(kyc_status = 'pending')                      AS kycPending,
+        SUM(kyc_status = 'not_started')                  AS notKycVerified,
+        SUM(kyc_status = 'rejected')                     AS KycRejected,
+        SUM(issofverify = 1)                             AS SOFVerified,
+        SUM(issofverify = 0)                             AS nonSOFVerified,
+        SUM(bank_verified = 1)                           AS BankVerified,
+        SUM(bank_verified = 0)                           AS notBankVerified,
+        SUM(is_blocked = 1)                              AS blockeduser,
+        SUM(account_status = 'paused')                   AS gamepaused,
+        SUM(account_status = 'deleted')                  AS deleteusers
       FROM users
     `),
     db.query(`
       SELECT
         SUM(earnwallet)   AS Earnwallet,
         SUM(depositwallet) AS Depositewallet,
-        SUM(bonusamount)   AS Bonuswallet
+        SUM(bonusamount)  AS Bonuswallet
       FROM wallets
     `),
     db.query(`
@@ -2122,7 +2139,7 @@ export const getHomeservice = async () => {
       SELECT
         SUM(status = 'LIVE')      AS liveMatches,
         SUM(status = 'UPCOMING')  AS launchedMatches,
-        SUM(status = 'RESULT') AS completedMatches,
+        SUM(status = 'COMPLETED') AS completedMatches,
         SUM(status = 'INREVIEW')  AS reviewMatches,
         SUM(status = 'ABANDONED') AS cancelledMatches
       FROM matches
@@ -2143,8 +2160,12 @@ export const getHomeservice = async () => {
     `),
     db.query(`
       SELECT
-        c.id, c.created_at, c.contest_type,
-        c.max_entries, c.current_entries, c.status,
+        c.id,
+        c.created_at,
+        c.contest_type,
+        c.max_entries,
+        c.current_entries,
+        c.status,
         ht.name AS home_team_name,
         at.name AS away_team_name
       FROM contest c
@@ -2227,7 +2248,10 @@ export const getallDeposites = async ({ page = 1, limit = 20 } = {}) => {
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT ${DEPOSIT_COLUMNS} FROM deposite ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${DEPOSIT_COLUMNS}
+       FROM deposite
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
       [safeLimit, offset]
     ),
     db.query(`SELECT COUNT(*) AS total FROM deposite`),
@@ -2260,10 +2284,16 @@ export const fetchDeposites = async (filters = {}, { page = 1, limit = 20 } = {}
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT ${DEPOSIT_COLUMNS} FROM deposite ${whereClause} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${DEPOSIT_COLUMNS}
+       FROM deposite ${whereClause}
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
     ),
-    db.query(`SELECT COUNT(*) AS total FROM deposite ${whereClause}`, params),
+    db.query(
+      `SELECT COUNT(*) AS total FROM deposite ${whereClause}`,
+      params
+    ),
   ]);
 
   return {
@@ -2311,7 +2341,10 @@ export const getallWithdraws = async ({ page = 1, limit = 20 } = {}) => {
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT ${WITHDRAW_COLUMNS} FROM withdraws ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${WITHDRAW_COLUMNS}
+       FROM withdraws
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
       [safeLimit, offset]
     ),
     db.query(`SELECT COUNT(*) AS total FROM withdraws`),
@@ -2344,10 +2377,16 @@ export const fetchWithdraws = async (filters = {}, { page = 1, limit = 20 } = {}
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT ${WITHDRAW_COLUMNS} FROM withdraws ${whereClause} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${WITHDRAW_COLUMNS}
+       FROM withdraws ${whereClause}
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
     ),
-    db.query(`SELECT COUNT(*) AS total FROM withdraws ${whereClause}`, params),
+    db.query(
+      `SELECT COUNT(*) AS total FROM withdraws ${whereClause}`,
+      params
+    ),
   ]);
 
   return {
@@ -2380,13 +2419,13 @@ export const fetchWithdrawsSummary = async () => {
 
 
 
-export const adminWithdrawActionService = async (withdrawId, data, adminId) => {
+export const adminWithdrawActionService = async (withdrawId, data) => {
   const conn = await db.getConnection();
 
   try {
     await conn.beginTransaction();
 
-    const { action, reason = "" } = data;
+    const { action, reason } = data;
 
     if (!["APPROVE", "REJECT"].includes(action)) {
       throw new Error(`Invalid action: ${action}. Must be APPROVE or REJECT`);
@@ -2406,49 +2445,42 @@ export const adminWithdrawActionService = async (withdrawId, data, adminId) => {
       throw new Error("Withdraw request already processed");
     }
 
-    const amount = parseFloat(withdraw.amount);
-
     if (action === "APPROVE") {
       await conn.query(
         `UPDATE withdraws
-         SET status = 'APPROVED', approved_at = NOW()
+         SET status = 'APPROVED',
+             approved_at = NOW()
          WHERE id = ?`,
         [withdrawId]
       );
       await conn.query(
-        `INSERT INTO withdraw_approvals
-           (withdrawal_id, admin_id, status, remarks, created_at)
+        `INSERT INTO withdraw_approvals (withdrawal_id, admin_id, status, remarks, created_at)
          VALUES (?, ?, 'approved', ?, NOW())`,
-        [withdrawId, adminId ?? null, reason]
+        [withdrawId, data.adminId ?? null, data.reason ?? ""]
       );
       await conn.query(
-        `INSERT INTO wallet_transactions
-           (user_id, wallettype, transtype, amount, remark, reference_id)
+        `INSERT INTO wallet_transactions (user_id, wallettype, transtype, amount, remark, reference_id)
          VALUES (?, 'withdrawal', 'debit', ?, 'Withdrawal approved', ?)`,
-        [withdraw.user_id, amount, withdrawId]
+        [withdraw.user_id, withdraw.amount, withdrawId]
       );
-    } else {
+    }
+
+    if (action === "REJECT") {
+      // refund wallet
       await conn.query(
-        `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
-        [amount, withdraw.user_id]
+        `UPDATE wallets
+         SET earnwallet = earnwallet + ?
+         WHERE user_id = ?`,
+        [withdraw.amount, withdraw.user_id]
       );
+
       await conn.query(
         `UPDATE withdraws
-         SET status = 'REJECTED', reject_reason = ?, rejected_at = NOW()
+         SET status = 'REJECTED',
+             reject_reason = ?,
+             rejected_at = NOW()
          WHERE id = ?`,
         [reason, withdrawId]
-      );
-      await conn.query(
-        `INSERT INTO withdraw_approvals
-           (withdrawal_id, admin_id, status, remarks, created_at)
-         VALUES (?, ?, 'rejected', ?, NOW())`,
-        [withdrawId, adminId ?? null, reason]
-      );
-      await conn.query(
-        `INSERT INTO wallet_transactions
-           (user_id, wallettype, transtype, amount, remark, reference_id)
-         VALUES (?, 'refund', 'credit', ?, 'Withdrawal rejected - refund', ?)`,
-        [withdraw.user_id, amount, `REJECTED-${withdrawId}`]
       );
     }
 
@@ -2664,7 +2696,10 @@ export const getallUsers = async ({ page = 1, limit = 20 } = {}) => {
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT ${USER_COLUMNS} FROM users ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${USER_COLUMNS}
+       FROM users
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
       [safeLimit, offset]
     ),
     db.query(`SELECT COUNT(*) AS total FROM users`),
@@ -2697,10 +2732,16 @@ export const fetchUsers = async (filters = {}, { page = 1, limit = 20 } = {}) =>
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT ${USER_COLUMNS} FROM users ${whereClause} ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${USER_COLUMNS}
+       FROM users ${whereClause}
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
     ),
-    db.query(`SELECT COUNT(*) AS total FROM users ${whereClause}`, params),
+    db.query(
+      `SELECT COUNT(*) AS total FROM users ${whereClause}`,
+      params
+    ),
   ]);
 
   return {
@@ -2719,10 +2760,17 @@ export const fetchUsersByKycStatus = async (filters = {}, { page = 1, limit = 20
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT ${USER_COLUMNS} FROM users WHERE kyc_status = ? ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${USER_COLUMNS}
+       FROM users
+       WHERE kyc_status = ?
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
       [kyc_status.trim(), safeLimit, offset]
     ),
-    db.query(`SELECT COUNT(*) AS total FROM users WHERE kyc_status = ?`, [kyc_status.trim()]),
+    db.query(
+      `SELECT COUNT(*) AS total FROM users WHERE kyc_status = ?`,
+      [kyc_status.trim()]
+    ),
   ]);
 
   return {
@@ -2741,10 +2789,17 @@ export const fetchUsersByAccountStatus = async (filters = {}, { page = 1, limit 
 
   const [[rows], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT ${USER_COLUMNS} FROM users WHERE account_status = ? ORDER BY id DESC LIMIT ? OFFSET ?`,
+      `SELECT ${USER_COLUMNS}
+       FROM users
+       WHERE account_status = ?
+       ORDER BY id DESC
+       LIMIT ? OFFSET ?`,
       [account_status.trim(), safeLimit, offset]
     ),
-    db.query(`SELECT COUNT(*) AS total FROM users WHERE account_status = ?`, [account_status.trim()]),
+    db.query(
+      `SELECT COUNT(*) AS total FROM users WHERE account_status = ?`,
+      [account_status.trim()]
+    ),
   ]);
 
   return {
@@ -2765,68 +2820,55 @@ export const getUsersByType = async ({
   let params = [];
   switch (type) {
     case "active":
-      where.push(`mobile_verify = ? AND email_verify = ?`);
-      params.push(1, 1);
+      where.push(`mobile_verify = 1 AND email_verify = 1`);
       break;
 
     case "mobile_notverifeid":
-      where.push(`mobile_verify = ?`);
-      params.push(0);
+      where.push(`mobile_verify = 0`);
       break;
 
     case "email_notverified":
-      where.push(`email_verify = ?`);
-      params.push(0);
+      where.push(`email_verify = 0`);
       break;
 
     case "kyc_verified":
-      where.push(`kyc_status = ?`);
-      params.push('approved');
+      where.push(`kyc_status = 'approved'`);
       break;
 
     case "kyc_pending":
-      where.push(`kyc_status = ?`);
-      params.push('pending');
+      where.push(`kyc_status = 'pending'`);
       break;
 
     case "kyc_rejected":
-      where.push(`kyc_status = ?`);
-      params.push('rejected');
+      where.push(`kyc_status = 'rejected'`);
       break;
 
     case "kyc_notstart":
-      where.push(`kyc_status = ?`);
-      params.push('not_started');
+      where.push(`kyc_status = 'not_started'`);
       break;
 
     case "sof_verified":
-      where.push(`issofverify = ?`);
-      params.push(1);
+      where.push(`issofverify = 1`);
       break;
 
-    case "sof_notverified":
-      where.push(`issofverify = ?`);
-      params.push(0);
+        case "sof_notverified":
+      where.push(`issofverify = 0`);
       break;
 
     case "bank_verified":
-      where.push(`bank_verified = ?`);
-      params.push(1);
+      where.push(`bank_verified = 1`);
       break;
 
     case "blocked":
-      where.push(`is_blocked = ?`);
-      params.push(1);
+      where.push(`is_blocked = 1`);
       break;
 
     case "game_paused":
-      where.push(`account_status = ?`);
-      params.push('paused');
+      where.push(`account_status = 'paused'`);
       break;
 
     case "deleted":
-      where.push(`account_status = ?`);
-      params.push('deleted');
+      where.push(`account_status = 'deleted'`);
       break;
 
     default:
@@ -2837,14 +2879,21 @@ export const getUsersByType = async ({
 
   const [[users], [[{ total }]]] = await Promise.all([
     db.query(
-      `SELECT id, name, email, mobile, mobile_verify, email_verify,
-              kyc_status, issofverify, bank_verified, is_blocked, account_status, created_at
-       FROM users ${whereClause}
+      `SELECT
+         id, name, email, mobile,
+         mobile_verify, email_verify, kyc_status,
+         issofverify, bank_verified, is_blocked,
+         account_status, created_at
+       FROM users
+       ${whereClause}
        ORDER BY created_at DESC
        LIMIT ? OFFSET ?`,
       [...params, safeLimit, offset]
     ),
-    db.query(`SELECT COUNT(*) AS total FROM users ${whereClause}`, params),
+    db.query(
+      `SELECT COUNT(*) AS total FROM users ${whereClause}`,
+      params
+    ),
   ]);
 
   return {
@@ -3083,7 +3132,7 @@ export const rejectWithdrawService = async (adminId, withdrawId, body) => {
 // ── List all ─────────────────────────────────────────────────────────────────
 export const getAllWithdrawalsService = async (query) => {
   const { status, page = 1, limit = 20 } = query;
-  const safeLimit = Math.min(parseInt(limit) || 20, 100);
+  const safeLimit = Math.min(Number(limit) || 20, 100);
   const offset = (parseInt(page) - 1) * safeLimit;
 
   let where = "WHERE 1=1";
@@ -3094,44 +3143,36 @@ export const getAllWithdrawalsService = async (query) => {
     params.push(status.toUpperCase());
   }
 
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM withdraws w ${where}`,
-    params
-  );
-
-  const [rows] = await db.query(
-    `SELECT
-       w.id,
-       w.user_id,
-       w.username,
-       w.email,
-       w.phone,
-       w.amount,
-       w.status,
-       w.transaction_id,
-       w.bank_details,
-       w.snapshot_opening,
-       w.snapshot_closing,
-       w.created_at,
-       w.processed_at,
-       la.admin_id,
-       la.remarks,
-       la.created_at AS approval_date
-     FROM withdraws w
-     LEFT JOIN (
-       SELECT withdrawal_id, admin_id, remarks, created_at
-       FROM (
-         SELECT wa.*,
-                ROW_NUMBER() OVER (PARTITION BY wa.withdrawal_id ORDER BY wa.created_at DESC) AS rn
-         FROM withdraw_approvals wa
-       ) ranked
-       WHERE rn = 1
-     ) la ON la.withdrawal_id = w.id
-     ${where}
-     ORDER BY w.created_at DESC
-     LIMIT ? OFFSET ?`,
-    [...params, safeLimit, offset]
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT
+         w.id,
+         w.user_id,
+         w.username,
+         w.email,
+         w.phone,
+         w.amount,
+         w.status,
+         w.transaction_id,
+         w.bank_details,
+         w.snapshot_opening,
+         w.snapshot_closing,
+         w.created_at,
+         w.processed_at,
+         (SELECT wa.admin_id   FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS admin_id,
+         (SELECT wa.remarks    FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS remarks,
+         (SELECT wa.created_at FROM withdraw_approvals wa WHERE wa.withdrawal_id = w.id ORDER BY wa.created_at DESC LIMIT 1) AS approval_date
+       FROM withdraws w
+       ${where}
+       ORDER BY w.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM withdraws w ${where}`,
+      params
+    ),
+  ]);
 
   return {
     success: true,
@@ -3271,22 +3312,20 @@ export const addExpenditure = async (payload = {}) => {
 
     await connection.beginTransaction();
 
-    // Lock singleton balance row — prevents concurrent reads from racing
-    const [[balanceRow]] = await connection.query(
-      `SELECT balance FROM company_balance WHERE id = 1 FOR UPDATE`
+    // Get last balance — locked to prevent concurrent reads
+    const [[lastTx]] = await connection.query(
+      `SELECT closing_balance FROM financial_transactions 
+       WHERE status = 'success' 
+       ORDER BY created_at DESC 
+       LIMIT 1 FOR UPDATE`
     );
 
-    const opening_balance = Number(balanceRow?.balance || 0);
+    const opening_balance = lastTx ? Number(lastTx.closing_balance) : 0;
     const closing_balance = transaction_type === "credit"
       ? opening_balance + parsedAmount
       : opening_balance - parsedAmount;
 
     if (closing_balance < 0) throw new Error("Insufficient balance");
-
-    await connection.query(
-      `UPDATE company_balance SET balance = ? WHERE id = 1`,
-      [closing_balance]
-    );
 
     // Insert transaction
     const [txResult] = await connection.query(
@@ -3362,31 +3401,22 @@ export const getExpenditure = async ({
 
   const whereClause = `WHERE ${where.join(" AND ")}`;
 
-  //  Data Query
-  const [rows] = await db.query(
-    `
-    SELECT 
-      id,
-      transaction_type,
-      category,
-      amount,
-      reference_table,
-      reference_id,
-      remark,
-      created_at
-    FROM expenditure
-    ${whereClause}
-    ORDER BY created_at DESC
-    LIMIT ? OFFSET ?
-    `,
-    [...params, safeLimit, offset]
-  );
-
-  //  Count Query
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM expenditure ${whereClause}`,
-    params
-  );
+  const [[rows], [[{ total }]]] = await Promise.all([
+    db.query(
+      `SELECT
+         id, transaction_type, category, amount,
+         reference_table, reference_id, remark, created_at
+       FROM expenditure
+       ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, safeLimit, offset]
+    ),
+    db.query(
+      `SELECT COUNT(*) AS total FROM expenditure ${whereClause}`,
+      params
+    ),
+  ]);
 
   return {
     data: rows,
@@ -3555,23 +3585,15 @@ export const processMatchResultService = async (matchId) => {
 
         const refundable = entries.filter(e => parseFloat(e.entry_fee) > 0);
         if (refundable.length) {
-          const refundByUser = {};
-          for (const e of refundable) {
-            refundByUser[e.user_id] = (refundByUser[e.user_id] || 0) + parseFloat(e.entry_fee);
-          }
-          const uniqueRefunds = Object.entries(refundByUser);
-          const walletCase = uniqueRefunds.map(() => `WHEN user_id = ? THEN depositwallet + ?`).join(' ');
-          const walletVals = uniqueRefunds.flatMap(([uid, total]) => [uid, total]);
-          const walletIds  = uniqueRefunds.map(([uid]) => uid);
+          const caseExpr = refundable.map(() => `WHEN user_id = ? THEN depositwallet + ?`).join(' ');
+          const caseVals = refundable.flatMap(e => [e.user_id, e.entry_fee]);
+          const uids = refundable.map(e => e.user_id);
           await conn.query(
-            `UPDATE wallets SET depositwallet = CASE ${walletCase} END
-             WHERE user_id IN (${walletIds.map(() => '?').join(',')})`,
-            [...walletVals, ...walletIds]
+            `UPDATE wallets SET depositwallet = CASE ${caseExpr} END WHERE user_id IN (${uids.map(() => '?').join(',')})`,
+            [...caseVals, ...uids]
           );
           await conn.query(
-            `INSERT INTO wallet_transactions
-               (user_id, wallettype, transtype, amount, remark, reference_id)
-             VALUES ${refundable.map(() => '(?,?,?,?,?,?)').join(',')}`,
+            `INSERT INTO wallet_transactions (user_id, wallettype, transtype, amount, remark, reference_id) VALUES ${refundable.map(() => '(?,?,?,?,?,?)').join(',')}`,
             refundable.flatMap(e => [e.user_id, 'deposit', 'credit', e.entry_fee, 'Contest refund - min entries not met', contest.id])
           );
         }
@@ -3618,7 +3640,7 @@ export const processMatchResultService = async (matchId) => {
         [matchId, contest.id, contest.id]
       );
 
-      // ── Step 4: Calculate prizes for all entries ──────────────────────
+      // ── Step 4: Calculate & update winning_amount ─────────────────────
       const [rankedEntries] = await conn.query(
         `SELECT id, user_id, urank, entry_fee
          FROM contest_entries
@@ -3626,66 +3648,41 @@ export const processMatchResultService = async (matchId) => {
         [contest.id]
       );
 
-      const winners = [];
-      const loserIds = [];
+      const winners = rankedEntries
+        .map(e => ({ ...e, prize: getPrizeForRank(e.urank, contest.prize_distribution, contest.entry_fee, contest.total_winners, contest.refund_start_rank) }))
+        .filter(e => e.prize > 0);
+      const losers = rankedEntries.filter(e => !winners.find(w => w.id === e.id));
       const prizeByUser = {};
+      winners.forEach(w => { prizeByUser[w.user_id] = (prizeByUser[w.user_id] || 0) + w.prize; });
 
-      for (const entry of rankedEntries) {
-        const prize = getPrizeForRank(
-          entry.urank,
-          contest.prize_distribution,
-          contest.entry_fee,
-          contest.total_winners,
-          contest.refund_start_rank
-        );
-        if (prize > 0) {
-          winners.push({ id: entry.id, user_id: entry.user_id, prize });
-          prizeByUser[entry.user_id] = (prizeByUser[entry.user_id] || 0) + prize;
-        } else {
-          loserIds.push(entry.id);
-        }
-      }
-
-      // Bulk update winning_amount on contest_entries
       if (winners.length) {
-        const caseExpr = winners.map(() => `WHEN id = ? THEN ?`).join(' ');
-        const caseVals = winners.flatMap(w => [w.id, w.prize]);
-        const winIds   = winners.map(w => w.id);
+        const entryCase = winners.map(() => `WHEN id = ? THEN ?`).join(' ');
+        const entryVals = winners.flatMap(w => [w.id, w.prize]);
+        const winIds = winners.map(w => w.id);
         await conn.query(
-          `UPDATE contest_entries
-           SET winning_amount = CASE ${caseExpr} END, status = 'won'
-           WHERE id IN (${winIds.map(() => '?').join(',')})`,
-          [...caseVals, ...winIds]
+          `UPDATE contest_entries SET winning_amount = CASE ${entryCase} END, status = 'won' WHERE id IN (${winIds.map(() => '?').join(',')})`,
+          [...entryVals, ...winIds]
         );
-
-        // Bulk INSERT wallet_transactions
         await conn.query(
-          `INSERT INTO wallet_transactions
-             (user_id, wallettype, transtype, amount, remark, reference_id)
-           VALUES ${winners.map(() => '(?,?,?,?,?,?)').join(',')}`,
+          `INSERT INTO wallet_transactions (user_id, wallettype, transtype, amount, remark, reference_id) VALUES ${winners.map(() => '(?,?,?,?,?,?)').join(',')}`,
           winners.flatMap(w => [w.user_id, 'winning', 'credit', w.prize, 'Contest winnings', contest.id])
         );
-
-        // Bulk UPDATE wallets — one row per unique user, summing prizes
         const uniqueUsers = Object.entries(prizeByUser);
-        const walletCase  = uniqueUsers.map(() => `WHEN user_id = ? THEN earnwallet + ?`).join(' ');
-        const walletVals  = uniqueUsers.flatMap(([uid, total]) => [uid, total]);
-        const walletIds   = uniqueUsers.map(([uid]) => uid);
+        const walletCase = uniqueUsers.map(() => `WHEN user_id = ? THEN earnwallet + ?`).join(' ');
+        const walletVals = uniqueUsers.flatMap(([uid, total]) => [uid, total]);
+        const walletIds = uniqueUsers.map(([uid]) => uid);
         await conn.query(
-          `UPDATE wallets SET earnwallet = CASE ${walletCase} END
-           WHERE user_id IN (${walletIds.map(() => '?').join(',')})`,
+          `UPDATE wallets SET earnwallet = CASE ${walletCase} END WHERE user_id IN (${walletIds.map(() => '?').join(',')})`,
           [...walletVals, ...walletIds]
         );
       }
-
-      // Bulk update losers
-      if (loserIds.length) {
+      if (losers.length) {
         await conn.query(
-          `UPDATE contest_entries SET status = 'lost'
-           WHERE id IN (${loserIds.map(() => '?').join(',')})`,
-          loserIds
+          `UPDATE contest_entries SET status = 'lost' WHERE id IN (${losers.map(() => '?').join(',')})`,
+          losers.map(e => e.id)
         );
       }
+      const totalWinnersPaid = winners.length;
 
       // ── Step 5: Contest status → RESULT ──────────────────────────────
       await conn.query(
@@ -3697,7 +3694,7 @@ export const processMatchResultService = async (matchId) => {
         contest_id:          contest.id,
         status:              "RESULT",
         total_entries:       rankedEntries.length,
-        total_winners_paid:  winners.length,
+        total_winners_paid:  totalWinnersPaid,
       });
     }
 
@@ -3727,13 +3724,11 @@ export const setMatchLiveService = async (matchId) => {
   try {
     await conn.beginTransaction();
     const [[match]] = await conn.query(
-      `SELECT id, status FROM matches WHERE id = ? FOR UPDATE`,
-      [matchId]
+      `SELECT id, status FROM matches WHERE id = ? FOR UPDATE`, [matchId]
     );
     if (!match)                    throw new Error("Match not found");
     if (match.status === "RESULT") throw new Error("Match already completed");
     if (match.status === "LIVE")   throw new Error("Match already live");
-
     await conn.query(`UPDATE matches SET status = 'LIVE' WHERE id = ?`, [matchId]);
     await conn.query(
       `UPDATE contest SET status = 'LIVE' WHERE match_id = ? AND status != 'CANCELLED'`,
