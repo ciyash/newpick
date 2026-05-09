@@ -125,9 +125,8 @@ export const getUserProfileService = async (userId) => {
 
 export const reduceMonthlyLimitService = async (userId, newLimit) => {
 
-  /* --------------------------------
-     1️⃣ FETCH USER + CURRENT LIMIT + FLAG
-  -------------------------------- */
+  console.log("Service called — userId:", userId, "newLimit:", newLimit); // ADD
+
   const [[data]] = await db.query(
     `SELECT u.category,
             w.deposit_limit,
@@ -138,70 +137,48 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
     [userId]
   );
 
+  console.log("Fetched data:", data); // ADD
+
   if (!data) throw new Error("User not found");
 
   const currentLimit = Number(data.deposit_limit);
+  const newLimitNum  = Number(newLimit);           // ← ADD THIS — parse cheyyi
 
-  /* --------------------------------
-     ⭐ PERMANENT BLOCK (LIFETIME)
-  -------------------------------- */
+  console.log("currentLimit:", currentLimit, "newLimitNum:", newLimitNum); // ADD
+
   if (data.limit_reduced_once) {
-    throw new Error(
-      "Monthly limit can be reduced only once in your account lifetime"
-    );
+    throw new Error("Monthly limit can be reduced only once in your account lifetime");
   }
 
-  /* --------------------------------
-     2️⃣ CATEGORY DEFAULT LIMIT
-  -------------------------------- */
-  const normalizedCategory =
-    String(data.category || "").toLowerCase();
+  const normalizedCategory = String(data.category || "").toLowerCase();
+  const DEFAULT_LIMIT = normalizedCategory === "student" ? 500 : 1500;
 
-  const DEFAULT_LIMIT =
-    normalizedCategory === "student" ? 500 : 1500;
+  if (newLimitNum < 100)            throw new Error("Minimum allowed limit is £100");
+  if (newLimitNum > DEFAULT_LIMIT)  throw new Error(`Maximum allowed limit is £${DEFAULT_LIMIT}`);
+  if (newLimitNum > currentLimit)   throw new Error("Limit increase is not allowed");
+  if (newLimitNum === currentLimit)  throw new Error("New limit must be lower than current limit");
 
-  /* --------------------------------
-     3️⃣ VALIDATIONS
-  -------------------------------- */
-
-  if (newLimit < 100) {
-    throw new Error("Minimum allowed limit is £100");
-  }
-
-  if (newLimit > DEFAULT_LIMIT) {
-    throw new Error(
-      `Maximum allowed limit for your account is £${DEFAULT_LIMIT}`
-    );
-  }
-
-  if (newLimit > currentLimit) {
-    throw new Error("Limit increase is not allowed");
-  }
-
-  if (newLimit === currentLimit) {
-    throw new Error("New limit must be lower than current limit");
-  }
-
-  /* --------------------------------
-     4️⃣ UPDATE LIMIT + PERMANENT FLAG
-  -------------------------------- */
-  await db.query(
+  const [result] = await db.query(
     `UPDATE wallets
-     SET deposit_limit = ?,
+     SET deposit_limit     = ?,
          limit_reduced_once = TRUE
      WHERE user_id = ?`,
-    [newLimit, userId]
+    [newLimitNum, userId]
   );
+
+  console.log("Update result:", result); // ADD — affectedRows చూడు
 
   logActivity({
     userId,
     type:        "profile",
     sub_type:    "limit_reduced",
     title:       "Deposit Limit Reduced",
-    description: `Monthly deposit limit reduced to £${newLimit}`,
+    description: `Monthly deposit limit reduced to £${newLimitNum}`,
     icon:        "profile",
-    meta:        { newLimit },
+    meta:        { newLimit: newLimitNum },
   });
+
+  return { message: `Deposit limit reduced to £${newLimitNum}` };
 };
 
    

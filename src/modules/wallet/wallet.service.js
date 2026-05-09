@@ -229,6 +229,7 @@ export const getMyWalletService = async (userId) => {
       bonusamount,
       deposit_limit,
       total_deposits,
+       limit_reduced_once, 
       iskyc,
       issofverify
    FROM wallets
@@ -360,7 +361,7 @@ export const getMyWalletService = async (userId) => {
     remaining_limit: remainingThisMonth,
     used_percent: usedPercent,
 
-   can_add_cash:
+   limit_reduced_once:
     Number(wallet.limit_reduced_once || 0),
   },
 

@@ -28,29 +28,19 @@ export const getUserProfile = async (req, res) => {
 };
 
 
+
 export const reduceMonthlyLimit = async (req, res) => {
   try {
     const userId = req.user.id;
     const { newLimit } = req.body;
-
-    if (!newLimit || isNaN(newLimit)) {
-      throw new Error("Valid limit is required");
-    }
-
-    await reduceMonthlyLimitService(
-      userId,
-      Number(newLimit)
-    );
-
-    res.status(200).json({
-      success: true,
-      message: "Monthly deposit limit reduced successfully"
-    });
-  } catch (err) {
-    res.status(400).json({
-      success: false,
-      message: err.message
-    });
+    
+    console.log("userId:", userId, "newLimit:", newLimit, typeof newLimit); // ADD THIS
+    
+    const response = await reduceMonthlyLimitService(userId, newLimit);
+    res.json({ success: true, ...response });
+  } catch (error) {
+    console.error("reduceMonthlyLimit error:", error.message); // ADD THIS
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
