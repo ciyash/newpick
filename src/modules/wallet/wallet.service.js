@@ -244,7 +244,7 @@ export const getMyWalletService = async (userId) => {
   const bonusWallet = Number(wallet.bonusamount || 0);
 
   const totalBalance = Number(
-    (depositWallet + winningsWallet + bonusWallet).toFixed(2)
+    (depositWallet + winningsWallet).toFixed(2)
   );
 
   /* ═══════════════════════ 2. FINANCIAL SUMMARY ═══════════════════════ */

@@ -296,7 +296,9 @@ export const getMyWithdrawRequestsService = async (userId) => {
         processed_at
      FROM withdraws
      WHERE user_id = ?
-     ORDER BY created_at DESC`,   
+     ORDER BY created_at DESC
+     Limit 3`,
+     
     [userId]
   );
 
