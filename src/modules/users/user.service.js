@@ -257,3 +257,61 @@ export const getMyFeedbacksService = async (userId) => {
 
   return rows;
 };
+
+
+export const getUserPreferencesService = async (userId) => {
+  const [[prefs]] = await db.query(
+    `SELECT 
+        sms_notifications,
+        email_notifications,
+        marketing_messages
+     FROM users
+     WHERE id = ?`,
+    [userId]
+  );
+
+  if (!prefs) {
+    throw new Error("User not found");
+  }
+
+  return {
+    success: true,
+    data: {
+      sms_notifications: prefs.sms_notifications,
+      email_notifications: prefs.email_notifications,
+      marketing_messages: prefs.marketing_messages,
+    },
+  };
+};
+
+
+export const updateUserPreferencesService = async (
+  userId,
+  data
+) => {
+  const {
+    sms_notifications,
+    email_notifications,
+    marketing_messages,
+  } = data;
+
+  await db.query(
+    `UPDATE users
+     SET 
+       sms_notifications = ?,
+       email_notifications = ?,
+       marketing_messages = ?
+     WHERE id = ?`,
+    [
+      sms_notifications ?? 0,
+      email_notifications ?? 0,
+      marketing_messages ?? 0,
+      userId,
+    ]
+  );
+
+  return {
+    success: true,
+    message: "Preferences updated successfully",
+  };
+};

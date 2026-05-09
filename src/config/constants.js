@@ -17,5 +17,9 @@ export const OTP_MAX = 999999;
 export const PAUSE_PLANS = {
   "1d":  1,
   "7d":  7,
+  "15d": 15,
   "30d": 30,
+  "90d": 90,
+  "180d": 180,  
+
 };

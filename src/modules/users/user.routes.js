@@ -5,7 +5,9 @@ import {
   createFeedback, 
   getMyFeedbacks,
   pauseAccount,
-  deleteAccount
+  deleteAccount,
+  getUserPreferences,
+  updateUserPreferences
 } from "./user.controller.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
 import walletRoutes from "../wallet/wallet.routes.js";
@@ -49,6 +51,9 @@ app.use("/kyc",kycRoutes)
 app.use("/withdraw", withdrawRoutes);
 app.use("/bank",authenticate,checkAccountActive, bankRoutes);
 app.use("/user-activity",  userActivityRoutes);
+app.get("/preferences",        authenticate,checkAccountActive, getUserPreferences);
+app.patch("/preferences/update",      authenticate, checkAccountActive, updateUserPreferences);
+
 // app.use("/test",testRoutes)
 // app.use("/notification", authenticate, checkAccountActive, notificationRoutes);
 

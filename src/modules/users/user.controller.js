@@ -1,6 +1,8 @@
 import {
   getUserProfileService, reduceMonthlyLimitService, createFeedbackService,
-  getMyFeedbacksService
+  getMyFeedbacksService,
+  getUserPreferencesService,
+  updateUserPreferencesService
 } from "./user.service.js";
 import { feedbackSchema } from "./user.validation.js";
 import db from "../../config/db.js";
@@ -186,3 +188,40 @@ export const deleteAccount = async (req, res) => {
 
 
 
+export const getUserPreferences = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const result = await getUserPreferencesService(userId);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+export const updateUserPreferences = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const result = await updateUserPreferencesService(
+      userId,
+      req.body
+    );
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};

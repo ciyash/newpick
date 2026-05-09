@@ -269,15 +269,20 @@ const creditWinningsToWallets = async (contestId, conn) => {
 
   if (!winners.length) return 0;
 
-  // ── Contest details fetch — platform fee calculate కోసం ──
+  // ── Contest + match details ──
   const [[contest]] = await conn.query(
-    `SELECT id, prize_pool, net_pool_prize, platform_fee_percentage
-     FROM contest WHERE id = ?`,
+    `SELECT c.id, c.prize_pool, c.net_pool_prize, c.contest_type,
+            m.hometeamname, m.awayteamname
+     FROM contest c
+     JOIN matches m ON m.id = c.match_id
+     WHERE c.id = ?`,
     [contestId]
   );
+  if (!contest) return 0;
 
-  const platformFee = parseFloat(
-    ((Number(contest.prize_pool) - Number(contest.net_pool_prize))).toFixed(2)
+  const matchInfo    = `${contest.hometeamname} vs ${contest.awayteamname}`;
+  const platformFee  = parseFloat(
+    (Number(contest.prize_pool) - Number(contest.net_pool_prize)).toFixed(2)
   ) || 0;
 
   // ── Company balance ──
@@ -290,7 +295,8 @@ const creditWinningsToWallets = async (contestId, conn) => {
   for (const winner of winners) {
     // ── 1. Wallet fetch ──
     const [[wallet]] = await conn.query(
-      `SELECT earnwallet, depositwallet, bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
+      `SELECT earnwallet, depositwallet, bonusamount FROM wallets
+       WHERE user_id = ? FOR UPDATE`,
       [winner.user_id]
     );
     if (!wallet) continue;
@@ -318,7 +324,7 @@ const creditWinningsToWallets = async (contestId, conn) => {
        VALUES (?, 'winning', 'credit', ?, ?, ?, ?, ?, ?, ?)`,
       [
         winner.user_id,
-        `Contest #${contestId} winning`,
+        `${contest.contest_type} winning — ${matchInfo}`,
         winner.total_winning,
         openingBalance, closingBalance,
         coOpen, coClose,
@@ -326,46 +332,53 @@ const creditWinningsToWallets = async (contestId, conn) => {
       ]
     );
 
-    // ── 4. financial_transactions — User winning credit ──
+    // ── 4. financial_transactions — User winning ──
     await conn.query(
       `INSERT INTO financial_transactions
          (user_id, entity_type, wallet_type, transaction_type,
           amount, opening_balance, closing_balance,
           reference_table, reference_id, remark, status, created_at)
-       VALUES (?, 'user', 'game_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
+       VALUES (?, 'user', 'user_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
       [
         winner.user_id,
         winner.total_winning,
         openingBalance,
         closingBalance,
         contestId,
-        `Contest #${contestId} winning`,
+        `${contest.contest_type} winning — ${matchInfo}`,
       ]
     );
   }
 
-  // ── 5. financial_transactions — Platform fee (system record) ──
-  // Prize pool - net pool = platform fee
+  // ── 5. financial_transactions — Company platform fee ──
   if (platformFee > 0) {
+    // Company current balance fetch
+    const [[lastFt]] = await conn.query(
+      `SELECT closing_balance FROM financial_transactions
+       WHERE entity_type = 'system' 
+       ORDER BY created_at DESC LIMIT 1`
+    );
+    const companyOpen  = Number(lastFt?.closing_balance || 0);
+    const companyClose = parseFloat((companyOpen + platformFee).toFixed(2));
+
     await conn.query(
       `INSERT INTO financial_transactions
          (entity_type, wallet_type, transaction_type,
           amount, opening_balance, closing_balance,
           reference_table, reference_id, remark, status, created_at)
-       VALUES ('system', 'admin_wallet', 'credit', ?, 0, ?, 'contest', ?, ?, 'success', NOW(6))`,
+       VALUES ('system', 'admin_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
       [
         platformFee,
-        platformFee,
+        companyOpen,
+        companyClose,
         contestId,
-        `Contest #${contestId} platform fee`,
+        `${contest.contest_type} platform fee — ${matchInfo} (Prize Pool: ${contest.prize_pool}, Net Pool: ${contest.net_pool_prize})`,
       ]
     );
   }
 
   return winners.length;
 };
-
-
 
 // ── POST /admin/contests/:contestId/approve ──
 export const approveContestResults = async (req, res) => {
