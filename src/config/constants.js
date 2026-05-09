@@ -5,7 +5,7 @@ export const MAX_FAILED_ATTEMPTS = 5;
 export const JOINING_BONUS = 5;
 export const MAX_USERCODE_RETRIES = 10;
 export const MIN_AGE = 18;  
-             
+
 // login allowed conries for now
 export const ALLOWED_COUNTRIES = ["GB", "IN"];
 
@@ -15,6 +15,10 @@ export const OTP_MIN = 100000;
 export const OTP_MAX = 999999;
 
 export const NON_SUBSCRIBER_WITHDRAW_LIMIT = 2500;
+
+//  
+export const STUDENT_DEPOSIT_LIMIT  = 500;
+export const DEFAULT_DEPOSIT_LIMIT  = 1500;
 
 // ─── Subscriptions ───────────────────────────────────────
 export const PAUSE_PLANS = {

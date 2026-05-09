@@ -282,16 +282,16 @@ const [[user]] = await db.query(
         SUM(CASE
               WHEN wallettype = 'bonus'
                AND transtype = 'credit'
-               AND remark = 'Referral bonus'
+               AND remark = 'Referral reward'
             THEN amount ELSE 0
             END) AS referral_bonus,
 
         SUM(CASE
               WHEN wallettype = 'bonus'
                AND transtype = 'credit'
-               AND remark = 'Subscription bonus'
+              AND remark LIKE 'Subscription bonus%'
             THEN amount ELSE 0
-            END) AS subscription_bonus,
+         END) AS subscription_bonus,
 
         SUM(CASE
               WHEN wallettype = 'bonus'

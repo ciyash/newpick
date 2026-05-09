@@ -147,6 +147,11 @@ export const getMyWalletService = async (userId) => {
 
   if (!wallet) throw new Error("Wallet not found");
 
+  const [[user]] = await db.query(
+    `SELECT category FROM users WHERE id = ?`,
+    [userId]
+  );
+
   const depositWallet  = Number(wallet.depositwallet || 0);
   const winningsWallet = Number(wallet.earnwallet    || 0);
   const bonusWallet    = Number(wallet.bonusamount   || 0);
@@ -176,23 +181,23 @@ export const getMyWalletService = async (userId) => {
         SUM(CASE
               WHEN wallettype = 'bonus'
                AND transtype = 'credit'
-               AND remark = 'Referral Bonus'
+               AND remark = 'Joining bonus'
+            THEN amount ELSE 0
+            END) AS joining_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark = 'Referral reward'
             THEN amount ELSE 0
             END) AS referral_bonus,
 
         SUM(CASE
               WHEN wallettype = 'bonus'
                AND transtype = 'credit'
-               AND remark = 'Subscription Bonus'
+               AND remark LIKE 'Subscription bonus%'
             THEN amount ELSE 0
             END) AS subscription_bonus,
-
-        SUM(CASE
-              WHEN wallettype = 'bonus'
-               AND transtype = 'credit'
-               AND remark NOT IN ('Referral Bonus', 'Subscription Bonus')
-            THEN amount ELSE 0
-            END) AS other_bonus,
 
         SUM(CASE
               WHEN wallettype = 'bonus'
@@ -206,10 +211,10 @@ export const getMyWalletService = async (userId) => {
   );
 
   /* ═══════════════════════ 3. MONTHLY LIMITS ═══════════════════════ */
-  const monthlyLimit      = Number(wallet.deposit_limit  || 0);
-  const usedThisMonth     = Number(wallet.total_deposits || 0);
+  const monthlyLimit       = Number(wallet.deposit_limit  || 0);
+  const usedThisMonth      = Number(wallet.total_deposits || 0);
   const remainingThisMonth = Math.max(monthlyLimit - usedThisMonth, 0);
-  const usedPercent       = monthlyLimit > 0
+  const usedPercent        = monthlyLimit > 0
     ? Number(((usedThisMonth / monthlyLimit) * 100).toFixed(1))
     : 0;
 
@@ -220,14 +225,14 @@ export const getMyWalletService = async (userId) => {
       winnings_balance:     winningsWallet,
       bonus_balance:        bonusWallet,
       total_wallet_balance: totalBalance,
-      total_deposited:      Number(financial?.total_deposited  || 0),
-      total_withdrawn:      Number(financial?.total_withdrawn  || 0),
-      total_winnings:       Number(financial?.total_winnings   || 0),
+      total_deposited:      Number(financial?.total_deposited || 0),
+      total_withdrawn:      Number(financial?.total_withdrawn || 0),
+      total_winnings:       Number(financial?.total_winnings  || 0),
       bonus_breakdown: {
-        referral_bonus:      Number(financial?.referral_bonus     || 0),
-        subscription_bonus:  Number(financial?.subscription_bonus || 0),
-        other_bonus:         Number(financial?.other_bonus        || 0),
-        total_bonus:         Number(financial?.total_bonus        || 0),
+        joining_bonus:      Number(financial?.joining_bonus      || 0),
+        referral_bonus:     Number(financial?.referral_bonus     || 0),
+        subscription_bonus: Number(financial?.subscription_bonus || 0),
+        total_bonus:        Number(financial?.total_bonus        || 0),
       },
     },
     deposit_limits: {
@@ -240,6 +245,7 @@ export const getMyWalletService = async (userId) => {
     verification_status: {
       is_kyc_verified: Number(wallet.iskyc       || 0),
       is_sof_verified: Number(wallet.issofverify || 0),
+      category:        user?.category || null,
     },
   };
 };
@@ -269,9 +275,14 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
   }
 
   const normalizedCategory = String(data.category || "").toLowerCase();
-  const DEFAULT_LIMIT      = normalizedCategory === "student" ? 500 : 1500;
 
-  if (newLimitNum < 200)            throw new Error("Minimum allowed limit is £100");
+  // const DEFAULT_LIMIT      = normalizedCategory === "student" ? 500 : 1500;
+
+  const DEFAULT_LIMIT  = normalizedCategory  === "students" 
+  ? STUDENT_DEPOSIT_LIMIT    
+  : DEFAULT_DEPOSIT_LIMIT;   
+
+  if (newLimitNum < 200)            throw new Error("Minimum allowed limit is £200");
   if (newLimitNum > DEFAULT_LIMIT)  throw new Error(`Maximum allowed limit is £${DEFAULT_LIMIT}`);
   if (newLimitNum > currentLimit)   throw new Error("Limit increase is not allowed");
   if (newLimitNum === currentLimit) throw new Error("New limit must be lower than current limit");
