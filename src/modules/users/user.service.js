@@ -123,9 +123,131 @@ export const getUserProfileService = async (userId) => {
 };
 
 
-export const reduceMonthlyLimitService = async (userId, newLimit) => {
+/* ======================================================
+   GET MY WALLET
+====================================================== */
+export const getMyWalletService = async (userId) => {
+  if (!userId) throw new Error("Invalid user");
 
-  console.log("Service called — userId:", userId, "newLimit:", newLimit); // ADD
+  /* ═══════════════════════ 1. WALLET ═══════════════════════ */
+  const [[wallet]] = await db.query(
+    `SELECT
+        depositwallet,
+        earnwallet,
+        bonusamount,
+        deposit_limit,
+        total_deposits,
+        limit_reduced_once,
+        iskyc,
+        issofverify
+     FROM wallets
+     WHERE user_id = ?`,
+    [userId]
+  );
+
+  if (!wallet) throw new Error("Wallet not found");
+
+  const depositWallet  = Number(wallet.depositwallet || 0);
+  const winningsWallet = Number(wallet.earnwallet    || 0);
+  const bonusWallet    = Number(wallet.bonusamount   || 0);
+  const totalBalance   = Number((depositWallet + winningsWallet).toFixed(2));
+
+  /* ═══════════════════════ 2. FINANCIAL SUMMARY ═══════════════════════ */
+  const [[financial]] = await db.query(
+    `SELECT
+        SUM(CASE
+              WHEN wallettype = 'deposit'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_deposited,
+
+        SUM(CASE
+              WHEN wallettype = 'withdrawal'
+               AND transtype = 'debit'
+            THEN amount ELSE 0
+            END) AS total_withdrawn,
+
+        SUM(CASE
+              WHEN wallettype = 'winning'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_winnings,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark = 'Referral Bonus'
+            THEN amount ELSE 0
+            END) AS referral_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark = 'Subscription Bonus'
+            THEN amount ELSE 0
+            END) AS subscription_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark NOT IN ('Referral Bonus', 'Subscription Bonus')
+            THEN amount ELSE 0
+            END) AS other_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_bonus
+
+     FROM wallet_transactions
+     WHERE user_id = ?`,
+    [userId]
+  );
+
+  /* ═══════════════════════ 3. MONTHLY LIMITS ═══════════════════════ */
+  const monthlyLimit      = Number(wallet.deposit_limit  || 0);
+  const usedThisMonth     = Number(wallet.total_deposits || 0);
+  const remainingThisMonth = Math.max(monthlyLimit - usedThisMonth, 0);
+  const usedPercent       = monthlyLimit > 0
+    ? Number(((usedThisMonth / monthlyLimit) * 100).toFixed(1))
+    : 0;
+
+  /* ═══════════════════════ RETURN ═══════════════════════ */
+  return {
+    financial_summary: {
+      deposit_balance:      depositWallet,
+      winnings_balance:     winningsWallet,
+      bonus_balance:        bonusWallet,
+      total_wallet_balance: totalBalance,
+      total_deposited:      Number(financial?.total_deposited  || 0),
+      total_withdrawn:      Number(financial?.total_withdrawn  || 0),
+      total_winnings:       Number(financial?.total_winnings   || 0),
+      bonus_breakdown: {
+        referral_bonus:      Number(financial?.referral_bonus     || 0),
+        subscription_bonus:  Number(financial?.subscription_bonus || 0),
+        other_bonus:         Number(financial?.other_bonus        || 0),
+        total_bonus:         Number(financial?.total_bonus        || 0),
+      },
+    },
+    deposit_limits: {
+      monthly_limit:      monthlyLimit,
+      used_this_month:    usedThisMonth,
+      remaining_limit:    remainingThisMonth,
+      used_percent:       usedPercent,
+      limit_reduced_once: Number(wallet.limit_reduced_once || 0),
+    },
+    verification_status: {
+      is_kyc_verified: Number(wallet.iskyc       || 0),
+      is_sof_verified: Number(wallet.issofverify || 0),
+    },
+  };
+};
+
+/* ======================================================
+   REDUCE MONTHLY LIMIT
+====================================================== */
+export const reduceMonthlyLimitService = async (userId, newLimit) => {
 
   const [[data]] = await db.query(
     `SELECT u.category,
@@ -137,36 +259,30 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
     [userId]
   );
 
-  console.log("Fetched data:", data); // ADD
-
   if (!data) throw new Error("User not found");
 
   const currentLimit = Number(data.deposit_limit);
-  const newLimitNum  = Number(newLimit);           // ← ADD THIS — parse cheyyi
-
-  console.log("currentLimit:", currentLimit, "newLimitNum:", newLimitNum); // ADD
+  const newLimitNum  = Number(newLimit);
 
   if (data.limit_reduced_once) {
     throw new Error("Monthly limit can be reduced only once in your account lifetime");
   }
 
   const normalizedCategory = String(data.category || "").toLowerCase();
-  const DEFAULT_LIMIT = normalizedCategory === "student" ? 500 : 1500;
+  const DEFAULT_LIMIT      = normalizedCategory === "student" ? 500 : 1500;
 
   if (newLimitNum < 100)            throw new Error("Minimum allowed limit is £100");
   if (newLimitNum > DEFAULT_LIMIT)  throw new Error(`Maximum allowed limit is £${DEFAULT_LIMIT}`);
   if (newLimitNum > currentLimit)   throw new Error("Limit increase is not allowed");
-  if (newLimitNum === currentLimit)  throw new Error("New limit must be lower than current limit");
+  if (newLimitNum === currentLimit) throw new Error("New limit must be lower than current limit");
 
-  const [result] = await db.query(
+  await db.query(
     `UPDATE wallets
-     SET deposit_limit     = ?,
+     SET deposit_limit      = ?,
          limit_reduced_once = TRUE
      WHERE user_id = ?`,
     [newLimitNum, userId]
   );
-
-  console.log("Update result:", result); // ADD — affectedRows చూడు
 
   logActivity({
     userId,
@@ -178,8 +294,13 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
     meta:        { newLimit: newLimitNum },
   });
 
-  return { message: `Deposit limit reduced to £${newLimitNum}` };
-};
+  return {
+    message:          `Deposit limit reduced to £${newLimitNum}`,
+    previous_limit:   currentLimit,
+    new_limit:        newLimitNum,
+    can_reduce_again: false,
+  };
+};;
 
    
 

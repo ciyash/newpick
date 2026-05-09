@@ -34,12 +34,12 @@ export const reduceMonthlyLimit = async (req, res) => {
     const userId = req.user.id;
     const { newLimit } = req.body;
     
-    console.log("userId:", userId, "newLimit:", newLimit, typeof newLimit); // ADD THIS
+    console.log("userId:", userId, "newLimit:", newLimit, typeof newLimit); 
     
     const response = await reduceMonthlyLimitService(userId, newLimit);
     res.json({ success: true, ...response });
   } catch (error) {
-    console.error("reduceMonthlyLimit error:", error.message); // ADD THIS
+    console.error("reduceMonthlyLimit error:", error.message); 
     res.status(400).json({ success: false, message: error.message });
   }
 };
