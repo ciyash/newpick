@@ -360,8 +360,8 @@ export const getMyWalletService = async (userId) => {
     remaining_limit: remainingThisMonth,
     used_percent: usedPercent,
 
-    can_add_cash:
-      remainingThisMonth > 0 ? 1 : 0,
+   can_add_cash:
+    Number(wallet.limit_reduced_once || 0),
   },
 
   verification_status: {
