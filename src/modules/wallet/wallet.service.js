@@ -222,20 +222,19 @@ export const getMyWalletService = async (userId) => {
 
   /* ═══════════════════════ 1. WALLET ═══════════════════════ */
 
-  const [[wallet]] = await db.query(
-    `SELECT
-        depositwallet,
-        earnwallet,
-        bonusamount,
-        deposit_limit,
-        total_deposits,
-        iskyc,
-        issofverify,
-        limit_reduced_once
-     FROM wallets
-     WHERE user_id = ?`,
-    [userId]
-  );
+   const [[wallet]] = await db.query(
+  `SELECT
+      depositwallet,
+      earnwallet,
+      bonusamount,
+      deposit_limit,
+      total_deposits,
+      iskyc,
+      issofverify
+   FROM wallets
+   WHERE user_id = ?`,
+  [userId]
+);
 
   if (!wallet) throw new Error("Wallet not found");
 
@@ -250,28 +249,60 @@ export const getMyWalletService = async (userId) => {
   /* ═══════════════════════ 2. FINANCIAL SUMMARY ═══════════════════════ */
 
   const [[financial]] = await db.query(
-    `SELECT
-        SUM(CASE WHEN wallettype = 'deposit'
-                  AND transtype = 'credit'
-             THEN amount ELSE 0 END) AS total_deposited,
+  `SELECT
 
-        SUM(CASE WHEN wallettype = 'withdrawal'
-                  AND transtype = 'debit'
-             THEN amount ELSE 0 END) AS total_withdrawn,
+      SUM(CASE
+            WHEN wallettype = 'deposit'
+             AND transtype = 'credit'
+          THEN amount ELSE 0
+          END) AS total_deposited,
 
-        SUM(CASE WHEN wallettype = 'winning'
-                  AND transtype = 'credit'
-             THEN amount ELSE 0 END) AS total_winnings,
+      SUM(CASE
+            WHEN wallettype = 'withdrawal'
+             AND transtype = 'debit'
+          THEN amount ELSE 0
+          END) AS total_withdrawn,
 
-        SUM(CASE WHEN wallettype = 'bonus'
-                  AND transtype = 'credit'
-             THEN amount ELSE 0 END) AS total_bonus
+      SUM(CASE
+            WHEN wallettype = 'winning'
+             AND transtype = 'credit'
+          THEN amount ELSE 0
+          END) AS total_winnings,
 
-     FROM wallet_transactions
-     WHERE user_id = ?`,
-    [userId]
-  );
+      SUM(CASE
+            WHEN wallettype = 'bonus'
+             AND transtype = 'credit'
+             AND remark = 'Referral Bonus'
+          THEN amount ELSE 0
+          END) AS referral_bonus,
 
+      SUM(CASE
+            WHEN wallettype = 'bonus'
+             AND transtype = 'credit'
+             AND remark = 'Subscription Bonus'
+          THEN amount ELSE 0
+          END) AS subscription_bonus,
+
+      SUM(CASE
+            WHEN wallettype = 'bonus'
+             AND transtype = 'credit'
+             AND remark NOT IN (
+                'Referral Bonus',
+                'Subscription Bonus'
+             )
+          THEN amount ELSE 0
+          END) AS other_bonus,
+
+      SUM(CASE
+            WHEN wallettype = 'bonus'
+             AND transtype = 'credit'
+          THEN amount ELSE 0
+          END) AS total_bonus
+
+   FROM wallet_transactions
+   WHERE user_id = ?`,
+  [userId]
+);
   /* ═══════════════════════ 3. MONTHLY LIMITS ═══════════════════════ */
 
   const monthlyLimit = Number(wallet.deposit_limit || 0);
@@ -291,39 +322,56 @@ export const getMyWalletService = async (userId) => {
 
   /* ═══════════════════════ RETURN ═══════════════════════ */
 
-  return {
+ return {
 
-    financial_summary: {
-      deposit_balance: depositWallet,
-      winnings_balance: winningsWallet,
-      bonus_balance: bonusWallet,
-      total_wallet_balance: totalBalance,
+  financial_summary: {
+    deposit_balance: depositWallet,
+    winnings_balance: winningsWallet,
+    bonus_balance: bonusWallet,
+    total_wallet_balance: totalBalance,
 
-      total_deposited: Number(financial?.total_deposited || 0),
-      total_withdrawn: Number(financial?.total_withdrawn || 0),
-      total_winnings: Number(financial?.total_winnings || 0),
-      total_bonus_received: Number(financial?.total_bonus || 0),
+    total_deposited:
+      Number(financial?.total_deposited || 0),
+
+    total_withdrawn:
+      Number(financial?.total_withdrawn || 0),
+
+    total_winnings:
+      Number(financial?.total_winnings || 0),
+
+    bonus_breakdown: {
+      referral_bonus:
+        Number(financial?.referral_bonus || 0),
+
+      subscription_bonus:
+        Number(financial?.subscription_bonus || 0),
+
+      other_bonus:
+        Number(financial?.other_bonus || 0),
+
+      total_bonus:
+        Number(financial?.total_bonus || 0),
     },
+  },
 
-    deposit_limits: {
-      monthly_limit: monthlyLimit,
-      used_this_month: usedThisMonth,
-      remaining_limit: remainingThisMonth,
-      used_percent: usedPercent,
-      limit_reduced_once:Number(wallet.limit_reduced_once || 0),
-    },
+  deposit_limits: {
+    monthly_limit: monthlyLimit,
+    used_this_month: usedThisMonth,
+    remaining_limit: remainingThisMonth,
+    used_percent: usedPercent,
 
-    verification_status: {
-      is_kyc_verified:
-        Number(wallet.iskyc || 0) === 1,
+    can_add_cash:
+      remainingThisMonth > 0 ? 1 : 0,
+  },
 
-      is_sof_verified:
-        Number(wallet.issofverify || 0) === 1,
+  verification_status: {
+    is_kyc_verified:
+      Number(wallet.iskyc || 0),
 
-      limit_reduced_once:
-        Number(wallet.limit_reduced_once || 0) === 1,
-    },
-  };
+    is_sof_verified:
+      Number(wallet.issofverify || 0),
+  },
+};
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
