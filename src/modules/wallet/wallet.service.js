@@ -235,7 +235,7 @@ export const getMyWalletService = async (userId) => {
    WHERE user_id = ?`,
   [userId]
 );
-console.log("userId:", userId); // ADD
+
 
 if (!wallet) throw new Error("Wallet not found");
 
@@ -244,7 +244,7 @@ const [[user]] = await db.query(
   [userId]
 );
 
-console.log("user:", user); // ADD
+
 
   const depositWallet  = Number(wallet.depositwallet || 0);
   const winningsWallet = Number(wallet.earnwallet    || 0);
