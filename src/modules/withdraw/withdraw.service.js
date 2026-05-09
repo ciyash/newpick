@@ -2,9 +2,14 @@ import db from "../../config/db.js";
 import crypto from "crypto";
 import { logActivity } from "../../utils/activity.logger.js";
 
+import { getSubscriptionStatusService } from '../users/subscription.service.js';
+import { NON_SUBSCRIBER_WITHDRAW_LIMIT } from "../../config/constants.js";
+
 /* ======================================================
    USER REQUEST WITHDRAW
 ====================================================== */
+
+
 export const requestWithdrawService = async (userId, data) => {
   const conn = await db.getConnection();
   try {
@@ -40,21 +45,51 @@ export const requestWithdrawService = async (userId, data) => {
     );
     if (pending) throw new Error("You already have a pending withdrawal request");
 
-    // 3. Fetch user info
+    // 3. Subscription check — limit logic
+    const { data: subData } = await getSubscriptionStatusService(userId);
+    const isSubscriber = subData.subscription.isActive;
+
+    if (!isSubscriber) {
+      // Non-subscriber — current month total withdrawals check
+      const [[{ monthTotal }]] = await conn.query(
+        `SELECT COALESCE(SUM(amount), 0) AS monthTotal
+         FROM withdraws
+         WHERE user_id = ?
+           AND status IN ('PENDING', 'APPROVED')
+           AND MONTH(created_at)  = MONTH(NOW())
+           AND YEAR(created_at)   = YEAR(NOW())`,
+        [userId]
+      );
+
+      const NON_SUBSCRIBER_LIMIT =  NON_SUBSCRIBER_WITHDRAW_LIMIT;;
+      const alreadyWithdrawn = Number(monthTotal);
+  
+      if (alreadyWithdrawn + withdrawAmount > NON_SUBSCRIBER_LIMIT) {
+        const remaining = NON_SUBSCRIBER_LIMIT - alreadyWithdrawn;
+        throw new Error(
+          remaining <= 0
+            ? `Monthly withdrawal limit of £${NON_SUBSCRIBER_LIMIT} reached. Subscribe to withdraw unlimited.`
+            : `Monthly limit £${NON_SUBSCRIBER_LIMIT} — only £${remaining.toFixed(2)} remaining. Subscribe to withdraw unlimited.`
+        );
+      }
+    }
+    // Subscriber — no limit, continue
+
+    // 4. Fetch user info
     const [[userinfo]] = await conn.query(
       `SELECT name, email, mobile FROM users WHERE id = ?`,
       [userId]
     );
     if (!userinfo) throw new Error("User not found");
 
-    // 4. Snapshot balances BEFORE deduction
+    // 5. Snapshot balances BEFORE deduction
     const depositBalance  = Number(wallet.depositwallet || 0);
     const earnBalance     = Number(wallet.earnwallet    || 0);
     const bonusBalance    = Number(wallet.bonusamount   || 0);
     const snapshotOpening = Number((depositBalance + earnBalance + bonusBalance).toFixed(2));
     const snapshotClosing = Number((snapshotOpening - withdrawAmount).toFixed(2));
 
-    // 5. Deduct from earnwallet — atomic guard
+    // 6. Deduct from earnwallet — atomic guard
     const [updateResult] = await conn.query(
       `UPDATE wallets
        SET earnwallet = earnwallet - ?
@@ -64,7 +99,7 @@ export const requestWithdrawService = async (userId, data) => {
     if (updateResult.affectedRows === 0)
       throw new Error("Insufficient wallet balance (concurrent update detected)");
 
-    // 6. Insert withdrawal record
+    // 7. Insert withdrawal record
     const bankDetailsStr = typeof wallet.bank_details === "object"
       ? JSON.stringify(wallet.bank_details)
       : String(wallet.bank_details);
@@ -101,7 +136,12 @@ export const requestWithdrawService = async (userId, data) => {
     return {
       success:    true,
       message:    "Withdrawal request submitted successfully",
-      withdrawId: result.insertId,
+      withdrawId: String(result.insertId),
+      isSubscriber,
+      ...(isSubscriber
+        ? { limit: "unlimited" }
+        : { limit: 2500 }
+      ),
     };
 
   } catch (err) {
