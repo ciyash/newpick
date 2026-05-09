@@ -269,7 +269,18 @@ const creditWinningsToWallets = async (contestId, conn) => {
 
   if (!winners.length) return 0;
 
-  // ── Company balance for chaining across all credits ──
+  // ── Contest details fetch — platform fee calculate కోసం ──
+  const [[contest]] = await conn.query(
+    `SELECT id, prize_pool, net_pool_prize, platform_fee_percentage
+     FROM contest WHERE id = ?`,
+    [contestId]
+  );
+
+  const platformFee = parseFloat(
+    ((Number(contest.prize_pool) - Number(contest.net_pool_prize))).toFixed(2)
+  ) || 0;
+
+  // ── Company balance ──
   const [[companyLastRow]] = await conn.query(
     `SELECT closing_balance FROM wallet_transactions
      WHERE closing_balance IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`
@@ -277,19 +288,19 @@ const creditWinningsToWallets = async (contestId, conn) => {
   let companyBalance = Number(companyLastRow?.closing_balance || 0);
 
   for (const winner of winners) {
-    // ── 1. Total balance fetch for proper ledger ──
+    // ── 1. Wallet fetch ──
     const [[wallet]] = await conn.query(
       `SELECT earnwallet, depositwallet, bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
       [winner.user_id]
     );
     if (!wallet) continue;
 
-    const totalBal      = Number(wallet.earnwallet) + Number(wallet.depositwallet) + Number(wallet.bonusamount);
+    const totalBal       = Number(wallet.earnwallet) + Number(wallet.depositwallet) + Number(wallet.bonusamount);
     const openingBalance = parseFloat(totalBal.toFixed(2));
     const closingBalance = parseFloat((totalBal + parseFloat(winner.total_winning)).toFixed(2));
 
-    const coOpen  = companyBalance;
-    const coClose = Number((companyBalance - parseFloat(winner.total_winning)).toFixed(2));
+    const coOpen   = companyBalance;
+    const coClose  = Number((companyBalance - parseFloat(winner.total_winning)).toFixed(2));
     companyBalance = coClose;
 
     // ── 2. earnwallet update ──
@@ -301,9 +312,9 @@ const creditWinningsToWallets = async (contestId, conn) => {
     // ── 3. wallet_transactions record ──
     await conn.query(
       `INSERT INTO wallet_transactions
-       (user_id, wallettype, transtype, remark, amount,
-        useropeningbalance, userclosingbalance,
-        opening_balance, closing_balance, reference_id)
+         (user_id, wallettype, transtype, remark, amount,
+          useropeningbalance, userclosingbalance,
+          opening_balance, closing_balance, reference_id)
        VALUES (?, 'winning', 'credit', ?, ?, ?, ?, ?, ?, ?)`,
       [
         winner.user_id,
@@ -315,23 +326,40 @@ const creditWinningsToWallets = async (contestId, conn) => {
       ]
     );
 
+    // ── 4. financial_transactions — User winning credit ──
+    await conn.query(
+      `INSERT INTO financial_transactions
+         (user_id, entity_type, wallet_type, transaction_type,
+          amount, opening_balance, closing_balance,
+          reference_table, reference_id, remark, status, created_at)
+       VALUES (?, 'user', 'game_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
+      [
+        winner.user_id,
+        winner.total_winning,
+        openingBalance,
+        closingBalance,
+        contestId,
+        `Contest #${contestId} winning`,
+      ]
+    );
+  }
 
-   // Winning credit
-await conn.query(
-  `INSERT INTO financial_transactions
-     (user_id, entity_type, wallet_type,platform_fee_amount, transaction_type, amount,
-      opening_balance, closing_balance, reference_table, reference_id, remark, status, created_at)
-   VALUES (?, 'user', 'game_wallet', ?, 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
-  [
-    winner.user_id,
-    contest.platform_fee_amount || 0,
-    winner.total_winning,
-    openingBalance,
-    closingBalance,
-    contestId,
-    `Contest #${contestId} winning`,
-  ]
-);
+  // ── 5. financial_transactions — Platform fee (system record) ──
+  // Prize pool - net pool = platform fee
+  if (platformFee > 0) {
+    await conn.query(
+      `INSERT INTO financial_transactions
+         (entity_type, wallet_type, transaction_type,
+          amount, opening_balance, closing_balance,
+          reference_table, reference_id, remark, status, created_at)
+       VALUES ('system', 'admin_wallet', 'credit', ?, 0, ?, 'contest', ?, ?, 'success', NOW(6))`,
+      [
+        platformFee,
+        platformFee,
+        contestId,
+        `Contest #${contestId} platform fee`,
+      ]
+    );
   }
 
   return winners.length;
@@ -464,3 +492,4 @@ export const getCompletedMatchLeaderboard = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+

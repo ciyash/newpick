@@ -1,6 +1,4 @@
 import db from "../../config/db.js";
-
-
 import { sendMail } from "../../utils/send.mail.js"
 import { logActivity } from "../../utils/activity.logger.js";
 

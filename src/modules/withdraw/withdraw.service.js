@@ -115,7 +115,7 @@ export const requestWithdrawService = async (userId, data) => {
 /* ======================================================
    ADMIN APPROVE WITHDRAW
    NOTE: earnwallet already deducted at request time
-         — here only update status + log transaction
+    — here only update status + log transaction
 ====================================================== */
 export const approveWithdrawService = async (adminId, withdrawId) => {
   const conn = await db.getConnection();
@@ -216,8 +216,8 @@ export const approveWithdrawService = async (adminId, withdrawId) => {
 
 /* ======================================================
    ADMIN REJECT WITHDRAW
-   NOTE: earnwallet was deducted at request — refund it here
-====================================================== */
+   NOTE: earnwallet was deducted at request — refund it here */
+
 export const rejectWithdrawService = async (adminId, withdrawId, remarks) => {
   const conn = await db.getConnection();
   try {
