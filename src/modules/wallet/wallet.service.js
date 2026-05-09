@@ -220,22 +220,31 @@ export const getMyWalletService = async (userId) => {
   if (!userId) throw new Error("Invalid user");
 
   /* ═══════════════════════ 1. WALLET ═══════════════════════ */
+ 
   const [[wallet]] = await db.query(
-    `SELECT
-        depositwallet,
-        earnwallet,
-        bonusamount,
-        deposit_limit,
-        total_deposits,
-        limit_reduced_once,
-        iskyc,
-        issofverify
-     FROM wallets
-     WHERE user_id = ?`,
-    [userId]
-  );
+  `SELECT
+      depositwallet,
+      earnwallet,
+      bonusamount,
+      deposit_limit,
+      total_deposits,
+      limit_reduced_once,
+      iskyc,
+      issofverify
+   FROM wallets
+   WHERE user_id = ?`,
+  [userId]
+);
+console.log("userId:", userId); // ADD
 
-  if (!wallet) throw new Error("Wallet not found");
+if (!wallet) throw new Error("Wallet not found");
+
+const [[user]] = await db.query(
+  `SELECT category FROM users WHERE id = ?`,
+  [userId]
+);
+
+console.log("user:", user); // ADD
 
   const depositWallet  = Number(wallet.depositwallet || 0);
   const winningsWallet = Number(wallet.earnwallet    || 0);
@@ -330,6 +339,7 @@ export const getMyWalletService = async (userId) => {
     verification_status: {
       is_kyc_verified: Number(wallet.iskyc       || 0),
       is_sof_verified: Number(wallet.issofverify || 0),
+      category:        user?.category || null, 
     },
   };
 };

@@ -271,7 +271,7 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
   const normalizedCategory = String(data.category || "").toLowerCase();
   const DEFAULT_LIMIT      = normalizedCategory === "student" ? 500 : 1500;
 
-  if (newLimitNum < 100)            throw new Error("Minimum allowed limit is £100");
+  if (newLimitNum < 200)            throw new Error("Minimum allowed limit is £100");
   if (newLimitNum > DEFAULT_LIMIT)  throw new Error(`Maximum allowed limit is £${DEFAULT_LIMIT}`);
   if (newLimitNum > currentLimit)   throw new Error("Limit increase is not allowed");
   if (newLimitNum === currentLimit) throw new Error("New limit must be lower than current limit");

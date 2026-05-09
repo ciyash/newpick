@@ -905,7 +905,7 @@ export const signupService = async ({ mobile, otp }) => {
     const userId = result.insertId;
 
     /* ─── 8️⃣ Create Wallet ─── */
-    const depositLimit = categoryNormalized === "students" ? 300 : 1500;
+    const depositLimit = categoryNormalized === "students" ? 500 : 1500;
 
     await conn.query(
       `INSERT INTO wallets
