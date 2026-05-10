@@ -1510,14 +1510,16 @@ export const getTeamComparisonBulkService = async (teamIds = [], userId) => {
 // };
 
 
+
 export const getPlayerBioService = async (playerId) => {
 
   // ── 1. DB queries ──
   const [[[player]], [[currentSeries]]] = await Promise.all([
     db.query(
       `SELECT p.id, p.name, p.position, p.player_type,
-              p.playerimage, p.playercredits, p.selectpercent,
+              p.playerimage, p.selectpercent,
               p.captainper, p.vcper, p.provider_player_id,
+              p.nationality,
               t.name AS team_name, t.short_name AS team_short, t.logo AS team_logo
        FROM players p
        LEFT JOIN teams t ON t.id = p.team_id
@@ -1577,49 +1579,20 @@ export const getPlayerBioService = async (playerId) => {
 
   const s        = seasonStats[0] || {};
   const position = player.position;
+  const avgPts   = parseFloat(s.avg_fantasy_points) || 0;
 
-  // ── 3. Insights & Badge ──
-  const avgPts    = parseFloat(s.avg_fantasy_points) || 0;
-  const recentAvg = recentMatches.length
-    ? recentMatches.reduce((sum, m) => sum + (m.fantasy_points || 0), 0) / recentMatches.length
-    : 0;
-
-  const insights = [];
-
-  if (recentAvg >= avgPts * 1.2)     insights.push({ icon: "🔥", text: "In excellent scoring form" });
-  else if (recentAvg < avgPts * 0.7) insights.push({ icon: "📉", text: "Below average recent form" });
-  else                               insights.push({ icon: "📊", text: "Consistent recent form" });
-
-  const goalInvolvement = (parseInt(s.total_goals) || 0) + (parseInt(s.total_assists) || 0);
-  if (goalInvolvement >= 10) insights.push({ icon: "⚽", text: "High goal involvement player" });
-  if (avgPts >= 40)          insights.push({ icon: "🟢", text: "Strong Captain choice" });
-
-  const startedPct = parseInt(s.matches_played) > 0
-    ? (parseInt(s.started_matches) || 0) / parseInt(s.matches_played) : 0;
-
-  if (startedPct >= 0.8)     insights.push({ icon: "🟢", text: "Likely to play full match" });
-  else if (startedPct < 0.5) insights.push({ icon: "⚠️",  text: "Rotation risk" });
-  if ((parseInt(s.total_yellow_cards)     || 0) >= 5) insights.push({ icon: "🟨", text: "Caution — high yellow card count" });
-  if ((parseInt(s.total_red_cards)        || 0) >= 1) insights.push({ icon: "🟥", text: "Red card risk" });
-  if ((parseInt(s.total_penalties_missed) || 0) >= 1) insights.push({ icon: "⚠️",  text: "Misses occasional big chances" });
-
-  let badge = null;
-  if (avgPts >= 50)                                                          badge = { label: "Captain Choice", icon: "🔥", color: "orange" };
-  else if (avgPts >= 30 && startedPct >= 0.8)                                badge = { label: "Safe Pick",      icon: "🟢", color: "green"  };
-  else if ((parseFloat(player.selectpercent) || 0) < 10 && avgPts >= 20)    badge = { label: "Differential",   icon: "💎", color: "blue"   };
-  else if (startedPct < 0.5 || (parseInt(s.total_yellow_cards) || 0) >= 5) badge = { label: "Risky Pick",     icon: "⚠️",  color: "red"    };
-
-  // ── 4. Final Response ──
+  // ── 3. Final Response ──
   return {
     success: true,
     data: {
+
       // ── Player Header ──
       player_id:       player.id,
       name:            player.name,
       image:           player.playerimage || null,
+      nationality:     player.nationality || null,
       position:        player.position    || null,
       player_type:     player.player_type || null,
-      credits:         parseFloat(player.playercredits) || 0,
       select_percent:  parseFloat(player.selectpercent) || 0,
       captain_percent: parseFloat(player.captainper)    || 0,
       vc_percent:      parseFloat(player.vcper)         || 0,
@@ -1643,7 +1616,7 @@ export const getPlayerBioService = async (playerId) => {
         fantasy_points: m.fantasy_points || 0,
         goals:          m.goals          || 0,
         assists:        m.assists        || 0,
-        yellow_cards:   m.yellow_cards   || 0,
+        yellow_cards:   m.yellow_cards  || 0,
         red_cards:      m.red_cards      || 0,
         date:           m.matchdate      || null,
       })),
@@ -1651,7 +1624,7 @@ export const getPlayerBioService = async (playerId) => {
       // ── Attacking Stats ──
       attacking_stats: {
         goals:           parseInt(s.total_goals)           || 0,
-        assists:         parseInt(s.total_assists)          || 0,
+        assists:         parseInt(s.total_assists)         || 0,
         shots_on_target: parseInt(s.total_shots_on_target) || 0,
         key_passes:      parseInt(s.total_key_passes)      || 0,
       },
@@ -1689,10 +1662,6 @@ export const getPlayerBioService = async (playerId) => {
         penalties_missed: parseInt(s.total_penalties_missed) || 0,
         own_goals:        parseInt(s.total_own_goals)        || 0,
       },
-
-      // ── Insights & Badge ──
-      insights,
-      badge,
     },
   };
 };

@@ -445,6 +445,40 @@ const syncContestStatuses = async () => {
 // REGISTER ALL CRON JOBS
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+const resetMonthlyDepositLimits = async () => {
+  console.log("⏰ [CRON] Monthly deposit limit reset started:", new Date().toISOString());
+  try {
+
+    // ── deposit_limit update (category) ──
+    const [result] = await db.query(
+      `UPDATE wallets w
+       JOIN users u ON u.id = w.user_id
+       SET 
+         w.deposit_limit     = CASE WHEN u.category = 'students' THEN ? ELSE ? END,
+         w.monthly_limit     = CASE WHEN u.category = 'students' THEN ? ELSE ? END,
+         w.depositelimitdate = CURDATE()
+       WHERE u.is_deleted = 0`,
+      [
+        STUDENT_DEPOSIT_LIMIT, DEFAULT_DEPOSIT_LIMIT,
+        STUDENT_DEPOSIT_LIMIT, DEFAULT_DEPOSIT_LIMIT,
+      ]
+    );
+
+    // ── monthly_deposits table — current month reset ──
+    //
+    const currentYM = new Date().toISOString().slice(0, 7); // "2026-05"
+    await db.query(
+      `DELETE FROM monthly_deposits WHERE ym <= ?`,
+      [currentYM]
+    );
+
+    console.log(`✅ [CRON] Monthly limit reset — ${result.affectedRows} users updated`);
+  } catch (err) {
+    console.error("❌ [CRON] Monthly limit reset failed:", err.message);
+  }
+};
+
 export const startCronJobs = () => {
 
   // Lineup — every 5 mins
