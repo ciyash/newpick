@@ -352,7 +352,7 @@ export const getContestsService = async (matchId, userId) => {
       currentEntries:      c.current_entries             || 0,
       remainingSpots:      Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
       myTeamCount,
-      teamsRemaining:      Math.max((c.max_teams_per_user || 20) - myTeamCount, 0), // ✅ ఎన్ని teams ఇంకా join చేయవచ్చు
+      teamsRemaining:      Math.max((c.max_teams_per_user || 20) - myTeamCount, 0), 
       isJoined:            myTeamCount > 0,
       contestType:         c.contest_type                || null,
       isGuaranteed:        c.is_guaranteed               === 1,
@@ -1218,7 +1218,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
       const points = parseFloat(entry.computed_points) || 0;
       const rank   = entry.urank ?? entry.computed_rank;
 
-    // leaderboard లో
+    // leaderboard 
 const prize = isCompleted
   ? (Number(entry.winning_amount) || getPrizeForRank(
       rank,
