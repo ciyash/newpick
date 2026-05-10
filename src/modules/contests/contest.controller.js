@@ -280,22 +280,25 @@ const creditWinningsToWallets = async (contestId, conn) => {
   );
   if (!contest) return 0;
 
-  const matchInfo    = `${contest.hometeamname} vs ${contest.awayteamname}`;
-  const platformFee  = parseFloat(
+  const matchInfo   = `${contest.hometeamname} vs ${contest.awayteamname}`;
+  const platformFee = parseFloat(
     (Number(contest.prize_pool) - Number(contest.net_pool_prize)).toFixed(2)
   ) || 0;
 
   // ── Company balance ──
   const [[companyLastRow]] = await conn.query(
     `SELECT closing_balance FROM wallet_transactions
-     WHERE closing_balance IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`
+     WHERE closing_balance IS NOT NULL
+     ORDER BY id DESC LIMIT 1 FOR UPDATE`
   );
   let companyBalance = Number(companyLastRow?.closing_balance || 0);
 
   for (const winner of winners) {
+
     // ── 1. Wallet fetch ──
     const [[wallet]] = await conn.query(
-      `SELECT earnwallet, depositwallet, bonusamount FROM wallets
+      `SELECT earnwallet, depositwallet, bonusamount
+       FROM wallets
        WHERE user_id = ? FOR UPDATE`,
       [winner.user_id]
     );
@@ -311,7 +314,9 @@ const creditWinningsToWallets = async (contestId, conn) => {
 
     // ── 2. earnwallet update ──
     await conn.query(
-      `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+      `UPDATE wallets
+       SET earnwallet = earnwallet + ?
+       WHERE user_id = ?`,
       [winner.total_winning, winner.user_id]
     );
 
@@ -326,45 +331,37 @@ const creditWinningsToWallets = async (contestId, conn) => {
         winner.user_id,
         `${contest.contest_type} winning — ${matchInfo}`,
         winner.total_winning,
-        openingBalance, closingBalance,
-        coOpen, coClose,
+        openingBalance,
+        closingBalance,
+        coOpen,
+        coClose,
         `CONTEST_${contestId}`,
       ]
     );
 
     // ── 4. financial_transactions — User winning ──
-   
-// ── 4. financial_transactions — User winning ──
-await conn.query(
-  `INSERT INTO financial_transactions
-     (user_id, entity_type, wallet_type, transaction_type,
-      amount, opening_balance, closing_balance,
-      reference_table, reference_id, remark, status, created_at)
-   VALUES (?, 'user', 'game_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
-  [
-    winner.user_id,
-    winner.total_winning,
-    openingBalance,
-    closingBalance,
-    `contest-${contestId}`,   // ← contest-888389 format
-    `${contest.contest_type} winning — ${matchInfo}`,
-  ]
-);
-
+    await conn.query(
+      `INSERT INTO financial_transactions
+         (user_id, entity_type, wallet_type, transaction_type,
+          amount, opening_balance, closing_balance,
+          reference_table, reference_id, remark, status, created_at)
+       VALUES (?, 'user', 'game_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
+      [
+        winner.user_id,
+        winner.total_winning,
+        openingBalance,
+        closingBalance,
+        contestId,
+        `${contest.contest_type} winning — ${matchInfo}`,
+      ]
+    );
   }
 
-
-
-
-
-
-  
   // ── 5. financial_transactions — Company platform fee ──
   if (platformFee > 0) {
-    // Company current balance fetch
     const [[lastFt]] = await conn.query(
       `SELECT closing_balance FROM financial_transactions
-       WHERE entity_type = 'system' 
+       WHERE entity_type = 'system'
        ORDER BY created_at DESC LIMIT 1`
     );
     const companyOpen  = Number(lastFt?.closing_balance || 0);
@@ -377,12 +374,12 @@ await conn.query(
           reference_table, reference_id, remark, status, created_at)
        VALUES ('system', 'admin_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
       [
-    platformFee,
-    companyOpen,
-    companyClose,
-    `contest-${contestId}`, 
-    "platform fee",
-  ]
+        platformFee,
+        companyOpen,
+        companyClose,
+        contestId,
+        "platform fee",
+      ]
     );
   }
 
