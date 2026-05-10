@@ -950,6 +950,7 @@ export const getMyContestsService = async (userId, matchId) => {
        c.refund_start_rank,
        c.refund_winners,
        c.prize_distribution,
+       c.platform_fee_amount,
        COUNT(ce.id)          AS my_team_count
      FROM contest_entries ce
      JOIN contest c ON ce.contest_id = c.id
@@ -1003,6 +1004,7 @@ export const getMyContestsService = async (userId, matchId) => {
     bonus_ranks:       c.bonus_ranks                 || 0,
     refund_start_rank: c.refund_start_rank           || 0,
     refund_winners:    c.refund_winners              || 0,
+    platformFeePercentage: c.platform_fee_amount     || 0,
     prize_distribution: (() => {
       try {
         return typeof c.prize_distribution === 'string'
