@@ -330,10 +330,51 @@ export const getContestsService = async (matchId, userId) => {
 
   if (!rows?.length) return [];
 
-  return rows
-  .filter(c => Number(c.my_team_count) === 20)
+//   return rows
+//   .filter(c => Number(c.my_team_count) === 20)
+//   .map(c => {
+//     let prize_distribution = null; 
+//     try {
+//       prize_distribution = c.prize_distribution ? JSON.parse(c.prize_distribution) : null;
+//     } catch { prize_distribution = null; }
+
+//     const myTeamCount = Number(c.my_team_count) || 0;
+
+//     return {
+//       id: c.id,
+//       matchId: c.match_id,
+//       entryFee: Number(c.entry_fee) || 0,
+//       prizePool: Number(c.prize_pool) || 0,
+//       netPoolPrize: Number(c.net_pool_prize) || 0,
+//       maxEntries: c.max_entries || 0,
+//       minEntries: c.min_entries || 0,
+//       currentEntries: c.current_entries || 0,
+//       remainingSpots: Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
+//       myTeamCount,
+//       isJoined: myTeamCount > 0,
+//       contestType: c.contest_type || null,
+//       isGuaranteed: c.is_guaranteed === 1,
+//       winnerPercentage: Number(c.winner_percentage) || 0,
+//       totalWinners: c.total_winners || 0,
+//       refundStartRank: c.refund_start_rank || 0,
+//       bonusRanks: c.bonus_ranks || 0,
+//       rank1Percent: Number(c.rank1_percent) || 0,
+//       top1EndRank: c.top1_end_rank || 0,
+//       linearStartRank: c.linear_start_rank || 0,
+//       linearEndRank: c.linear_end_rank || 0,
+//       firstPrize: Number(c.first_prize) || 0,
+//       prize_distribution,
+//       platformFeePercentage: Number(c.platform_fee_percentage) || 0,
+//       status: c.status || null,
+//       createdAt: c.created_at || null,
+//     };
+//   });
+// };
+
+return rows
+  .filter(c => Number(c.my_team_count) === 0)
   .map(c => {
-    let prize_distribution = null; 
+    let prize_distribution = null;
     try {
       prize_distribution = c.prize_distribution ? JSON.parse(c.prize_distribution) : null;
     } catch { prize_distribution = null; }
@@ -369,8 +410,8 @@ export const getContestsService = async (matchId, userId) => {
       createdAt: c.created_at || null,
     };
   });
-};
 
+}
 
 export const getFantasyDashboardService = async (userId, matchId) => {
   if (!userId) throw new Error("userId is required");
