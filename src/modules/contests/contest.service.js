@@ -330,7 +330,9 @@ export const getContestsService = async (matchId, userId) => {
 
   if (!rows?.length) return [];
 
-  return rows.map(c => {
+  return rows
+  .filter(c => Number(c.my_team_count) === 0)
+  .map(c => {
     let prize_distribution = null; 
     try {
       prize_distribution = c.prize_distribution ? JSON.parse(c.prize_distribution) : null;
