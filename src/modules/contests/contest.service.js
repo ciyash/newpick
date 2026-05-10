@@ -2096,7 +2096,7 @@ export const getCompletedMatchLeaderboardService = async (matchId, userId, page 
   // ── All COMPLETED contests ──
   const [contests] = await db.query(
     `SELECT
-       c.id, c.contest_type, c.entry_fee, c.prize_pool,
+       c.id, c.contest_type, c.entry_fee, c.prize_pool,c.platform_fee_percentage,
        c.net_pool_prize, c.first_prize,
        c.current_entries, c.max_entries, c.status,
        c.winner_percentage, c.refund_start_rank,
@@ -2283,6 +2283,7 @@ export const getCompletedMatchLeaderboardService = async (matchId, userId, page 
         status:            contest.status                    || null,
         entry_fee:         Number(contest.entry_fee)         || 0,
         prize_pool:        Number(contest.prize_pool)        || 0,
+        platformFeePercentage: Number(contest.platform_fee_percentage) || 0,
         net_pool_prize:    Number(contest.net_pool_prize)    || 0,
         first_prize:       Number(contest.first_prize)       || 0,
         total_entries:     Number(totalCount)                || 0,
