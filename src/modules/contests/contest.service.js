@@ -1020,6 +1020,7 @@ const getTeamPlayers = async (userTeamId, matchId) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+
 export const getLeaderboardService = async (contestId, userId, page = 1, limit = 50) => {
   const offset = (page - 1) * limit;
 
@@ -1031,7 +1032,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
        c.entry_fee, c.status, c.is_guaranteed,
        c.contest_type, c.winner_percentage,
        c.bonus_ranks, c.refund_start_rank, c.refund_winners,
-       c.refund_total, c.netpool_amount,c.platform_fee_amount,
+       c.refund_total, c.netpool_amount, c.platform_fee_amount,
        c.rank1_percent, c.top1_end_rank,
        c.linear_start_rank, c.linear_end_rank,
        m.status    AS match_status,
@@ -1050,120 +1051,113 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
   console.log(`Contest ${contestId} — matchStatus: ${matchStatus}, contestStatus: ${contestStatus}`);
 
   // ── UPCOMING ──
+  if (matchStatus === "UPCOMING") {
+    const upcomingLimit  = 30;
+    const upcomingOffset = (page - 1) * upcomingLimit;
 
-if (matchStatus === "UPCOMING") {
-  const upcomingLimit = 30;  
-  const upcomingOffset = (page - 1) * upcomingLimit;
+    let my_entries = [];
+    if (userId) {
+      const [myEntries] = await db.query(
+        `SELECT
+           ce.user_team_id, ce.urank, ce.winning_amount,
+           ut.team_name, u.name, u.nickname, u.image
+         FROM contest_entries ce
+         LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+         LEFT JOIN users      u  ON u.id  = ce.user_id
+         WHERE ce.contest_id = ? AND ce.user_id = ?`,
+        [contestId, userId]
+      );
+      my_entries = myEntries.map(e => ({
+        user_team_id:   e.user_team_id,
+        team_name:      e.team_name   || null,
+        username:       e.nickname || e.name || `User${userId}`,
+        profile_image:  e.image       || null,
+        rank:           null,
+        points:         0,
+        winning_amount: 0,
+        is_winner:      false,
+      }));
+    }
 
-  let my_entries = [];
-  if (userId) {
-    const [myEntries] = await db.query(
+    const [otherEntries] = await db.query(
       `SELECT
-         ce.user_team_id, ce.urank, ce.winning_amount,
+         ce.user_id, ce.user_team_id,
          ut.team_name, u.name, u.nickname, u.image
        FROM contest_entries ce
-       LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
-       LEFT JOIN users      u  ON u.id  = ce.user_id
-       WHERE ce.contest_id = ? AND ce.user_id = ?`,
-      [contestId, userId]
+       JOIN users           u  ON u.id  = ce.user_id
+       JOIN user_teams      ut ON ut.id = ce.user_team_id
+       WHERE ce.contest_id = ?
+         ${userId ? "AND ce.user_id != ?" : ""}
+       ORDER BY ce.id ASC
+       LIMIT 30`,
+      userId ? [contestId, userId] : [contestId]
     );
 
-    // ✅ My entries all showing   
-    my_entries = myEntries.map(e => ({
-      user_team_id:   e.user_team_id,
-      team_name:      e.team_name   || null,
-      username:       e.nickname || e.name || `User${userId}`,
-      profile_image:  e.image       || null,
+    // ← Total = ALL entries (my + others)
+    const [[{ total }]] = await db.query(
+      `SELECT COUNT(*) AS total FROM contest_entries WHERE contest_id = ?`,
+      [contestId]
+    );
+
+    const leaderboard = otherEntries.map(e => ({
       rank:           null,
+      user_id:        e.user_id,
+      username:       e.nickname || e.name || `User${e.user_id}`,
+      profile_image:  e.image     || null,
+      team_name:      e.team_name || null,
+      user_team_id:   e.user_team_id,
       points:         0,
       winning_amount: 0,
       is_winner:      false,
+      is_me:          false,
     }));
+
+    return buildLeaderboardResponse(
+      contest, matchStatus, leaderboard, my_entries, parseInt(total), page, upcomingLimit, upcomingOffset
+    );
   }
 
-  // ✅ Others → 30 
-  const [otherEntries] = await db.query(
-    `SELECT
-       ce.user_id, ce.user_team_id,
-       ut.team_name, u.name, u.nickname, u.image
-     FROM contest_entries ce
-     JOIN users           u  ON u.id  = ce.user_id
-     JOIN user_teams      ut ON ut.id = ce.user_team_id
-     WHERE ce.contest_id = ?
-       ${userId ? "AND ce.user_id != ?" : ""}
-     ORDER BY ce.id ASC
-     LIMIT 30`,                                    
-    userId ? [contestId, userId] : [contestId]
-  );
-
-  const [[{ total }]] = await db.query(
-    `SELECT COUNT(*) AS total FROM contest_entries
-     WHERE contest_id = ? ${userId ? "AND user_id != ?" : ""}`,
-    userId ? [contestId, userId] : [contestId]
-  );
-
-  const leaderboard = otherEntries.map(e => ({
-    rank:           null,
-    user_id:        e.user_id,
-    username:       e.nickname || e.name || `User${e.user_id}`,
-    profile_image:  e.image     || null,
-    team_name:      e.team_name || null,
-    user_team_id:   e.user_team_id,
-    points:         0,
-    winning_amount: 0,
-    is_winner:      false,
-    is_me:          false,
-  }));
-
-  return buildLeaderboardResponse(
-    contest, matchStatus, leaderboard, my_entries, parseInt(total), page, 30, 0
-  );
-}
   // ── LIVE → Redis cache ──
- 
   if (matchStatus === "LIVE") {
-  try {
-    const cached = await redis.get(lbKey(contestId));
-    if (cached && Array.isArray(cached)) {
-      const allRanked = cached;
-      const total     = allRanked.length;
+    try {
+      const cached = await redis.get(lbKey(contestId));
+      if (cached && Array.isArray(cached)) {
+        const allRanked = cached;
+        const total     = allRanked.length;
 
-      // ✅ My entries all
-      const my_entries = userId
-        ? allRanked
-            .filter(e => e.user_id === parseInt(userId))
-            .map(e => ({
-              user_team_id:   e.user_team_id,
-              team_name:      e.team_name     || null,
-              username:       e.username,
-              profile_image:  e.profile_image || null,
-              rank:           e.rank,
-              points:         e.points,
-              winning_amount: 0,
-              is_winner:      false,
-            }))
-        : [];
+        const my_entries = userId
+          ? allRanked
+              .filter(e => e.user_id === parseInt(userId))
+              .map(e => ({
+                user_team_id:   e.user_team_id,
+                team_name:      e.team_name     || null,
+                username:       e.username,
+                profile_image:  e.profile_image || null,
+                rank:           e.rank,
+                points:         e.points,
+                winning_amount: 0,
+                is_winner:      false,
+              }))
+          : [];
 
-      // ✅ Others → 30 
-      const otherRanked = allRanked.filter(e =>
-        userId ? e.user_id !== parseInt(userId) : true
-      );
-      const leaderboard = otherRanked.slice(0, 30).map(e => ({  
-        ...e,
-        winning_amount: 0,
-        is_winner:      false,
-        is_me:          false,
-      }));
+        const otherRanked = allRanked.filter(e =>
+          userId ? e.user_id !== parseInt(userId) : true
+        );
+        const leaderboard = otherRanked.slice(0, 30).map(e => ({
+          ...e,
+          winning_amount: 0,
+          is_winner:      false,
+          is_me:          false,
+        }));
 
-      return buildLeaderboardResponse(
-        contest, matchStatus, leaderboard, my_entries, total, page, 30, 0
-      );
+        return buildLeaderboardResponse(
+          contest, matchStatus, leaderboard, my_entries, total, page, 30, 0
+        );
+      }
+    } catch (err) {
+      console.error("Redis leaderboard error:", err.message);
     }
-  } catch (err) {
-    console.error("Redis leaderboard error:", err.message);
   }
-}
-
 
   // ── RESULT (INREVIEW / COMPLETED) → DB ──
   const [entries] = await db.query(
@@ -1194,12 +1188,12 @@ if (matchStatus === "UPCOMING") {
     [contestId, limit, offset]
   );
 
+  // ← Total = ALL entries
   const [[{ total }]] = await db.query(
     `SELECT COUNT(*) AS total FROM contest_entries WHERE contest_id = ?`,
     [contestId]
   );
 
-  // ── pointsMap ──
   const teamIds = entries.map(e => e.user_team_id).filter(Boolean);
   let pointsMap = {};
   if (teamIds.length > 0) {
@@ -1215,20 +1209,26 @@ if (matchStatus === "UPCOMING") {
     });
   }
 
-  const isCompleted = contestStatus === 'COMPLETED';
+  const isCompleted = contestStatus === "COMPLETED";
 
-  // ── leaderboard — other users teams  ──
+  // ── leaderboard — other users ──
   const leaderboard = entries
     .filter(e => userId ? e.user_id !== parseInt(userId) : true)
     .map(entry => {
       const points = parseFloat(entry.computed_points) || 0;
       const rank   = entry.urank ?? entry.computed_rank;
-      const prize  = isCompleted
-        ? (Number(entry.winning_amount) || getPrizeForRank(
-            rank, contest.prize_distribution,
-            contest.entry_fee, contest.refund_winners, contest.refund_start_rank
-          ))
-        : 0;
+
+    // leaderboard లో
+const prize = isCompleted
+  ? (Number(entry.winning_amount) || getPrizeForRank(
+      rank,
+      contest.prize_distribution,
+      contest.entry_fee,
+      contest.bonus_ranks,        
+      contest.refund_start_rank
+    ))
+  : 0;
+
       return {
         rank,
         user_id:        entry.user_id,
@@ -1243,7 +1243,7 @@ if (matchStatus === "UPCOMING") {
       };
     });
 
-  // ── my_entries — all teams ──
+  // ── my_entries — all my teams ──
   let my_entries = [];
   if (userId) {
     const [myEntries] = await db.query(
@@ -1261,12 +1261,20 @@ if (matchStatus === "UPCOMING") {
       const myPoints  = pointsMap[e.user_team_id] ?? 0;
       const myLbEntry = entries.find(l => l.user_team_id === e.user_team_id);
       const myRank    = e.urank ?? myLbEntry?.computed_rank ?? null;
-      const myPrize   = isCompleted
-        ? (Number(e.winning_amount) || getPrizeForRank(
-            myRank, contest.prize_distribution,
-            contest.entry_fee, contest.refund_winners, contest.refund_start_rank
-          ))
-        : 0;
+
+
+    //  my_entries 
+const myPrize = isCompleted
+  ? (Number(e.winning_amount) || getPrizeForRank(
+      myRank,
+      contest.prize_distribution,
+      contest.entry_fee,
+      contest.bonus_ranks,        // ← refundWinners
+      contest.refund_start_rank
+    ))
+  : 0;
+
+
       return {
         user_team_id:   e.user_team_id,
         team_name:      e.team_name    || null,
@@ -1280,11 +1288,13 @@ if (matchStatus === "UPCOMING") {
     });
   }
 
+  // ← hasMore — COMPLETED లో correct గా
+  const hasMore = offset + limit < parseInt(total);
+
   return buildLeaderboardResponse(
-    contest, matchStatus, leaderboard, my_entries, parseInt(total), page, limit, offset
+    contest, matchStatus, leaderboard, my_entries, parseInt(total), page, limit, offset, hasMore
   );
 };
-
 
 
 const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries, totalEntries, page, limit, offset) => {
