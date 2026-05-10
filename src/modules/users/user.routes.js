@@ -48,7 +48,7 @@ app.post("/test-notification", authenticate, testNotification);
 app.use("/payment",authenticate,checkAccountActive, paymentRoutes)
 // app.use("/uct",authenticate,checkAccountActive, uctRoutes)
 app.use("/kyc",kycRoutes)
-app.use("/withdraw", withdrawRoutes);
+app.use("/withdraw",authenticate,checkAccountActive, withdrawRoutes);
 app.use("/bank",authenticate,checkAccountActive, bankRoutes);
 app.use("/user-activity",  userActivityRoutes);
 app.get("/preferences",        authenticate,checkAccountActive, getUserPreferences);

@@ -16,7 +16,9 @@ import {
   JOINING_BONUS,
   PAUSE_PLANS,
   MAX_USERCODE_RETRIES,
-  ALLOWED_COUNTRIES
+  ALLOWED_COUNTRIES,
+  STUDENT_DEPOSIT_LIMIT,
+  DEFAULT_DEPOSIT_LIMIT
 } from "../../config/constants.js";
 
 //* =================== ADMIN SERVICES =================== */
@@ -905,7 +907,10 @@ export const signupService = async ({ mobile, otp }) => {
     const userId = result.insertId;
 
     /* ─── 8️⃣ Create Wallet ─── */
-    const depositLimit = categoryNormalized === "students" ? 500 : 1500;
+    // const depositLimit = categoryNormalized === "students" ? 500 : 1500;
+  const depositLimit = categoryNormalized === "students"
+  ? STUDENT_DEPOSIT_LIMIT
+  : DEFAULT_DEPOSIT_LIMIT;
 
     await conn.query(
       `INSERT INTO wallets

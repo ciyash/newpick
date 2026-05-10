@@ -1510,7 +1510,6 @@ export const getTeamComparisonBulkService = async (teamIds = [], userId) => {
 // };
 
 
-
 export const getPlayerBioService = async (playerId) => {
 
   // ── 1. DB queries ──
@@ -1539,8 +1538,8 @@ export const getPlayerBioService = async (playerId) => {
 
   const seriesId = currentSeries?.series_id || null;
 
-  // ── 2. DB stats + Sportmonks — parallel ──
-  const [[seasonStats], [recentMatches], sportmonksData] = await Promise.all([
+  // ── 2. DB stats — parallel ──
+  const [[seasonStats], [recentMatches]] = await Promise.all([
     db.query(
       `SELECT COUNT(*) AS matches_played, SUM(pms.started) AS started_matches,
               SUM(pms.sub_appearance) AS bench_appearances, SUM(pms.minutes_played) AS total_minutes,
@@ -1574,89 +1573,17 @@ export const getPlayerBioService = async (playerId) => {
        ORDER BY m.matchdate DESC LIMIT 5`,
       seriesId ? [playerId, seriesId] : [playerId]
     ),
-
-    // Sportmonks — fail ayina null return, app crash kaadu
-    player.provider_player_id
-      ? apiGet(`/players/${player.provider_player_id}`, {
-          include: [
-            "trophies.league", "trophies.season", "trophies.trophy", "trophies.team",
-            "teams.team", "statistics.details.type", "statistics.team",
-            "statistics.season.league", "latest.fixture.participants",
-            "latest.fixture.league", "latest.fixture.scores",
-            "latest.details.type", "nationality", "detailedPosition",
-          ].join(";"),
-        }).catch(err => { console.error("Sportmonks failed:", err.message); return null; })
-      : Promise.resolve(null),
   ]);
 
-  const s  = seasonStats[0] || {};
-  const sp = sportmonksData?.data || null;
+  const s        = seasonStats[0] || {};
+  const position = player.position;
 
-  // ── 3. Sportmonks extra data extract ──
-  const age = sp?.date_of_birth
-    ? Math.floor((new Date() - new Date(sp.date_of_birth)) / (365.25 * 24 * 60 * 60 * 1000))
-    : null;
-
-  const trophies = (sp?.trophies || []).map(t => ({
-    trophy_name: t.trophy?.name        || null,
-    league_name: t.league?.name        || null,
-    league_logo: t.league?.image_path  || null,
-    season_name: t.season?.name        || null,
-    team_name:   t.team?.name          || null,
-    team_logo:   t.team?.image_path    || null,
-  }));
-
-  const career_statistics = (sp?.statistics || [])
-    .filter(s => s.goals !== null || s.assists !== null || s.appearances !== null)
-    .slice(0, 10)
-    .map(s => {
-      const getValue = (name) =>
-        s.details?.find(d => d.type?.name === name)?.value?.total ?? null;
-      return {
-        season_name:    s.season?.name               || null,
-        league_name:    s.season?.league?.name       || null,
-        league_logo:    s.season?.league?.image_path || null,
-        team_name:      s.team?.name                 || null,
-        team_logo:      s.team?.image_path           || null,
-        goals:          getValue("Goals"),
-        assists:        getValue("Assists"),
-        appearances:    getValue("Appearances"),
-        minutes_played: getValue("Minutes Played"),
-      };
-    });
-
-  const recent_matches_api = (sp?.latest || []).slice(0, 5).map(l => {
-    const fixture      = l.fixture || {};
-    const participants = fixture.participants || [];
-    const home         = participants.find(p => p.meta?.location === "home");
-    const away         = participants.find(p => p.meta?.location === "away");
-    const scores       = fixture.scores || [];
-    const homeScore    = scores.find(s => s.participant_id === home?.id && s.description === "CURRENT")?.score?.goals ?? null;
-    const awayScore    = scores.find(s => s.participant_id === away?.id && s.description === "CURRENT")?.score?.goals ?? null;
-   
-    return {
-  fixture_id:  fixture.id                 || null,
-  league_name: fixture.league?.name       || null,
-  league_logo: fixture.league?.image_path || null,
-
-  home_team:   home?.short_code || home?.name || null,
-  home_logo:   home?.image_path || null,
-  home_score:  homeScore,
-
-  away_team:   away?.short_code || away?.name || null,
-  away_logo:   away?.image_path || null,
-  away_score:  awayScore,
-
-  date:        fixture.starting_at || null,
-};
-  });
-
-  // ── 4. Insights & Badge (same logic) ──
+  // ── 3. Insights & Badge ──
   const avgPts    = parseFloat(s.avg_fantasy_points) || 0;
   const recentAvg = recentMatches.length
     ? recentMatches.reduce((sum, m) => sum + (m.fantasy_points || 0), 0) / recentMatches.length
     : 0;
-  const position = player.position;
+
   const insights = [];
 
   if (recentAvg >= avgPts * 1.2)     insights.push({ icon: "🔥", text: "In excellent scoring form" });
@@ -1682,41 +1609,27 @@ export const getPlayerBioService = async (playerId) => {
   else if ((parseFloat(player.selectpercent) || 0) < 10 && avgPts >= 20)    badge = { label: "Differential",   icon: "💎", color: "blue"   };
   else if (startedPct < 0.5 || (parseInt(s.total_yellow_cards) || 0) >= 5) badge = { label: "Risky Pick",     icon: "⚠️",  color: "red"    };
 
-  // ── 5. Final Response — commented function structure exact ga ──
+  // ── 4. Final Response ──
   return {
     success: true,
     data: {
-      // Basic Info
-      player_id:         player.id,
-      name:              sp?.display_name  || sp?.name   || player.name,
-      common_name:       sp?.common_name   || null,
-      image:             sp?.image_path    || player.playerimage || null,
-      date_of_birth:     sp?.date_of_birth || null,
-      age,
-      height:            sp?.height        || null,
-      weight:            sp?.weight        || null,
-      gender:            sp?.gender        || null,
-      position:          player.position   || null,
-      player_type:       player.player_type || null,
-      detailed_position: sp?.detailedPosition?.name || null,
-      credits:           parseFloat(player.playercredits) || 0,
-      select_percent:    parseFloat(player.selectpercent) || 0,
-      captain_percent:   parseFloat(player.captainper)    || 0,
-      vc_percent:        parseFloat(player.vcper)         || 0,
+      // ── Player Header ──
+      player_id:       player.id,
+      name:            player.name,
+      image:           player.playerimage || null,
+      position:        player.position    || null,
+      player_type:     player.player_type || null,
+      credits:         parseFloat(player.playercredits) || 0,
+      select_percent:  parseFloat(player.selectpercent) || 0,
+      captain_percent: parseFloat(player.captainper)    || 0,
+      vc_percent:      parseFloat(player.vcper)         || 0,
 
-      nationality: sp?.nationality ? {
-        name:       sp.nationality.name       || null,
-        flag_image: sp.nationality.image_path || null,
-      } : null,
-
-      // Team
       team: {
         name:       player.team_name  || null,
         short_name: player.team_short || null,
         logo:       player.team_logo  || null,
       },
 
-      // Series
       series: {
         id:   seriesId,
         name: currentSeries?.seriesname || null,
@@ -1724,7 +1637,7 @@ export const getPlayerBioService = async (playerId) => {
 
       avg_fantasy_points: avgPts,
 
-      // Recent Form — DB (fantasy points)
+      // ── Recent Form (Last 5) ──
       recent_form: recentMatches.map(m => ({
         match:          `${m.home_short} vs ${m.away_short}`,
         fantasy_points: m.fantasy_points || 0,
@@ -1735,10 +1648,7 @@ export const getPlayerBioService = async (playerId) => {
         date:           m.matchdate      || null,
       })),
 
-      // Recent Matches — Sportmonks (fixture + score details)
-      recent_matches: recent_matches_api,
-
-      // Stats
+      // ── Attacking Stats ──
       attacking_stats: {
         goals:           parseInt(s.total_goals)           || 0,
         assists:         parseInt(s.total_assists)          || 0,
@@ -1746,6 +1656,7 @@ export const getPlayerBioService = async (playerId) => {
         key_passes:      parseInt(s.total_key_passes)      || 0,
       },
 
+      // ── Defensive Stats (DEF/GK only) ──
       defensive_stats: ["DEF", "GK"].includes(position) ? {
         clean_sheets:  parseInt(s.clean_sheets)        || 0,
         tackles_won:   parseInt(s.total_tackles_won)   || 0,
@@ -1755,6 +1666,7 @@ export const getPlayerBioService = async (playerId) => {
         penalty_saves: parseInt(s.total_penalty_saves) || 0,
       } : null,
 
+      // ── Playing Reliability ──
       playing_reliability: {
         matches_played:  parseInt(s.matches_played)    || 0,
         started_matches: parseInt(s.started_matches)   || 0,
@@ -1762,6 +1674,7 @@ export const getPlayerBioService = async (playerId) => {
         total_minutes:   parseInt(s.total_minutes)     || 0,
       },
 
+      // ── Fantasy Summary ──
       fantasy_summary: {
         avg_fantasy_points:        avgPts,
         highest_fantasy_points:    parseInt(s.highest_fantasy_points)    || 0,
@@ -1769,6 +1682,7 @@ export const getPlayerBioService = async (playerId) => {
         goal_contribution_matches: parseInt(s.goal_contribution_matches) || 0,
       },
 
+      // ── Risk Indicators ──
       risk_indicators: {
         yellow_cards:     parseInt(s.total_yellow_cards)     || 0,
         red_cards:        parseInt(s.total_red_cards)        || 0,
@@ -1776,15 +1690,13 @@ export const getPlayerBioService = async (playerId) => {
         own_goals:        parseInt(s.total_own_goals)        || 0,
       },
 
-      // Sportmonks only fields
-      trophies,
-      career_statistics,
-
+      // ── Insights & Badge ──
       insights,
       badge,
     },
   };
 };
+
 
 export const getTeamByIdService = async (teamId, userId) => {
   if (!teamId) throw new Error("teamId is required");
