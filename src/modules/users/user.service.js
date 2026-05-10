@@ -3,7 +3,7 @@ import db from "../../config/db.js";
 import { getSubscriptionStatusService } from "./subscription.service.js";
 import { logActivity } from "../../utils/activity.logger.js";
 
-
+import { STUDENT_DEPOSIT_LIMIT,  DEFAULT_DEPOSIT_LIMIT} from "../../config/constants.js";
 
 export const getUserProfileService = async (userId) => {
 
