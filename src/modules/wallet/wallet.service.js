@@ -104,7 +104,16 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
     // ── New user (no previous deposit) → no check  ──
 
     // ── Monthly limit check ──
-    const MONTHLY_LIMIT  = Number(wallet.deposit_limit);
+    // const MONTHLY_LIMIT  = Number(wallet.deposit_limit);
+
+    const [[userCategory]] = await conn.query(
+  `SELECT category FROM users WHERE id = ?`,
+  [userId]
+);
+const MONTHLY_LIMIT = userCategory?.category === 'students'
+  ? STUDENT_DEPOSIT_LIMIT
+  : DEFAULT_DEPOSIT_LIMIT;
+  
     const depositBalance = Number(wallet.depositwallet || 0);
     const earnBalance    = Number(wallet.earnwallet    || 0);
     const bonusBalance   = Number(wallet.bonusamount   || 0);

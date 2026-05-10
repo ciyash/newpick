@@ -912,13 +912,24 @@ export const signupService = async ({ mobile, otp }) => {
   ? STUDENT_DEPOSIT_LIMIT
   : DEFAULT_DEPOSIT_LIMIT;
 
+    // await conn.query(
+    //   `INSERT INTO wallets
+    //    (user_id, depositwallet, earnwallet, bonusamount,
+    //     total_deposits, total_withdrawals, deposit_limit, monthly_limit, depositelimitdate)
+    //    VALUES (?, 0, 0, 0, 0, 0, ?, ?, CURDATE())`,
+    //   [userId, depositLimit, depositLimit]
+    // );
+
+    
     await conn.query(
-      `INSERT INTO wallets
-       (user_id, depositwallet, earnwallet, bonusamount,
-        total_deposits, total_withdrawals, deposit_limit, monthly_limit, depositelimitdate)
-       VALUES (?, 0, 0, 0, 0, 0, ?, ?, CURDATE())`,
-      [userId, depositLimit, depositLimit]
-    );
+  `INSERT INTO wallets
+   (user_id, depositwallet, earnwallet, bonusamount,
+    total_deposits, total_withdrawals,
+    deposit_limit, remaining_limit,
+    monthly_limit, depositelimitdate)
+   VALUES (?, 0, 0, 0, 0, 0, ?, ?, ?, CURDATE())`,
+  [userId, depositLimit, depositLimit, depositLimit]
+);
 
     /* ─── 9️⃣ Company Last Balance ─── */
     const [[companyLast]] = await conn.query(

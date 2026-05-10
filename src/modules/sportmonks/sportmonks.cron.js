@@ -7,6 +7,9 @@ import { syncPlayingXIService, syncPlayerPointsService} from "./sportmonks.servi
 
 import { scoreContestService } from "../scoring/scoring.service.js";
 
+import { STUDENT_DEPOSIT_LIMIT, DEFAULT_DEPOSIT_LIMIT } from "../../config/constants.js";
+
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const formatDateTime = (date) => {

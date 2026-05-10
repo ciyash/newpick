@@ -292,7 +292,7 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
      SET deposit_limit      = ?,
          limit_reduced_once = TRUE
      WHERE user_id = ?`,
-    [newLimitNum, userId]
+    [newLimitNum, newLimitNum, userId]
   );
 
   logActivity({
