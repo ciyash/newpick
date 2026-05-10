@@ -52,7 +52,7 @@ router.get("/:match_id", authenticate, checkAccountActive, getContestsByMatchId)
 
 router.get("/contests/in-review", adminAuth(), getInReviewContests);
 
-router.post("/contests/approve/:contestId", adminAuth(), approveContestResults);
+router.post("/contests/approve/", adminAuth(), approveContestResults);
 
 router.get("/contests/announce-winners/:contestId", adminAuth(), announceWinners);
 

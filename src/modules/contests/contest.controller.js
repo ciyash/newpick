@@ -333,23 +333,32 @@ const creditWinningsToWallets = async (contestId, conn) => {
     );
 
     // ── 4. financial_transactions — User winning ──
-    await conn.query(
-      `INSERT INTO financial_transactions
-         (user_id, entity_type, wallet_type, transaction_type,
-          amount, opening_balance, closing_balance,
-          reference_table, reference_id, remark, status, created_at)
-       VALUES (?, 'user', 'user_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
-      [
-        winner.user_id,
-        winner.total_winning,
-        openingBalance,
-        closingBalance,
-        contestId,
-        `${contest.contest_type} winning — ${matchInfo}`,
-      ]
-    );
+   
+// ── 4. financial_transactions — User winning ──
+await conn.query(
+  `INSERT INTO financial_transactions
+     (user_id, entity_type, wallet_type, transaction_type,
+      amount, opening_balance, closing_balance,
+      reference_table, reference_id, remark, status, created_at)
+   VALUES (?, 'user', 'game_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
+  [
+    winner.user_id,
+    winner.total_winning,
+    openingBalance,
+    closingBalance,
+    `contest-${contestId}`,   // ← contest-888389 format
+    `${contest.contest_type} winning — ${matchInfo}`,
+  ]
+);
+
   }
 
+
+
+
+
+
+  
   // ── 5. financial_transactions — Company platform fee ──
   if (platformFee > 0) {
     // Company current balance fetch
@@ -368,58 +377,75 @@ const creditWinningsToWallets = async (contestId, conn) => {
           reference_table, reference_id, remark, status, created_at)
        VALUES ('system', 'admin_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
       [
-        platformFee,
-        companyOpen,
-        companyClose,
-        contestId,
-        `${contest.contest_type} platform fee — ${matchInfo} (Prize Pool: ${contest.prize_pool}, Net Pool: ${contest.net_pool_prize})`,
-      ]
+    platformFee,
+    companyOpen,
+    companyClose,
+    `contest-${contestId}`, 
+    "platform fee",
+  ]
     );
   }
 
   return winners.length;
 };
 
-// ── POST /admin/contests/:contestId/approve ──
+// ── POST /admin/contests/approve ──
 export const approveContestResults = async (req, res) => {
-  const { contestId } = req.params;
+  const { contestIds } = req.body;
   let conn;
 
   try {
+    // ── Validate input ──
+    if (!contestIds || !Array.isArray(contestIds) || contestIds.length === 0)
+      return res.status(400).json({
+        success: false,
+        message: "contestIds array is required",
+      });
+
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    // ── Validate contest ──
-    const [[contest]] = await conn.query(
-      `SELECT id, status FROM contest WHERE id = ? FOR UPDATE`,
-      [contestId]
-    );
+    const results = [];
 
-    if (!contest)
-      return res.status(404).json({ success: false, message: "Contest not found" });
+    for (const contestId of contestIds) {
+      // ── Validate contest ──
+      const [[contest]] = await conn.query(
+        `SELECT id, status FROM contest WHERE id = ? FOR UPDATE`,
+        [contestId]
+      );
 
-    if (contest.status !== "INREVIEW")
-      return res.status(400).json({
-        success: false,
-        message: `Contest is '${contest.status}', only INREVIEW contests can be approved`,
-      });
+      if (!contest) {
+        results.push({ contestId, success: false, message: "Contest not found" });
+        continue;
+      }
 
-    // ── Credit winnings ──
-    const winnersCount = await creditWinningsToWallets(contestId, conn);
+      if (contest.status !== "INREVIEW") {
+        results.push({
+          contestId,
+          success: false,
+          message: `Contest is '${contest.status}', only INREVIEW contests can be approved`,
+        });
+        continue;
+      }
 
-    // ── COMPLETED గా mark  ──
-    await conn.query(
-      `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
-      [contestId]
-    );
+      // ── Credit winnings ──
+      const winnersCount = await creditWinningsToWallets(contestId, conn);
+
+      // ── COMPLETED గా mark ──
+      await conn.query(
+        `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
+        [contestId]
+      );
+
+      results.push({ contestId, success: true, winnersCount });
+    }
 
     await conn.commit();
 
     return res.status(200).json({
-      success:      true,
-      message:      `Contest #${contestId} approved successfully`,
-      contestId:    parseInt(contestId),
-      winnersCount,
+      success: true,
+      message: `${results.filter(r => r.success).length} contest(s) approved successfully`,
+      results,
     });
 
   } catch (err) {

@@ -23,6 +23,98 @@ const CACHE_TTL = 120; // 2 minutes
 // HELPER — one contest leaderboard compute + cache
 // ─────────────────────────────────────────────────────────────────────────────
 
+// export const computeAndCacheLeaderboard = async (contestId, matchId) => {
+//   const [entries] = await db.query(
+//     `SELECT
+//        ce.user_id,
+//        ce.user_team_id,
+//        u.name,
+//        u.nickname,
+//        u.image,
+//        ut.team_name
+//      FROM contest_entries ce
+//      JOIN users u ON u.id = ce.user_id
+//      LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+//      WHERE ce.contest_id = ?`,
+//     [contestId]
+//   );
+
+//   if (!entries.length) return [];
+
+//   const teamIds = [...new Set(entries.map(e => e.user_team_id).filter(Boolean))];
+
+// const [playerRows] = await db.query(
+//   `SELECT
+//      utp.user_team_id,
+//      utp.player_id,
+//      utp.is_captain,
+//      utp.is_vice_captain,
+//      utp.is_substitude,
+//      COALESCE(pms.fantasy_points, 0) AS base_points
+//    FROM user_team_players utp
+//    LEFT JOIN player_match_stats pms
+//      ON pms.player_id = utp.player_id
+//     AND pms.match_id  = ?
+//    WHERE utp.user_team_id IN (?)`,
+//   [matchId, teamIds]
+// );
+
+//   const teamPlayersMap = {};
+//   playerRows.forEach(r => {
+//     if (!teamPlayersMap[r.user_team_id]) teamPlayersMap[r.user_team_id] = [];
+//     teamPlayersMap[r.user_team_id].push(r);
+//   });
+
+//   // ── ✅ LIVE: No captain multiplier, No HS Bonus (document spec) ──
+//   const teamPointsMap = {};
+//   for (const teamId of teamIds) {
+//     const players = teamPlayersMap[teamId] || [];
+//     if (!players.length) { teamPointsMap[teamId] = 0; continue; }
+
+//     // Simple sum — NO captain multiplier, NO HS Bonus
+//     // const total = players.reduce((sum, p) => {
+//     //   return sum + (parseFloat(p.base_points) || 0);
+//     // }, 0);
+
+// // ✅ Captain ×2, VC ×1.5 apply చేయి
+// const total = players.reduce((sum, p) => {
+//   const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
+//   return sum + (parseFloat(p.base_points) || 0) * multiplier;
+// }, 0);
+
+//     teamPointsMap[teamId] = parseFloat(total.toFixed(2));
+//   }
+
+//   // ── DENSE_RANK ──
+//   const ranked = entries
+//     .map(e => ({
+//       user_id:       e.user_id,
+//       user_team_id:  e.user_team_id,
+//       team_name:     e.team_name    || null,
+//       username:      e.nickname     || e.name || `User${e.user_id}`,
+//       profile_image: e.image        || null,
+//       points:        teamPointsMap[e.user_team_id] || 0,
+//     }))
+//     .sort((a, b) => b.points - a.points);
+
+//   let rank = 1, lastPts = null, skip = 0;
+//   ranked.forEach((entry, i) => {
+//     const pts = entry.points;
+//     if (lastPts === null)       { lastPts = pts; skip = 1; }
+//     else if (pts === lastPts)   { skip++; }
+//     else                        { rank += skip; skip = 1; lastPts = pts; }
+//     entry.rank = rank;
+//   });
+
+//   await redis.set(
+//     leaderboardCacheKey(contestId),
+//     ranked,
+//     { ex: CACHE_TTL }
+//   );
+
+//   return ranked;
+// };
+
 export const computeAndCacheLeaderboard = async (contestId, matchId) => {
   const [entries] = await db.query(
     `SELECT
@@ -34,7 +126,7 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
        ut.team_name
      FROM contest_entries ce
      JOIN users u ON u.id = ce.user_id
-     LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+     JOIN user_teams ut ON ut.id = ce.user_team_id  -- ✅ LEFT JOIN → JOIN
      WHERE ce.contest_id = ?`,
     [contestId]
   );
@@ -43,21 +135,23 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
 
   const teamIds = [...new Set(entries.map(e => e.user_team_id).filter(Boolean))];
 
-const [playerRows] = await db.query(
-  `SELECT
-     utp.user_team_id,
-     utp.player_id,
-     utp.is_captain,
-     utp.is_vice_captain,
-     utp.is_substitude,
-     COALESCE(pms.fantasy_points, 0) AS base_points
-   FROM user_team_players utp
-   LEFT JOIN player_match_stats pms
-     ON pms.player_id = utp.player_id
-    AND pms.match_id  = ?
-   WHERE utp.user_team_id IN (?)`,
-  [matchId, teamIds]
-);
+  if (!teamIds.length) return [];  // ✅ empty check
+
+  const [playerRows] = await db.query(
+    `SELECT
+       utp.user_team_id,
+       utp.player_id,
+       utp.is_captain,
+       utp.is_vice_captain,
+       utp.is_substitude,
+       COALESCE(pms.fantasy_points, 0) AS base_points
+     FROM user_team_players utp
+     LEFT JOIN player_match_stats pms
+       ON pms.player_id = utp.player_id
+      AND pms.match_id  = ?
+     WHERE utp.user_team_id IN (?)`,
+    [matchId, teamIds]
+  );
 
   const teamPlayersMap = {};
   playerRows.forEach(r => {
@@ -65,22 +159,16 @@ const [playerRows] = await db.query(
     teamPlayersMap[r.user_team_id].push(r);
   });
 
-  // ── ✅ LIVE: No captain multiplier, No HS Bonus (document spec) ──
+  // ── Captain ×2, VC ×1.5 apply ──
   const teamPointsMap = {};
   for (const teamId of teamIds) {
     const players = teamPlayersMap[teamId] || [];
     if (!players.length) { teamPointsMap[teamId] = 0; continue; }
 
-    // Simple sum — NO captain multiplier, NO HS Bonus
-    // const total = players.reduce((sum, p) => {
-    //   return sum + (parseFloat(p.base_points) || 0);
-    // }, 0);
-
-// ✅ Captain ×2, VC ×1.5 apply చేయి
-const total = players.reduce((sum, p) => {
-  const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
-  return sum + (parseFloat(p.base_points) || 0) * multiplier;
-}, 0);
+    const total = players.reduce((sum, p) => {
+      const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
+      return sum + (parseFloat(p.base_points) || 0) * multiplier;
+    }, 0);
 
     teamPointsMap[teamId] = parseFloat(total.toFixed(2));
   }
@@ -100,9 +188,9 @@ const total = players.reduce((sum, p) => {
   let rank = 1, lastPts = null, skip = 0;
   ranked.forEach((entry, i) => {
     const pts = entry.points;
-    if (lastPts === null)       { lastPts = pts; skip = 1; }
-    else if (pts === lastPts)   { skip++; }
-    else                        { rank += skip; skip = 1; lastPts = pts; }
+    if (lastPts === null)     { lastPts = pts; skip = 1; }
+    else if (pts === lastPts) { skip++; }
+    else                      { rank += skip; skip = 1; lastPts = pts; }
     entry.rank = rank;
   });
 
