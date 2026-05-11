@@ -59,25 +59,83 @@ export const getContestsByMatchId = async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 
+// export const joinContest = async (req, res) => {
+//   try {
+//     const userId = req.user?.id;
+//     const { contestId, userTeamId } = req.body;  
+
+//     if (!userId)    return res.status(401).json({ success: false, message: "Unauthorized" });
+//     if (!contestId) return res.status(400).json({ success: false, message: "contestId is required" });
+//     if (!userTeamId) return res.status(400).json({ success: false, message: "userTeamId is required" });
+
+//     const result = await joinContestService(userId, { 
+//       contestId,
+//       userTeamId,
+//       ip:     req.ip,
+//       device: req.headers["user-agent"],
+//     });
+
+//     return res.status(200).json(result);
+//   } catch (err) {
+//     return res.status(err.statusCode || 400).json({ success: false, message: err.message });
+//   }
+// };
+
 export const joinContest = async (req, res) => {
   try {
+
     const userId = req.user?.id;
-    const { contestId, userTeamId } = req.body;  
 
-    if (!userId)    return res.status(401).json({ success: false, message: "Unauthorized" });
-    if (!contestId) return res.status(400).json({ success: false, message: "contestId is required" });
-    if (!userTeamId) return res.status(400).json({ success: false, message: "userTeamId is required" });
-
-    const result = await joinContestService(userId, { 
+    const {
       contestId,
       userTeamId,
-      ip:     req.ip,
-      device: req.headers["user-agent"],
-    });
+      confirmJoin
+    } = req.body;
+
+    if (!userId)
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+
+    if (!contestId)
+      return res.status(400).json({
+        success: false,
+        message: "contestId is required"
+      });
+
+    if (!userTeamId)
+      return res.status(400).json({
+        success: false,
+        message: "userTeamId is required"
+      });
+
+    const result =
+      await joinContestService(
+        userId,
+        {
+          contestId,
+          userTeamId,
+          confirmJoin, 
+
+          ip: req.ip,
+
+          device:
+            req.headers["user-agent"],
+        }
+      );
 
     return res.status(200).json(result);
+
   } catch (err) {
-    return res.status(err.statusCode || 400).json({ success: false, message: err.message });
+
+    return res.status(
+      err.statusCode || 400
+    ).json({
+      success: false,
+      message: err.message
+    });
+
   }
 };
 
