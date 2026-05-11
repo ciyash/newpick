@@ -911,7 +911,7 @@ export const getMyContestsService = async (userId, matchId) => {
        c.refund_start_rank,
        c.refund_winners,
        c.prize_distribution,
-       c.platform_fee_amount,
+       c.platform_fee_percentage,
        COUNT(ce.id)          AS my_team_count
      FROM contest_entries ce
      JOIN contest c ON ce.contest_id = c.id
@@ -965,7 +965,7 @@ export const getMyContestsService = async (userId, matchId) => {
     bonus_ranks:       c.bonus_ranks                 || 0,
     refund_start_rank: c.refund_start_rank           || 0,
     refund_winners:    c.refund_winners              || 0,
-    platformFeePercentage: c.platform_fee_amount     || 0,
+    platformFeePercentage: Number(c.platform_fee_percentage) || 0,
     prize_distribution: (() => {
       try {
         return typeof c.prize_distribution === 'string'
@@ -1032,7 +1032,7 @@ export const getLeaderboardService = async (contestId, userId, page = 1, limit =
        c.entry_fee, c.status, c.is_guaranteed,
        c.contest_type, c.winner_percentage,
        c.bonus_ranks, c.refund_start_rank, c.refund_winners,
-       c.refund_total, c.netpool_amount, c.platform_fee_amount,
+       c.refund_total, c.netpool_amount, c.platform_fee_percentage,
        c.rank1_percent, c.top1_end_rank,
        c.linear_start_rank, c.linear_end_rank,
        m.status    AS match_status,
@@ -1269,7 +1269,7 @@ const myPrize = isCompleted
       myRank,
       contest.prize_distribution,
       contest.entry_fee,
-      contest.bonus_ranks,        // ← refundWinners
+      contest.bonus_ranks,        
       contest.refund_start_rank
     ))
   : 0;
@@ -1315,7 +1315,7 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries,
       id:                contest.id,
       prize_pool:        Number(contest.prize_pool)        || 0,
       net_pool_prize:    Number(contest.net_pool_prize)    || 0,
-      platformFeePercentage: Number(contest.platform_fee_amount) || 0,
+      platformFeePercentage: Number(contest.platform_fee_percentage) || 0,
       first_prize:       Number(contest.first_prize)       || 0,
       entry_fee:         Number(contest.entry_fee)         || 0,
       total_entries:     contest.current_entries           || 0,
@@ -1383,7 +1383,7 @@ const buildLeaderboardResponse = (contest, matchStatus, leaderboard, my_entries,
 //       id:                contest.id,
 //       prize_pool:        Number(contest.prize_pool)        || 0,
 //       net_pool_prize:    Number(contest.net_pool_prize)    || 0,
-//       platformFeePercentage: Number(contest.platform_fee_amount) || 0,
+//       platformFeePercentage: Number(contest.platform_fee_percentage) || 0,
 //       first_prize:       Number(contest.first_prize)       || 0,
 //       entry_fee:         Number(contest.entry_fee)         || 0,
 //       total_entries:     contest.current_entries           || 0,
@@ -2203,7 +2203,7 @@ export const getCompletedMatchLeaderboardService = async (matchId, userId, page 
         }));
       }
 
-      // ── Leaderboard — DB లోనే paginate ──
+      // ── Leaderboard — DB  paginate ──
       const [pagedEntries] = await db.query(
         `SELECT
            ce.user_id, ce.user_team_id, ce.urank, ce.winning_amount,
