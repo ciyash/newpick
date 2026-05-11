@@ -687,7 +687,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       throw Object.assign(new Error("Contest is full"), { statusCode: 400 });
 
     const contestEntryFee = Number(contest.entry_fee);
-    const isPractice      = contest.contest_type === 'PRACTISE CONTEST';
+    const isPractice      = contest.contest_type === 'PRACTISE';
 
     // ── 2. Normalise userTeamId ──
     const teamIds = Array.isArray(userTeamId)
@@ -703,11 +703,14 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     ))[0][0]?.match_id;
 
     // ── 3.1. User subscription status fetch ──
-    const [[userRow]] = await conn.query(
-      `SELECT subscribe FROM users WHERE id = ?`,
-      [userId]
-    );
-    const isSubscriber = Number(userRow?.subscribe) === 1;
+     const [[userRow]] = await conn.query(
+  `SELECT subscribe, subscribeenddate FROM users WHERE id = ?`,
+  [userId]
+);
+const isSubscriber = Number(userRow?.subscribe) === 1 
+  && userRow?.subscribeenddate 
+  && new Date(userRow.subscribeenddate)
+   > new Date();
 
     // ── 3.2. Per contest teams limit check ──
     const [[{ existingTeamCount }]] = await conn.query(
