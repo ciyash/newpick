@@ -1,7 +1,17 @@
 import db from "../../config/db.js";
 import { logActivity } from "../../utils/activity.logger.js";
 
-// ── Ticket number generate ──
+const CATEGORY_LABELS = {
+  wallet:      "Wallet Issues",
+  withdrawal:  "Withdrawal Issues",
+  kyc:         "KYC Issues",
+  contest:     "Contest Issues",
+  technical:   "Technical Support",
+  bonus:       "Bonus Disputes",
+  rg:          "RG Complaints",
+};
+
+
 const generateTicketNo = async (conn) => {
   const [[last]] = await conn.query(
     `SELECT ticket_no FROM support_tickets
@@ -12,9 +22,7 @@ const generateTicketNo = async (conn) => {
   return `TKT-${num}`;
 };
 
-/* ======================================================
-   USER — RAISE TICKET
-====================================================== */
+
 export const raiseTicketService = async (userId, data) => {
   const { category, subject, message, priority } = data;
 
@@ -37,7 +45,7 @@ export const raiseTicketService = async (userId, data) => {
 
     const ticketId = result.insertId;
 
-    // First message — ticket message table లో కూడా save
+    // First message — ticket message table  
     await conn.query(
       `INSERT INTO support_ticket_messages
          (ticket_id, sender_id, sender_type, message)
@@ -71,9 +79,9 @@ export const raiseTicketService = async (userId, data) => {
   }
 };
 
-/* ======================================================
-   USER — GET MY TICKETS
-====================================================== */
+//  ======================================================
+
+
 
 export const getMyTicketsService = async (userId, filters = {}) => {
   const { status, page = 1, limit = 20 } = filters;
@@ -117,6 +125,7 @@ export const getMyTicketsService = async (userId, filters = {}) => {
         id:           String(t.id),
         ticket_no:    t.ticket_no,
         category:     t.category,
+        category_label: CATEGORY_LABELS[t.category] || t.category,  
         subject:      t.subject,
         priority:     t.priority,
         status:       t.status,
@@ -124,9 +133,9 @@ export const getMyTicketsService = async (userId, filters = {}) => {
         created_at:   t.created_at,
         updated_at:   t.updated_at,
         messages:     messages.map(m => ({
-          sender_type: m.sender_type,
-          message:     m.message,
-          created_at:  m.created_at,
+        sender_type: m.sender_type,
+        message:     m.message,
+        created_at:  m.created_at,
         })),
       };
     })

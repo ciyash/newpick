@@ -8,7 +8,8 @@ import {
   syncPlayingXIService,
   syncPlayerPointsService,
   getAllFixturesBetween,
-  getMatchesByDateRangeService
+  getMatchesByDateRangeService,
+  getPlayerStatsService
   
 } from "./sportmonks.service.js";
 
@@ -263,9 +264,6 @@ export const getFixturesByDateRange = async (req, res) => {
     });
   }
 };
-
-
-
  
 export const getMatchesByDateRange = async (req, res) => {
   try {
@@ -306,4 +304,73 @@ export const getMatchesByDateRange = async (req, res) => {
   }
 };
 
+//===================================================================================
 
+
+
+export const getPlayerStats = async (req, res) => {
+  try {
+    const { matchId, playerId } = req.params;
+
+    if (!matchId || !playerId)
+      return res.status(400).json({
+        success: false,
+        message: "matchId and playerId are required",
+      });
+
+    const result = await getPlayerStatsService(matchId, playerId);
+
+    if (result.reason)
+      return res.status(202).json({
+        success: false,
+        message: result.reason,
+        data: null,
+      });
+
+    res.json({
+      success: true,
+      message: "Player stats fetched and saved",
+      data: result.data,
+    });
+  } catch (err) {
+    console.error("getPlayerStats error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const getAllPlayerStats = async (req, res) => {
+  try {
+
+    const { matchId } = req.params;
+
+    if (!matchId) {
+      return res.status(400).json({
+        success: false,
+        message: "matchId is required",
+      });
+    }
+
+    const result = await syncAllPlayerStatsService(
+      matchId
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "All player stats synced successfully",
+      data: result,
+    });
+
+  } catch (err) {
+
+    console.error(
+      "getAllPlayerStats error:",
+      err.message
+    );
+
+    return res.status(500).json({
+      success: false,
+      message: err.message || "Internal server error",
+    });
+
+  }
+};
