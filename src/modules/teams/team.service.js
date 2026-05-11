@@ -50,12 +50,6 @@ export const createTeamService = async (
       throw new Error("Team creation is closed — match is live");
     }
 
-    // Uncomment to enforce match timing:
-    // const now         = new Date();
-    // const matchStatus = match.status?.trim().toLowerCase();
-    // if (matchStatus !== "upcoming" || now >= new Date(match.start_time)) {
-    //   throw new Error("Team creation is closed for this match");
-    // }
 
     /* ================================
        1️⃣ FETCH PLAYERS & ROLES
@@ -206,7 +200,8 @@ export const createTeamService = async (
 
     return {
       success: true,
-      message: "Team created successfully",
+      // message: "Team created successfully",
+      message: `${teamName} created successfully`,
       teamId,
       teamName,
     };

@@ -2,7 +2,6 @@ import express from "express";
 import {
   raiseTicket,
   getMyTickets,
-  getTicketMessages,
   replyTicket,
   adminGetTickets,
   adminUpdateTicketStatus,
@@ -17,14 +16,13 @@ const router = express.Router();
 
 router.post("/raise",                     authenticate, checkAccountActive, raiseTicket);
 router.get("/my-tickets",                 authenticate, getMyTickets);
-router.get("/:ticketId/messages",         authenticate, getTicketMessages);
-router.post("/:ticketId/reply",           authenticate, replyTicket);
+router.post("/reply/:ticket_no",           authenticate, replyTicket);
 
 /* ── ADMIN ── */
 
 router.get("/admin/all",                  adminAuth(), adminGetTickets);
 router.post("/admin/update-status",       adminAuth(), adminUpdateTicketStatus);
-router.post("/admin/:ticketId/reply",     adminAuth(), adminReplyTicket);
+router.post("/admin/reply/:ticket_no",     adminAuth(), adminReplyTicket);
 
 export default router;
 

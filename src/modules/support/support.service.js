@@ -74,6 +74,7 @@ export const raiseTicketService = async (userId, data) => {
 /* ======================================================
    USER — GET MY TICKETS
 ====================================================== */
+
 export const getMyTicketsService = async (userId, filters = {}) => {
   const { status, page = 1, limit = 20 } = filters;
   const offset = (page - 1) * limit;
@@ -87,7 +88,8 @@ export const getMyTicketsService = async (userId, filters = {}) => {
   }
 
   const [rows] = await db.query(
-    `SELECT id, ticket_no, category, subject, priority, status, created_at, updated_at
+    `SELECT id, ticket_no, category, subject, message,
+            priority, status, created_at, updated_at
      FROM support_tickets
      ${whereClause}
      ORDER BY created_at DESC
@@ -100,18 +102,38 @@ export const getMyTicketsService = async (userId, filters = {}) => {
     params
   );
 
+  // ── Each ticket messages ──
+  const data = await Promise.all(
+    rows.map(async (t) => {
+      const [messages] = await db.query(
+        `SELECT sender_type, message, created_at
+         FROM support_ticket_messages
+         WHERE ticket_id = ?
+         ORDER BY created_at ASC`,
+       [String(t.id)] 
+      );
+
+      return {
+        id:           String(t.id),
+        ticket_no:    t.ticket_no,
+        category:     t.category,
+        subject:      t.subject,
+        priority:     t.priority,
+        status:       t.status,
+        status_label: ["Pending", "Opened", "Reacted", "Resolved"][t.status] || "Pending",
+        created_at:   t.created_at,
+        updated_at:   t.updated_at,
+        messages:     messages.map(m => ({
+          sender_type: m.sender_type,
+          message:     m.message,
+          created_at:  m.created_at,
+        })),
+      };
+    })
+  );
+
   return {
-    data: rows.map(t => ({
-      id:         String(t.id),
-      ticket_no:  t.ticket_no,
-      category:   t.category,
-      subject:    t.subject,
-      priority:   t.priority,
-      status:     t.status,
-      status_label: ["Pending", "Opened", "Reacted", "Resolved"][t.status] || "Pending",
-      created_at: t.created_at,
-      updated_at: t.updated_at,
-    })),
+    data,
     pagination: {
       total,
       page:       Number(page),
@@ -121,62 +143,28 @@ export const getMyTicketsService = async (userId, filters = {}) => {
   };
 };
 
-/* ======================================================
-   USER — GET TICKET MESSAGES
-====================================================== */
-export const getTicketMessagesService = async (userId, ticketId) => {
-  const [[ticket]] = await db.query(
-    `SELECT * FROM support_tickets WHERE id = ? AND user_id = ?`,
-    [ticketId, userId]
-  );
-  if (!ticket) throw new Error("Ticket not found");
 
-  const [messages] = await db.query(
-    `SELECT id, sender_id, sender_type, message, created_at
-     FROM support_ticket_messages
-     WHERE ticket_id = ?
-     ORDER BY created_at ASC`,
-    [ticketId]
-  );
-
-  return {
-    ticket: {
-      id:           String(ticket.id),
-      ticket_no:    ticket.ticket_no,
-      category:     ticket.category,
-      subject:      ticket.subject,
-      priority:     ticket.priority,
-      status:       ticket.status,
-      status_label: ["Pending", "Opened", "Reacted", "Resolved"][ticket.status] || "Pending",
-      created_at:   ticket.created_at,
-    },
-    messages: messages.map(m => ({
-      id:          String(m.id),
-      sender_type: m.sender_type,
-      message:     m.message,
-      created_at:  m.created_at,
-    })),
-  };
-};
 
 /* ======================================================
    USER — REPLY TO TICKET
 ====================================================== */
-export const replyTicketService = async (userId, ticketId, message) => {
+
+export const replyTicketService = async (userId, ticketNo, message) => {
   if (!message) throw new Error("Message is required");
 
   const [[ticket]] = await db.query(
-    `SELECT * FROM support_tickets WHERE id = ? AND user_id = ?`,
-    [ticketId, userId]
+    `SELECT * FROM support_tickets 
+     WHERE ticket_no = ? AND user_id = ?`,
+    [ticketNo, userId]
   );
-  if (!ticket)            throw new Error("Ticket not found");
+  if (!ticket)             throw new Error("Ticket not found");
   if (ticket.status === 3) throw new Error("Ticket is already resolved");
 
   await db.query(
     `INSERT INTO support_ticket_messages
        (ticket_id, sender_id, sender_type, message)
      VALUES (?, ?, 'user', ?)`,
-    [ticketId, userId, message]
+    [ticket.id, userId, message]
   );
 
   return { success: true, message: "Reply sent" };
@@ -275,12 +263,14 @@ export const adminUpdateTicketStatusService = async (adminId, ticketId, status) 
 /* ======================================================
    ADMIN — REPLY TO TICKET
 ====================================================== */
-export const adminReplyTicketService = async (adminId, ticketId, message) => {
+
+
+export const adminReplyTicketService = async (adminId, ticketNo, message) => {
   if (!message) throw new Error("Message is required");
 
   const [[ticket]] = await db.query(
-    `SELECT * FROM support_tickets WHERE id = ?`,
-    [ticketId]
+    `SELECT * FROM support_tickets WHERE ticket_no = ?`,
+    [ticketNo]
   );
   if (!ticket)             throw new Error("Ticket not found");
   if (ticket.status === 3) throw new Error("Ticket is already resolved");
@@ -289,13 +279,15 @@ export const adminReplyTicketService = async (adminId, ticketId, message) => {
     `INSERT INTO support_ticket_messages
        (ticket_id, sender_id, sender_type, message)
      VALUES (?, ?, 'admin', ?)`,
-    [ticketId, adminId, message]
+    [ticket.id, adminId, message]
   );
 
   // Status → 2 (Reacted)
   await db.query(
-    `UPDATE support_tickets SET status = 2, assigned_to = ? WHERE id = ?`,
-    [adminId, ticketId]
+    `UPDATE support_tickets 
+     SET status = 2, assigned_to = ? 
+     WHERE ticket_no = ?`,
+    [adminId, ticketNo]
   );
 
   return { success: true, message: "Reply sent" };

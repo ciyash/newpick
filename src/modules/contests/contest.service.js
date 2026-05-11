@@ -427,6 +427,246 @@ const getOtherTeamsService = async (userId, matchId) => {
   }));
 };
 
+// export const joinContestService = async (userId, { contestId, userTeamId, ip, device }) => {
+//   let conn;
+//   try {
+//     conn = await db.getConnection();
+//     await conn.beginTransaction();
+
+//     // ── 1. Contest exists & open? ──
+//     const [[contest]] = await conn.query(
+//       `SELECT id, entry_fee, max_entries, current_entries, status
+//        FROM contest WHERE id = ? FOR UPDATE`,
+//       [contestId]
+//     );
+//     if (!contest)
+//       throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
+//     if (contest.status !== "UPCOMING")
+//       throw Object.assign(new Error("Contest is not open for joining"), { statusCode: 400 });
+//     if (contest.current_entries >= contest.max_entries)
+//       throw Object.assign(new Error("Contest is full"), { statusCode: 400 });
+
+//     const contestEntryFee = Number(contest.entry_fee);
+
+//     // ── 2. Normalise userTeamId — support single or array ──
+//     const teamIds = Array.isArray(userTeamId)
+//       ? userTeamId.map(Number)
+//       : [Number(userTeamId)];
+
+//     if (!teamIds.length)
+//       throw Object.assign(new Error("userTeamId is required"), { statusCode: 400 });
+
+//     // ── 3. matchId fetch ──
+//     const matchId = (await conn.query(
+//       `SELECT match_id FROM contest WHERE id = ?`, [contestId]
+//     ))[0][0]?.match_id;
+
+   
+
+
+//     // ── 3.1. Per contest 20 teams limit check ──
+//     const [[{ existingTeamCount }]] = await conn.query(
+//       `SELECT COUNT(DISTINCT user_team_id) AS existingTeamCount
+//    FROM contest_entries
+//    WHERE user_id = ? AND contest_id = ?`,
+//       [userId, contestId]
+//     );
+
+//     const remaining = 20 - Number(existingTeamCount);
+//     if (remaining <= 0)
+//       throw Object.assign(
+//         new Error("Maximum 20 teams per contest limit reached"),
+//         { statusCode: 400 }
+//       );
+//     if (teamIds.length > remaining)
+//       throw Object.assign(
+//         new Error(`Only ${remaining} more team(s) allowed for this contest. Maximum 20 teams per contest`),
+//         { statusCode: 400 }
+//       );
+
+
+//     // ── 3.2. Validate all teams belong to this user & correct match ──
+//     const [teamRows] = await conn.query(
+//       `SELECT id FROM user_teams
+//        WHERE id IN (?) AND user_id = ? AND match_id = ?`,
+//       [teamIds, userId, matchId]
+//     );
+//     if (teamRows.length !== teamIds.length)
+//       throw Object.assign(new Error("One or more teams are invalid"), { statusCode: 400 });
+
+//     // ── 4. Duplicate entry check per team ──
+//     const [existingEntries] = await conn.query(
+//       `SELECT user_team_id FROM contest_entries
+//        WHERE contest_id = ? AND user_id = ? AND user_team_id IN (?)`,
+//       [contestId, userId, teamIds]
+//     );
+//     if (existingEntries.length > 0)
+//       throw Object.assign(new Error("One or more teams already joined this contest"), { statusCode: 400 });
+
+//     // ── 5. Enough spots? ──
+//     const spotsLeft = contest.max_entries - contest.current_entries;
+//     if (teamIds.length > spotsLeft)
+//       throw Object.assign(new Error("Not enough spots remaining"), { statusCode: 400 });
+
+//     // ── 6. Wallet fetch — all 3 wallets ──
+//     const [[wallet]] = await conn.query(
+//       `SELECT depositwallet, bonusamount, earnwallet
+//        FROM wallets WHERE user_id = ? FOR UPDATE`,
+//       [userId]
+//     );
+//     if (!wallet)
+//       throw Object.assign(new Error("Wallet not found"), { statusCode: 400 });
+
+//     const totalFee = contestEntryFee * teamIds.length;
+//     const depositBal = Number(wallet.depositwallet);
+//     const bonusBal = Number(wallet.bonusamount);
+//     const earnBal = Number(wallet.earnwallet);
+
+//     // ── 7. Wallet deduction priority ──
+//     // Step A: max 5% from bonus wallet
+//     const bonusUsable = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
+//     const bonusDeduct = Math.min(bonusUsable, bonusBal);
+//     // Step B: remaining after bonus
+//     const remainingAfterBonus = Number((totalFee - bonusDeduct).toFixed(2));
+//     // Step C: winning wallet first for remaining
+//     const earnDeduct = Math.min(earnBal, remainingAfterBonus);
+//     // Step D: rest from deposit
+//     const depositDeduct = Number((remainingAfterBonus - earnDeduct).toFixed(2));
+
+//     if (depositBal < depositDeduct)
+//       throw Object.assign(new Error("Insufficient balance"), { statusCode: 400 });
+
+//     // ── 8. Deduct from all 3 wallets ──
+//     await conn.query(
+//       `UPDATE wallets
+//        SET depositwallet = depositwallet - ?,
+//            bonusamount   = bonusamount   - ?,
+//            earnwallet    = earnwallet    - ?
+//        WHERE user_id = ?`,
+//       [depositDeduct, bonusDeduct, earnDeduct, userId]
+//     );
+
+//     // ── 9. Total user balance + company balance for proper ledger ──
+//     let userBalance = Number((depositBal + earnBal + bonusBal).toFixed(2));
+//     const [[companyLastRow]] = await conn.query(
+//       `SELECT closing_balance FROM wallet_transactions
+//        WHERE closing_balance IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`
+//     );
+//     let companyBalance = Number(companyLastRow?.closing_balance || 0);
+
+//     // ── 10. Wallet transaction — winning debit ──
+//     if (earnDeduct > 0) {
+//       const uOpen  = userBalance;
+//       const uClose = Number((userBalance - earnDeduct).toFixed(2));
+//       userBalance  = uClose;
+//       const coOpen  = companyBalance;
+//       const coClose = Number((companyBalance + earnDeduct).toFixed(2));
+//       companyBalance = coClose;
+//       await conn.query(
+//         `INSERT INTO wallet_transactions
+//          (user_id, wallettype, transtype, remark, amount,
+//           useropeningbalance, userclosingbalance,
+//           opening_balance, closing_balance, ip_address, device)
+//          VALUES (?, 'winning', 'debit', ?, ?, ?, ?, ?, ?, ?, ?)`,
+//         [userId, `Contest join fee (winnings) - Contest #${contestId}`,
+//           earnDeduct, uOpen, uClose, coOpen, coClose, ip || null, device || null]
+//       );
+//     }
+
+//     // ── 11. Wallet transaction — deposit debit ──
+//     if (depositDeduct > 0) {
+//       const uOpen  = userBalance;
+//       const uClose = Number((userBalance - depositDeduct).toFixed(2));
+//       userBalance  = uClose;
+//       const coOpen  = companyBalance;
+//       const coClose = Number((companyBalance + depositDeduct).toFixed(2));
+//       companyBalance = coClose;
+//       await conn.query(
+//         `INSERT INTO wallet_transactions
+//          (user_id, wallettype, transtype, remark, amount,
+//           useropeningbalance, userclosingbalance,
+//           opening_balance, closing_balance, ip_address, device)
+//          VALUES (?, 'deposit', 'debit', ?, ?, ?, ?, ?, ?, ?, ?)`,
+//         [userId, `Contest join fee - Contest #${contestId}`,
+//           depositDeduct, uOpen, uClose, coOpen, coClose, ip || null, device || null]
+//       );
+//     }
+
+//     // ── 12. Wallet transaction — bonus debit ──
+//     if (bonusDeduct > 0) {
+//       const uOpen  = userBalance;
+//       const uClose = Number((userBalance - bonusDeduct).toFixed(2));
+//       userBalance  = uClose;
+//       const coOpen  = companyBalance;
+//       const coClose = Number((companyBalance + bonusDeduct).toFixed(2));
+//       companyBalance = coClose;
+//       await conn.query(
+//         `INSERT INTO wallet_transactions
+//          (user_id, wallettype, transtype, remark, amount,
+//           useropeningbalance, userclosingbalance,
+//           opening_balance, closing_balance, ip_address, device)
+//          VALUES (?, 'bonus', 'debit', ?, ?, ?, ?, ?, ?, ?, ?)`,
+//         [userId, `Contest join bonus used - Contest #${contestId}`,
+//           bonusDeduct, uOpen, uClose, coOpen, coClose, ip || null, device || null]
+//       );
+//     }
+
+//     // ── 12. Insert into contest_entries for each team ──
+//     for (const teamId of teamIds) {
+//       await conn.query(
+//         `INSERT INTO contest_entries
+//          (contest_id, user_id, user_team_id, entry_fee, status, joined_at)
+//          VALUES (?, ?, ?, ?, 'active', NOW())`,
+//         [contestId, userId, teamId, contestEntryFee]
+//       );
+//     }
+
+//     // ── 13. Increment current_entries ──
+//     await conn.query(
+//       `UPDATE contest SET current_entries = current_entries + ? WHERE id = ?`,
+//       [teamIds.length, contestId]
+//     );
+
+//     // ── 14. Referral bonus — first paid contest join only ──
+//     if (contestEntryFee > 0) {
+//       await applyReferralContestBonus(
+//         userId, contestId, ip, device, conn,
+//         teamIds.length  // ✅ correctly pass 
+//       );
+//     }
+
+//     await conn.commit();
+
+//     logActivity({
+//       userId,
+//       type: "contest",
+//       title: "Contest Joined",
+//       description: `Joined Contest #${contestId} with ${teamIds.length} team(s)`,
+//       amount: totalFee,
+//       icon: "contest",
+//       meta: { contestId, teamsJoined: teamIds.length },
+//     });
+
+//     return {
+//       success: true,
+//       message: "Contest joined successfully",
+//       entryFee: contestEntryFee,
+//       teamsJoined: teamIds.length,
+//       totalPaid: totalFee,
+//       bonusUsed: bonusDeduct,
+//       earningUsed: earnDeduct,
+//       depositUsed: depositDeduct,
+//     };
+
+//   } catch (err) {
+//     if (conn) await conn.rollback();
+//     throw err;
+//   } finally {
+//     if (conn) conn.release();
+//   }
+// };
+
+
 export const joinContestService = async (userId, { contestId, userTeamId, ip, device }) => {
   let conn;
   try {
@@ -435,7 +675,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
 
     // ── 1. Contest exists & open? ──
     const [[contest]] = await conn.query(
-      `SELECT id, entry_fee, max_entries, current_entries, status
+      `SELECT id, entry_fee, max_entries, current_entries, status, contest_type
        FROM contest WHERE id = ? FOR UPDATE`,
       [contestId]
     );
@@ -447,8 +687,9 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       throw Object.assign(new Error("Contest is full"), { statusCode: 400 });
 
     const contestEntryFee = Number(contest.entry_fee);
+    const isPractice      = contest.contest_type === 'PRACTISE CONTEST';
 
-    // ── 2. Normalise userTeamId — support single or array ──
+    // ── 2. Normalise userTeamId ──
     const teamIds = Array.isArray(userTeamId)
       ? userTeamId.map(Number)
       : [Number(userTeamId)];
@@ -461,31 +702,49 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       `SELECT match_id FROM contest WHERE id = ?`, [contestId]
     ))[0][0]?.match_id;
 
-   
+    // ── 3.1. User subscription status fetch ──
+    const [[userRow]] = await conn.query(
+      `SELECT subscribe FROM users WHERE id = ?`,
+      [userId]
+    );
+    const isSubscriber = Number(userRow?.subscribe) === 1;
 
-
-    // ── 3.1. Per contest 20 teams limit check ──
+    // ── 3.2. Per contest teams limit check ──
     const [[{ existingTeamCount }]] = await conn.query(
       `SELECT COUNT(DISTINCT user_team_id) AS existingTeamCount
-   FROM contest_entries
-   WHERE user_id = ? AND contest_id = ?`,
+       FROM contest_entries
+       WHERE user_id = ? AND contest_id = ?`,
       [userId, contestId]
     );
 
-    const remaining = 20 - Number(existingTeamCount);
+    // ✅ PRACTICE contest — non subscriber = 1 team, subscriber = 20 teams
+    const maxTeamsAllowed = isPractice
+      ? (isSubscriber ? 20 : 1)
+      : 20;
+
+    const remaining = maxTeamsAllowed - Number(existingTeamCount);
+
     if (remaining <= 0)
       throw Object.assign(
-        new Error("Maximum 20 teams per contest limit reached"),
+        new Error(
+          isPractice && !isSubscriber
+            ? "Non-subscribers can only join practice contests with 1 team. Subscribe to join with more teams."
+            : "Maximum 20 teams per contest limit reached"
+        ),
         { statusCode: 400 }
       );
+
     if (teamIds.length > remaining)
       throw Object.assign(
-        new Error(`Only ${remaining} more team(s) allowed for this contest. Maximum 20 teams per contest`),
+        new Error(
+          isPractice && !isSubscriber
+            ? "Non-subscribers can only join practice contests with 1 team."
+            : `Only ${remaining} more team(s) allowed for this contest. Maximum ${maxTeamsAllowed} teams per contest`
+        ),
         { statusCode: 400 }
       );
 
-
-    // ── 3.2. Validate all teams belong to this user & correct match ──
+    // ── 3.3. Validate all teams belong to this user & correct match ──
     const [teamRows] = await conn.query(
       `SELECT id FROM user_teams
        WHERE id IN (?) AND user_id = ? AND match_id = ?`,
@@ -494,7 +753,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     if (teamRows.length !== teamIds.length)
       throw Object.assign(new Error("One or more teams are invalid"), { statusCode: 400 });
 
-    // ── 4. Duplicate entry check per team ──
+    // ── 4. Duplicate entry check ──
     const [existingEntries] = await conn.query(
       `SELECT user_team_id FROM contest_entries
        WHERE contest_id = ? AND user_id = ? AND user_team_id IN (?)`,
@@ -508,7 +767,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     if (teamIds.length > spotsLeft)
       throw Object.assign(new Error("Not enough spots remaining"), { statusCode: 400 });
 
-    // ── 6. Wallet fetch — all 3 wallets ──
+    // ── 6. Wallet fetch ──
     const [[wallet]] = await conn.query(
       `SELECT depositwallet, bonusamount, earnwallet
        FROM wallets WHERE user_id = ? FOR UPDATE`,
@@ -517,26 +776,22 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     if (!wallet)
       throw Object.assign(new Error("Wallet not found"), { statusCode: 400 });
 
-    const totalFee = contestEntryFee * teamIds.length;
+    const totalFee   = contestEntryFee * teamIds.length;
     const depositBal = Number(wallet.depositwallet);
-    const bonusBal = Number(wallet.bonusamount);
-    const earnBal = Number(wallet.earnwallet);
+    const bonusBal   = Number(wallet.bonusamount);
+    const earnBal    = Number(wallet.earnwallet);
 
     // ── 7. Wallet deduction priority ──
-    // Step A: max 5% from bonus wallet
-    const bonusUsable = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
-    const bonusDeduct = Math.min(bonusUsable, bonusBal);
-    // Step B: remaining after bonus
+    const bonusUsable        = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
+    const bonusDeduct        = Math.min(bonusUsable, bonusBal);
     const remainingAfterBonus = Number((totalFee - bonusDeduct).toFixed(2));
-    // Step C: winning wallet first for remaining
-    const earnDeduct = Math.min(earnBal, remainingAfterBonus);
-    // Step D: rest from deposit
-    const depositDeduct = Number((remainingAfterBonus - earnDeduct).toFixed(2));
+    const earnDeduct         = Math.min(earnBal, remainingAfterBonus);
+    const depositDeduct      = Number((remainingAfterBonus - earnDeduct).toFixed(2));
 
     if (depositBal < depositDeduct)
       throw Object.assign(new Error("Insufficient balance"), { statusCode: 400 });
 
-    // ── 8. Deduct from all 3 wallets ──
+    // ── 8. Deduct from wallets ──
     await conn.query(
       `UPDATE wallets
        SET depositwallet = depositwallet - ?,
@@ -546,7 +801,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       [depositDeduct, bonusDeduct, earnDeduct, userId]
     );
 
-    // ── 9. Total user balance + company balance for proper ledger ──
+    // ── 9. Company balance ──
     let userBalance = Number((depositBal + earnBal + bonusBal).toFixed(2));
     const [[companyLastRow]] = await conn.query(
       `SELECT closing_balance FROM wallet_transactions
@@ -611,7 +866,7 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       );
     }
 
-    // ── 12. Insert into contest_entries for each team ──
+    // ── 13. Insert contest_entries ──
     for (const teamId of teamIds) {
       await conn.query(
         `INSERT INTO contest_entries
@@ -621,17 +876,16 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
       );
     }
 
-    // ── 13. Increment current_entries ──
+    // ── 14. Increment current_entries ──
     await conn.query(
       `UPDATE contest SET current_entries = current_entries + ? WHERE id = ?`,
       [teamIds.length, contestId]
     );
 
-    // ── 14. Referral bonus — first paid contest join only ──
+    // ── 15. Referral bonus ──
     if (contestEntryFee > 0) {
       await applyReferralContestBonus(
-        userId, contestId, ip, device, conn,
-        teamIds.length  // ✅ correctly pass 
+        userId, contestId, ip, device, conn, teamIds.length
       );
     }
 
@@ -639,23 +893,23 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
 
     logActivity({
       userId,
-      type: "contest",
-      title: "Contest Joined",
+      type:        "contest",
+      title:       "Contest Joined",
       description: `Joined Contest #${contestId} with ${teamIds.length} team(s)`,
-      amount: totalFee,
-      icon: "contest",
-      meta: { contestId, teamsJoined: teamIds.length },
+      amount:      totalFee,
+      icon:        "contest",
+      meta:        { contestId, teamsJoined: teamIds.length },
     });
 
     return {
-      success: true,
-      message: "Contest joined successfully",
-      entryFee: contestEntryFee,
-      teamsJoined: teamIds.length,
-      totalPaid: totalFee,
-      bonusUsed: bonusDeduct,
-      earningUsed: earnDeduct,
-      depositUsed: depositDeduct,
+      success:      true,
+      message:      "Contest joined successfully",
+      entryFee:     contestEntryFee,
+      teamsJoined:  teamIds.length,
+      totalPaid:    totalFee,
+      bonusUsed:    bonusDeduct,
+      earningUsed:  earnDeduct,
+      depositUsed:  depositDeduct,
     };
 
   } catch (err) {
@@ -665,210 +919,6 @@ export const joinContestService = async (userId, { contestId, userTeamId, ip, de
     if (conn) conn.release();
   }
 };
-
-export const joinContestServicesudheer = async (userId, { contestId, userTeamId, ip, device }) => {
-  let conn;
-
-  try {
-    conn = await db.getConnection();
-    await conn.beginTransaction();
-    const [[contest]] = await conn.query(
-      `SELECT id, entry_fee, max_entries, current_entries, status, match_id
-       FROM contest WHERE id = ? FOR UPDATE`,
-      [contestId]
-    );
-
-    if (!contest)
-      throw Object.assign(new Error("Contest not found"), { statusCode: 404 });
-
-    if (contest.status !== "UPCOMING")
-      throw Object.assign(new Error("Contest is not open for joining"), { statusCode: 400 });
-
-    if (contest.current_entries >= contest.max_entries)
-      throw Object.assign(new Error("Contest is full"), { statusCode: 400 });
-
-    const contestEntryFee = Number(contest.entry_fee);
-
-    // ── 2. Normalize team IDs ──
-    const teamIds = Array.isArray(userTeamId)
-      ? userTeamId.map(Number)
-      : [Number(userTeamId)];
-
-    if (!teamIds.length)
-      throw Object.assign(new Error("userTeamId is required"), { statusCode: 400 });
-
-    // ── 3. Validate teams ──
-    const [teamRows] = await conn.query(
-      `SELECT id FROM user_teams
-       WHERE id IN (?) AND user_id = ? AND match_id = ?`,
-      [teamIds, userId, contest.match_id]
-    );
-
-    if (teamRows.length !== teamIds.length)
-      throw Object.assign(new Error("One or more teams are invalid"), { statusCode: 400 });
-
-    // ── 4. Duplicate check ──
-    const [existingEntries] = await conn.query(
-      `SELECT user_team_id FROM contest_entries
-       WHERE contest_id = ? AND user_id = ? AND user_team_id IN (?)`,
-      [contestId, userId, teamIds]
-    );
-
-    if (existingEntries.length > 0)
-      throw Object.assign(new Error("One or more teams already joined this contest"), { statusCode: 400 });
-
-    // ── 5. Check available spots ──
-    const spotsLeft = contest.max_entries - contest.current_entries;
-    if (teamIds.length > spotsLeft)
-      throw Object.assign(new Error("Not enough spots remaining"), { statusCode: 400 });
-
-    // ── 6. Wallet fetch ──
-    const [[wallet]] = await conn.query(
-      `SELECT depositwallet, bonusamount, earnwallet
-       FROM wallets WHERE user_id = ? FOR UPDATE`,
-      [userId]
-    );
-
-    if (!wallet)
-      throw Object.assign(new Error("Wallet not found"), { statusCode: 400 });
-
-    const totalFee = contestEntryFee * teamIds.length;
-    const depositBal = Number(wallet.depositwallet);
-    const bonusBal = Number(wallet.bonusamount);
-    const earnBal = Number(wallet.earnwallet);
-
-    // ── 7. Wallet deduction logic ──
-    const bonusUsable = Number((totalFee * BONUS_MAX_PCT).toFixed(2));
-    const bonusDeduct = Math.min(bonusUsable, bonusBal);
-
-    const remainingAfterBonus = Number((totalFee - bonusDeduct).toFixed(2));
-
-    const earnDeduct = Math.min(earnBal, remainingAfterBonus);
-    const depositDeduct = Number((remainingAfterBonus - earnDeduct).toFixed(2));
-
-    if (depositBal < depositDeduct)
-      throw Object.assign(new Error("Insufficient balance"), { statusCode: 400 });
-
-    // ── 8. Wallet update ──
-    await conn.query(
-      `UPDATE wallets
-       SET depositwallet = depositwallet - ?,
-           bonusamount   = bonusamount   - ?,
-           earnwallet    = earnwallet    - ?
-       WHERE user_id = ?`,
-      [depositDeduct, bonusDeduct, earnDeduct, userId]
-    );
-
-    // ── 9. Bulk wallet transactions ──
-    const walletTransactions = [];
-
-    if (earnDeduct > 0) {
-      walletTransactions.push([
-        userId, 'winning', 'debit',
-        `Contest join fee (winnings) - Contest #${contestId}`,
-        earnDeduct,
-        earnBal,
-        Number((earnBal - earnDeduct).toFixed(2)),
-        ip || null,
-        device || null
-      ]);
-    }
-
-    if (depositDeduct > 0) {
-      walletTransactions.push([
-        userId, 'deposit', 'debit',
-        `Contest join fee - Contest #${contestId}`,
-        depositDeduct,
-        depositBal,
-        Number((depositBal - depositDeduct).toFixed(2)),
-        ip || null,
-        device || null
-      ]);
-    }
-
-    if (bonusDeduct > 0) {
-      walletTransactions.push([
-        userId, 'bonus', 'debit',
-        `Contest join bonus used - Contest #${contestId}`,
-        bonusDeduct,
-        bonusBal,
-        Number((bonusBal - bonusDeduct).toFixed(2)),
-        ip || null,
-        device || null
-      ]);
-    }
-
-    if (walletTransactions.length) {
-      await conn.query(
-        `INSERT INTO wallet_transactions
-         (user_id, wallettype, transtype, remark, amount,
-          useropeningbalance, userclosingbalance, ip_address, device)
-         VALUES ?`,
-        [walletTransactions]
-      );
-    }
-
-    // ── 10. 🚀 BULK INSERT contest entries ──
-    const entryValues = teamIds.map(teamId => [
-      contestId,
-      userId,
-      teamId,
-      contestEntryFee,
-      'active',
-      new Date()
-    ]);
-
-    await conn.query(
-      `INSERT INTO contest_entries
-       (contest_id, user_id, user_team_id, entry_fee, status, joined_at)
-       VALUES ?`,
-      [entryValues]
-    );
-
-    // ── 11. Update contest count ──
-    await conn.query(
-      `UPDATE contest
-       SET current_entries = current_entries + ?
-       WHERE id = ?`,
-      [teamIds.length, contestId]
-    );
-
-    // ── 12. Referral bonus ──
-    if (contestEntryFee > 0) {
-      await applyReferralContestBonus(userId, contestId, ip, device, conn);
-    }
-
-    await conn.commit();
-
-    logActivity({
-      userId,
-      type: "contest",
-      title: "Contest Joined",
-      description: `Joined Contest #${contestId} with ${teamIds.length} team(s)`,
-      amount: totalFee,
-      icon: "contest",
-      meta: { contestId, teamsJoined: teamIds.length },
-    });
-
-    return {
-      success: true,
-      message: "Contest joined successfully",
-      entryFee: contestEntryFee,
-      teamsJoined: teamIds.length,
-      totalPaid: totalFee,
-      bonusUsed: bonusDeduct,
-      earningUsed: earnDeduct,
-      depositUsed: depositDeduct,
-    };
-
-  } catch (err) {
-    if (conn) await conn.rollback();
-    throw err;
-  } finally {
-    if (conn) conn.release();
-  }
-};
-
 
 
 export const getMyContestsService = async (userId, matchId) => {
