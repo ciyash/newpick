@@ -308,25 +308,29 @@ export const getMatchesByDateRange = async (req, res) => {
 
 
 
+/* ─────────────────────────────────────────
+   GET /player-stats/:matchId/:playerId
+   Single player stats for a match
+───────────────────────────────────────── */
 export const getPlayerStats = async (req, res) => {
   try {
     const { matchId, playerId } = req.params;
-
+ 
     if (!matchId || !playerId)
       return res.status(400).json({
         success: false,
         message: "matchId and playerId are required",
       });
-
+ 
     const result = await getPlayerStatsService(matchId, playerId);
-
+ 
     if (result.reason)
       return res.status(202).json({
         success: false,
         message: result.reason,
         data: null,
       });
-
+ 
     res.json({
       success: true,
       message: "Player stats fetched and saved",
@@ -337,40 +341,38 @@ export const getPlayerStats = async (req, res) => {
     res.status(500).json({ success: false, message: err.message });
   }
 };
-
-export const getAllPlayerStats = async (req, res) => {
+ 
+/* ─────────────────────────────────────────
+   GET /sync-player-stats/:match_id
+   Sync ALL players stats for a match
+───────────────────────────────────────── */
+export const syncAllPlayerStats = async (req, res) => {
   try {
-
-    const { matchId } = req.params;
-
-    if (!matchId) {
+    const { match_id } = req.params;
+ 
+    if (!match_id)
       return res.status(400).json({
         success: false,
-        message: "matchId is required",
+        message: "match_id required",
       });
-    }
-
-    const result = await syncAllPlayerStatsService(
-      matchId
-    );
-
-    return res.status(200).json({
+ 
+    const result = await syncAllPlayerStatsService(match_id);
+ 
+    if (result.reason)
+      return res.status(202).json({
+        success: false,
+        message: result.reason,
+        count: 0,
+      });
+ 
+    res.json({
       success: true,
-      message: "All player stats synced successfully",
-      data: result,
+      message: `${result.count} player stats synced`,
+      count: result.count,
+      data: result.data,
     });
-
   } catch (err) {
-
-    console.error(
-      "getAllPlayerStats error:",
-      err.message
-    );
-
-    return res.status(500).json({
-      success: false,
-      message: err.message || "Internal server error",
-    });
-
+    console.error("syncAllPlayerStats error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
   }
 };

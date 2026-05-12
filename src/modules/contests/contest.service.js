@@ -554,39 +554,26 @@ const isSubscriber = Number(userRow?.subscribe) === 1
     const depositDeduct      = Number((remainingAfterBonus - earnDeduct).toFixed(2));
 
     // ── PREVIEW ONLY ──
+// ── PREVIEW ONLY ──
 if (!confirmJoin) {
-
   await conn.rollback();
 
   return {
-    success: true,
-    preview: true,
-    message: "Contest join preview",
-
-    contestId,
-
-    entryFee: contestEntryFee,
-
+    success:    true,
+    preview:    true,
+    message:    "Contest join preview",
+    entryFee:   contestEntryFee,
     teamsJoined: teamIds.length,
-
     totalFee,
-
-    bonusUsed: bonusDeduct,
-
+    bonusUsed:  bonusDeduct,
     earningUsed: earnDeduct,
-
     depositUsed: depositDeduct,
-
-    toPay: depositDeduct,
-
-    usableCashBonus: bonusDeduct,
-
+    toPay:      Number((depositDeduct + earnDeduct).toFixed(2)), // ← fix: deposit + earn
     wallet: {
       depositBalance: depositBal,
-      bonusBalance: bonusBal,
+      bonusBalance:   bonusBal,
       winningBalance: earnBal,
     },
-
     confirmationRequired: true,
   };
 }

@@ -1106,7 +1106,7 @@ export const getMatchesByDateRangeService = async (fromDate, toDate) => {
   });
 };
 
-/// ─────────────────────────────────────────────────────────────────────────────
+/// ─────────────────────────────────────────────────────────────────────────────            
 
 
 // services/playerStatsService.js
@@ -1114,267 +1114,242 @@ export const getMatchesByDateRangeService = async (fromDate, toDate) => {
 
 
 /* ══════════════════════════════════════════
-   TYPE MAP (type_id → readable name)
+   STAT TYPE MAP  (sportmonks type_id → DB column name)
 ══════════════════════════════════════════ */
 const STAT_TYPE_MAP = {
-  41:  "attacks",
-  42:  "dangerous_attacks",
-  45:  "ball_possession",
-  50:  "minutes_played",
-  54:  "fouls",
-  55:  "duels",
-  56:  "corners",
-  60:  "clearances",
   63:  "goals",
   64:  "assists",
   65:  "yellow_cards",
   66:  "red_cards",
-  76:  "dribbles_successful",
-  77:  "dribbles_attempted",
-  78:  "tackles",
-  79:  "passes",
-  80:  "accurate_passes",
-  83:  "blocked_shots",
   84:  "shots_total",
   86:  "shots_on_target",
+  83:  "blocked_shots",
+  79:  "passes",
+  80:  "accurate_passes",
+  78:  "tackles",
+  76:  "dribbles_successful",
+  77:  "dribbles_attempted",
+  54:  "fouls",
+  55:  "duels",
+  60:  "clearances",
+  56:  "corners",
   88:  "offsides",
-  195: "xg",
   8:   "saves",
+  50:  "minutes_played",
+  45:  "ball_possession",
   1:   "ball_possession_pct",
+  41:  "attacks",
+  42:  "dangerous_attacks",
+  195: "xg",
 };
 
 /* ══════════════════════════════════════════
-   SPORTMONKS FIXTURE FETCH
+   SPORTMONKS — fetch fixture lineups + statistics
 ══════════════════════════════════════════ */
-const fetchFixtureWithStats = async (fixtureId) => {
-
+const fetchFixtureWithStats = async (sportmonksFixtureId) => {
   const url =
-    `${BASE_URL}/fixtures/${fixtureId}` +
+    `${BASE_URL}/fixtures/${sportmonksFixtureId}` +
     `?api_token=${TOKEN}` +
-    `&include=lineups.statistics.type;participants`;
+    `&include=lineups.statistics;statistics`;
 
   const response = await fetch(url);
-  const data = await response.json();
+  const data     = await response.json();
 
-  if (!response.ok || !data.data) {
-    throw new Error(
-      data?.message ||
-      "Sportmonks API error"
-    );
+  if (!response.ok || data.errors || !data.data) {
+    throw new Error(data.message || "SportMonks API error");
   }
 
-  return data.data;
+  return data.data; // fixture object
 };
 
 /* ══════════════════════════════════════════
-   MATCH ROW
+   DB — get match row by internal match_id
 ══════════════════════════════════════════ */
 const getMatchRow = async (matchId) => {
-
   const [rows] = await db.query(
-    `SELECT
-        id,
-        provider_match_id
-     FROM matches
-     WHERE id = ?
-     LIMIT 1`,
+    `SELECT id, sportmonks_fixture_id FROM matches WHERE id = ? LIMIT 1`,
     [matchId]
   );
-
   return rows[0] || null;
 };
 
 /* ══════════════════════════════════════════
-   PLAYER ROW
+   DB — resolve sportmonks player_id → internal player id
 ══════════════════════════════════════════ */
-const getPlayerRow = async (playerId) => {
-
+const resolveInternalPlayerId = async (sportmonksPlayerId) => {
   const [rows] = await db.query(
-    `SELECT
-        id,
-        provider_player_id,
-        name,
-        position
-     FROM players
-     WHERE id = ?
-     LIMIT 1`,
-    [playerId]
+    `SELECT id FROM players WHERE sportmonks_id = ? LIMIT 1`,
+    [sportmonksPlayerId]
   );
-
-  return rows[0] || null;
+  return rows[0]?.id || null;
 };
 
 /* ══════════════════════════════════════════
-   MAP SPORTMONKS STATS
+   DB — resolve sportmonks team_id → internal team id
 ══════════════════════════════════════════ */
-const mapStats = (statistics = []) => {
+const resolveInternalTeamId = async (sportmonksTeamId) => {
+  const [rows] = await db.query(
+    `SELECT id FROM teams WHERE sportmonks_id = ? LIMIT 1`,
+    [sportmonksTeamId]
+  );
+  return rows[0]?.id || null;
+};
 
+/* ══════════════════════════════════════════
+   MAP raw Sportmonks statistics array → flat object
+   Each stat element: { type_id, data: { value } }
+══════════════════════════════════════════ */
+const mapStats = (statisticsArray = []) => {
   const out = {};
-
-  for (const s of statistics) {
-
-    const typeId =
-      s.type_id ||
-      s.type?.id;
-
-    const statName =
-      STAT_TYPE_MAP[typeId];
-
-    if (!statName) continue;
-
-    out[statName] =
-      s.data?.value ??
-      s.value ??
-      null;
+  for (const s of statisticsArray) {
+    const col = STAT_TYPE_MAP[s.type_id];
+    if (col !== undefined) {
+      const val = s.data?.value ?? s.value ?? null;
+      out[col] = val;
+    }
   }
-
   return out;
 };
 
 /* ══════════════════════════════════════════
-   MAIN PLAYER LIVE STATS SERVICE
+   DB — upsert into player_match_stats
 ══════════════════════════════════════════ */
-export const getPlayerStatsService = async (
-  matchId,
-  playerId
-) => {
+const upsertPlayerStats = async (matchId, playerId, teamId, jerseyNumber, position, statsObj) => {
+  // All known stat columns
+  const allStatCols = Object.values(STAT_TYPE_MAP);
 
-  /* 1. Match */
-  const match = await getMatchRow(matchId);
+  // Only insert columns we actually received
+  const presentCols   = allStatCols.filter(col => statsObj[col] !== undefined);
+  const extraCols     = [];
+  const extraVals     = [];
 
-  if (!match) {
-    throw new Error("Match not found");
-  }
+  if (jerseyNumber != null) { extraCols.push("jersey_number"); extraVals.push(jerseyNumber); }
+  if (position      != null) { extraCols.push("position");      extraVals.push(position);      }
 
-  /* 2. Player */
-  const player = await getPlayerRow(playerId);
+  const insertCols  = [...presentCols, ...extraCols];
+  const insertVals  = [...presentCols.map(c => statsObj[c]), ...extraVals];
 
-  if (!player) {
-    throw new Error("Player not found");
-  }
+  if (!insertCols.length) return 0;
 
-  /* 3. Sportmonks fixture */
-  const fixture = await fetchFixtureWithStats(
-    match.provider_match_id
+  const colList      = insertCols.join(", ");
+  const placeholders = insertCols.map(() => "?").join(", ");
+  const onDup        = insertCols.map(c => `${c} = VALUES(${c})`).join(", ");
+
+  await db.query(
+    `INSERT INTO player_match_stats
+       (match_id, player_id, team_id, ${colList}, updated_at)
+     VALUES (?, ?, ?, ${placeholders}, NOW())
+     ON DUPLICATE KEY UPDATE
+       ${onDup},
+       updated_at = NOW()`,
+    [matchId, playerId, teamId, ...insertVals]
   );
 
-  const lineups =
-    fixture.lineups || [];
-
-  if (!lineups.length) {
-    throw new Error(
-      "No lineup data available"
-    );
-  }
-
-  /* 4. Find player lineup */
-  const lineup = lineups.find(
-    l =>
-      String(l.player_id) ===
-      String(player.provider_player_id)
-  );
-
-  if (!lineup) {
-    throw new Error(
-      "Player not found in fixture lineup"
-    );
-  }
-
-  /* 5. Stats */
-  const stats =
-    mapStats(lineup.statistics || []);
-
-  /* 6. Final response */
-  return {
-    player: {
-      id: player.id,
-      provider_player_id:
-        player.provider_player_id,
-      name: player.name,
-      position: player.position,
-      team_id: lineup.team_id,
-      jersey_number:
-        lineup.jersey_number,
-    },
-
-    appearance: {
-      starter:
-        lineup.type_id === 11,
-      substitute:
-        lineup.type_id === 12,
-    },
-
-    stats,
-
-    raw_statistics:
-      lineup.statistics || [],
-  };
+  return 1;
 };
 
 /* ══════════════════════════════════════════
-   CRON — SYNC ALL PLAYERS
+   CORE LOGIC — process lineup array
 ══════════════════════════════════════════ */
-export const syncAllPlayerStatsService = async (
-  matchId
-) => {
+const processLineups = async (matchRow, lineups, filterPlayerId = null) => {
+  const targetLineups = filterPlayerId
+    ? lineups.filter(l => String(l.player_id) === String(filterPlayerId))
+    : lineups;
 
-  const match = await getMatchRow(matchId);
-
-  if (!match) {
-    throw new Error("Match not found");
+  if (!targetLineups.length) {
+    return {
+      reason: filterPlayerId
+        ? `Player ${filterPlayerId} not found in fixture lineup`
+        : "No lineups available",
+      data: null,
+    };
   }
 
-  const fixture = await fetchFixtureWithStats(
-    match.provider_match_id
-  );
+  let savedCount = 0;
+  const results  = [];
 
-  const lineups =
-    fixture.lineups || [];
+  for (const l of targetLineups) {
+    const smPlayerId = l.player_id;
+    const smTeamId   = l.team_id;
 
-  let synced = 0;
+    // Resolve IDs
+    const internalPlayerId = await resolveInternalPlayerId(smPlayerId);
+    if (!internalPlayerId) {
+      console.warn(`  Skipping — player sportmonks_id=${smPlayerId} not in DB`);
+      continue;
+    }
 
-  for (const lineup of lineups) {
+    const internalTeamId = await resolveInternalTeamId(smTeamId);
+    if (!internalTeamId) {
+      console.warn(`  Skipping — team sportmonks_id=${smTeamId} not in DB`);
+      continue;
+    }
 
-    const [players] = await db.query(
-      `SELECT id
-       FROM players
-       WHERE provider_player_id = ?
-       LIMIT 1`,
-      [lineup.player_id]
+    // Map stats
+    const statsObj = mapStats(l.statistics || []);
+
+    // Save
+    const saved = await upsertPlayerStats(
+      matchRow.id,
+      internalPlayerId,
+      internalTeamId,
+      l.jersey_number ?? null,
+      l.position_id   ?? null,
+      statsObj
     );
 
-    const player =
-      players[0];
+    savedCount += saved;
 
-    if (!player) continue;
-
-    const stats =
-      mapStats(lineup.statistics || []);
-
-    await db.query(
-      `INSERT INTO player_match_stats
-        (
-          match_id,
-          player_id,
-          fantasy_points,
-          updated_at
-        )
-       VALUES (?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE
-         fantasy_points = VALUES(fantasy_points),
-         updated_at = NOW()`,
-      [
-        match.id,
-        player.id,
-        stats.goals || 0
-      ]
-    );
-
-    synced++;
+    results.push({
+      sportmonks_player_id: smPlayerId,
+      internal_player_id:   internalPlayerId,
+      player_name:          l.player_name,
+      stats:                statsObj,
+    });
   }
 
-  return {
-    success: true,
-    synced,
-  };
+  console.log(` Player stats synced: ${savedCount} for match ${matchRow.id}`);
+  return { count: savedCount, data: results, reason: null };
+};
+
+/* ══════════════════════════════════════════
+   SERVICE — single player stats
+   GET /player-stats/:matchId/:playerId
+══════════════════════════════════════════ */
+export const getPlayerStatsService = async (matchId, playerId) => {
+  const matchRow = await getMatchRow(matchId);
+  if (!matchRow)
+    return { reason: `Match ${matchId} not found`, data: null };
+
+  if (!matchRow.sportmonks_fixture_id)
+    return { reason: `Match ${matchId} has no sportmonks_fixture_id`, data: null };
+
+  const fixture = await fetchFixtureWithStats(matchRow.sportmonks_fixture_id);
+  const lineups = fixture.lineups || [];
+
+  if (!lineups.length)
+    return { reason: "No lineup data available from Sportmonks yet", data: null };
+
+  return processLineups(matchRow, lineups, playerId);
+};
+
+/* ══════════════════════════════════════════
+   SERVICE — sync ALL players for a match
+   GET /sync-player-stats/:match_id  +  cron
+══════════════════════════════════════════ */
+export const syncAllPlayerStatsService = async (matchId) => {
+  const matchRow = await getMatchRow(matchId);
+  if (!matchRow)
+    return { reason: `Match ${matchId} not found`, data: null };
+
+  if (!matchRow.sportmonks_fixture_id)
+    return { reason: `Match ${matchId} has no sportmonks_fixture_id`, data: null };
+
+  const fixture = await fetchFixtureWithStats(matchRow.sportmonks_fixture_id);
+  const lineups = fixture.lineups || [];
+
+  if (!lineups.length)
+    return { reason: "No lineup data available from Sportmonks yet", data: null };
+
+  return processLineups(matchRow, lineups, null);
 };
