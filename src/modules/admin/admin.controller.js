@@ -89,6 +89,34 @@ export const updateAdmin = async (req, res) => {
   }
 };
 
+// ── Admin Permissions ──────────────────────────────────────────────────────
+
+export const getAdminPermissions = async (req, res) => {
+  try {
+    const data = await s.getAdminPermissions(req.params.id);
+    res.json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+export const updateAdminPermissions = async (req, res) => {
+  try {
+    const result = await s.updateAdminPermissions(
+      req.params.id,
+      req.body,
+      req.admin,
+      getClientIp(req)
+    );
+    res.json(result);
+  } catch (e) {
+    // Permission denied → 403 not 400
+    if (e.message?.includes("Access denied")) {
+      return res.status(403).json({ success: false, message: e.message });
+    }
+    handleError(res, e);
+  }
+};
 // SERIES 
 
 export const createSeries = async (req, res) => {
@@ -595,6 +623,51 @@ export const fetchUsersByAccountStatus = async (req, res) => {
 };
 
 
+export const getUserDetails = async (req, res) => {
+  // Outer catch — safety net for unexpected controller-level failures
+  try {
+    console.log('[AdminController][getUserDetails] Request from admin:', req.admin?.id, 'query:', req.query);
+
+    const page   = parseInt(req.query.page,  10) || 1;
+    const limit  = parseInt(req.query.limit, 10) || 20;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const status = typeof req.query.status === 'string' ? req.query.status.trim() : '';
+
+    if (page < 1 || limit < 1 || limit > 100) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid pagination params: page >= 1, limit between 1 and 100',
+      });
+    }
+
+    // Inner catch — handles service errors with specific HTTP status codes
+    try {
+      const result = await s.getUserDetails({ page, limit, search, status });
+      return res.status(200).json({ success: true, data: result });
+    } catch (err) {
+      console.error('[AdminController][getUserDetails] Error:', err.message);
+
+      if (err.message.includes('invalid input') || err.message.includes('syntax')) {
+        return res.status(400).json({ success: false, message: 'Bad request: ' + err.message });
+      }
+      if (err.message.includes('permission denied') || err.message.includes('auth')) {
+        return res.status(403).json({ success: false, message: 'Forbidden: ' + err.message });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: 'Internal server error',
+        error: process.env.NODE_ENV !== 'production' ? err.message : undefined,
+      });
+    }
+  } catch (err) {
+    console.error('[AdminController][getUserDetails] Unhandled:', err);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: 'Unexpected server error' });
+    }
+  }
+};
+
 export const getUsersByType = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
@@ -1086,9 +1159,92 @@ export const previewPrizeDistributionController = async (req, res) => {
 
     console.time(labels.send);
     return res.status(200).type("application/json").send(payload);
- 
+
   } catch (err) {
     console.timeEnd(labels.total);
     return res.status(400).json({ success: false, message: err.message });
+  }
+};
+
+export const getUserById = async (req, res) => {
+  try {
+    const userId = parseInt(req.params.id, 10);
+    if (!userId || userId < 1) {
+      return res.status(400).json({ success: false, message: 'Invalid user ID — must be a positive integer' });
+    }
+    const data = await s.getUserById(userId);
+    return res.status(200).json({ success: true, data });
+  } catch (e) {
+    handleError(res, e);
+  }
+};
+
+//user Policies and Game Policies 
+export const createPolicyCategory = async (req, res) => {
+  try {
+    const data = await s.createPolicyCategoryService(req.admin.id, req.body);
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    console.error('[AdminController][createPolicyCategory]', err.message);
+    if (err.message.includes('already exists')) {
+      return res.status(409).json({ success: false, message: err.message });
+    }
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const updatePolicyCategory = async (req, res) => {
+  try {
+    const data = await s.updatePolicyCategoryService(req.admin.id, req.params.id, req.body);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error('[AdminController][updatePolicyCategory]', err.message);
+    if (err.message.includes('not found'))  return res.status(404).json({ success: false, message: err.message });
+    if (err.message.includes('Invalid'))    return res.status(400).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const getPolicyCategories = async (req, res) => {
+  try {
+    const data = await s.getPolcyCategoriesService();
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error('[AdminController][getPolicyCategories]', err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const publishPolicyVersion = async (req, res) => {
+  try {
+    const data = await s.publishPolicyVersionService(req.admin.id, req.params.categoryId, req.body);
+    return res.status(201).json({ success: true, data });
+  } catch (err) {
+    console.error('[AdminController][publishPolicyVersion]', err.message);
+    if (err.message.includes('not found'))   return res.status(404).json({ success: false, message: err.message });
+    if (err.message.includes('already exists')) return res.status(409).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const updatePolicyVersion = async (req, res) => {
+  try {
+    const data = await s.updatePolicyVersionService(req.admin.id, req.params.versionId, req.body);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error('[AdminController][updatePolicyVersion]', err.message);
+    if (err.message.includes('not found')) return res.status(404).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const getPolicyAcceptanceReport = async (req, res) => {
+  try {
+    const data = await s.getPolicyAcceptanceReportService(req.params.versionId);
+    return res.status(200).json({ success: true, data });
+  } catch (err) {
+    console.error('[AdminController][getPolicyAcceptanceReport]', err.message);
+    if (err.message.includes('not found')) return res.status(404).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

@@ -120,8 +120,29 @@ const ZONE_LABELS = {
 const ROUND = (n) => Math.round(n * 100) / 100;
 
 // ────────────────────────────────────────────────────────────────────────────
-// Adaptive Elite/High builders — used when % structure produces sub-entry-fee steps
+// Adaptive Top Ranks / Elite / High builders — used when % structure produces sub-entry-fee steps
 // ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Build Top Ranks zone using multiples of entry fee.
+ * Top must be ≤ r10 − entry. 5 sub-ranges with consecutive descending multipliers.
+ */
+function buildAdaptiveTopRanks(r10, entry) {
+  const mTop = Math.floor((r10 - entry) / entry);
+  const result = [];
+  for (let i = 0; i < TOP_SUB_RANGES.length; i++) {
+    const mult = Math.max(1, mTop - i);
+    // Cap at r10 so Top Ranks never inverts above the last Champions prize.
+    const prize = Math.min(ROUND(entry * mult), ROUND(r10));
+    result.push({
+      from: TOP_SUB_RANGES[i].from, to: TOP_SUB_RANGES[i].to,
+      count: TOP_SUB_RANGES[i].to - TOP_SUB_RANGES[i].from + 1,
+      prize,
+      label: `${mult} × entry`
+    });
+  }
+  return result;
+}
 
 /**
  * Build Elite zone using multiples of entry fee.
@@ -234,12 +255,17 @@ function build({ totalSpots, entry, feePct, winPct, refund = 0 } = {}) {
   }));
   const r10 = champions[9].prize;
 
-  // ── Step 2: Top Ranks (% of R10)
-  const topRanks = TOP_SUB_RANGES.map(s => ({
+  // ── Step 2: Top Ranks (% of R10) — fall back to multiples-of-entry if step rule fails
+  const topRanksByPct = TOP_SUB_RANGES.map(s => ({
     from: s.from, to: s.to, count: s.to - s.from + 1,
     prize: ROUND(r10 * s.pct),
     label: `${(s.pct * 100).toFixed(0)}% of R10`
   }));
+  let topRanksValid = (r10 - topRanksByPct[0].prize) >= entry - 0.005;
+  for (let i = 1; i < topRanksByPct.length && topRanksValid; i++) {
+    if (topRanksByPct[i - 1].prize - topRanksByPct[i].prize < entry - 0.005) topRanksValid = false;
+  }
+  const topRanks = topRanksValid ? topRanksByPct : buildAdaptiveTopRanks(r10, entry);
   const r100 = topRanks[topRanks.length - 1].prize;
 
   // ── Step 3: Elite (% of R100) — fall back to multiples-of-entry if step rule fails
@@ -528,12 +554,49 @@ function buildSmallContest(ctx) {
   }));
   const r10 = champions[9].prize;
 
+  // If R10 < entry fee the Champions cascade can't reach rank 10 above the entry-fee floor.
+  // Fall back: build only Champions with prize >= entry, then a flat entry-fee group for the rest.
+  if (r10 < entry - 0.005) {
+    const truncChamps = [];
+    for (let i = 0; i < Math.min(10, W); i++) {
+      const prize = ROUND(R1 * CHAMPION_RATIOS[i]);
+      if (prize < entry - 0.005) break;
+      truncChamps.push({ rank: i + 1, prize, label: `${(CHAMPION_RATIOS[i] * 100).toFixed(0)}% of R1` });
+    }
+    if (truncChamps.length === 0) {
+      // Extremely tiny pool: even R1 < entry. Give at least rank 1 whatever R1 yields.
+      return { error: `Pool too small: R1 (£${R1}) is below entry fee (£${entry}). Increase max_entries or entry fee.` };
+    }
+    const lastChampRank = truncChamps[truncChamps.length - 1].rank;
+    const flatLow = lastChampRank < W
+      ? [{ from: lastChampRank + 1, to: W, count: W - lastChampRank, prize: entry, label: '1 × entry' }]
+      : [];
+    return assembleSmallContest(ctx, truncChamps, [], [], [], [], flatLow);
+  }
+
+  // Determine if % structure satisfies step rule for Top Ranks
+  let useTopByPct = (r10 - ROUND(r10 * TOP_SUB_RANGES[0].pct)) >= entry - 0.005;
+  for (let i = 1; i < TOP_SUB_RANGES.length && useTopByPct; i++) {
+    const prev = ROUND(r10 * TOP_SUB_RANGES[i - 1].pct);
+    const curr = ROUND(r10 * TOP_SUB_RANGES[i].pct);
+    if (prev - curr < entry - 0.005) useTopByPct = false;
+  }
+  const mTopTR = useTopByPct ? null : Math.floor((r10 - entry) / entry);
+
   const topRanks = [];
-  for (const s of TOP_SUB_RANGES) {
+  for (let i = 0; i < TOP_SUB_RANGES.length; i++) {
+    const s = TOP_SUB_RANGES[i];
     if (s.from > W) break;
     const to = Math.min(s.to, W);
-    topRanks.push({ from: s.from, to, count: to - s.from + 1,
-                     prize: ROUND(r10 * s.pct), label: `${(s.pct * 100).toFixed(0)}% of R10` });
+    if (useTopByPct) {
+      topRanks.push({ from: s.from, to, count: to - s.from + 1,
+                       prize: ROUND(r10 * s.pct), label: `${(s.pct * 100).toFixed(0)}% of R10` });
+    } else {
+      const mult = Math.max(1, mTopTR - i);
+      const prize = Math.min(ROUND(entry * mult), ROUND(r10));
+      topRanks.push({ from: s.from, to, count: to - s.from + 1,
+                       prize, label: `${mult} × entry` });
+    }
     if (to === W) break;
   }
   const r100 = topRanks.length === TOP_SUB_RANGES.length ? topRanks[topRanks.length - 1].prize : null;
@@ -838,9 +901,14 @@ function validate({ bonusPool, W, entry, R1, allRanges, prizes, distributed, pla
   }
 
   // Rule 3: Step ≥ entry between adjacent rank-ranges
+  // Exemptions:
+  //   a) Within-Champions: cascade ratios (1.00→0.08) are fixed by design.
+  //   b) Lower range is at the entry-fee floor (refund tier): no further step required.
   for (let i = 1; i < allRanges.length; i++) {
     const prev = allRanges[i - 1];
     const curr = allRanges[i];
+    if (prev.zone === 'champions' && curr.zone === 'champions') continue;
+    if (curr.prize <= entry + 0.005) continue;
     const step = prev.prize - curr.prize;
     if (
       step < entry - 0.005 &&
