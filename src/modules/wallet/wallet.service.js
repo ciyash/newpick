@@ -321,6 +321,26 @@ const [[user]] = await db.query(
     ? Number(((usedThisMonth / monthlyLimit) * 100).toFixed(1))
     : 0;
 
+    /* ═══════════════════════ 4. POLICY STATUS ═══════════════════════ */
+const [policyRows] = await db.query(
+  `SELECT
+     COUNT(*) AS total_mandatory,
+     SUM(CASE WHEN upa.id IS NOT NULL THEN 1 ELSE 0 END) AS total_accepted
+   FROM policy_categories pc
+   INNER JOIN policy_versions pv
+     ON pv.category_id = pc.id
+    AND pv.is_active = 1
+   LEFT JOIN user_policy_acceptances upa
+     ON upa.policy_version_id = pv.id
+    AND upa.user_id = ?
+   WHERE pc.is_active = 1
+     AND pc.is_mandatory = 1
+     AND pc.screen = 'wallet'`,
+  [userId]
+);
+
+const policiesAccepted = Number(policyRows[0]?.total_accepted) >= Number(policyRows[0]?.total_mandatory) && Number(policyRows[0]?.total_mandatory) > 0;
+
   /* ═══════════════════════ RETURN ═══════════════════════ */
   return {
     financial_summary: {
@@ -337,6 +357,7 @@ const [[user]] = await db.query(
         subscription_bonus: Number(financial?.subscription_bonus || 0),
         total_bonus:        Number(financial?.total_bonus        || 0),
       },
+       policiesAccepted, 
     },
     deposit_limits: {
       monthly_limit:      monthlyLimit,

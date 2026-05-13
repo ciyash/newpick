@@ -14,16 +14,6 @@ router.get("/kyc-status/:mobile",  getKycStatus);
 
 router.post("/kyc-completed", kycComplete);  
 
-
 router.get("/address-kyc",authenticate, startAddressVerification);
-
-
-
-
-
-
-
-
-
 
 export default router

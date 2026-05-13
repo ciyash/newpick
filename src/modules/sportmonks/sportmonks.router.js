@@ -41,8 +41,9 @@ router.post("/matches/date-range", getMatchesByDateRange);
 
 
 
+router.get("/player-stats/all/:matchId",  syncAllPlayerStats);
+
 router.get("/player-stats/:matchId/:playerId",getPlayerStats);
 
-router.get("/player-stats/all/:matchId",  syncAllPlayerStats);
 
 export default router;     

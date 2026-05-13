@@ -3,7 +3,8 @@ import cron from "node-cron";
 import db    from "../../config/db.js";
 import redis from "../../config/redis.js";
 
-import { syncPlayingXIService, syncPlayerPointsService} from "./sportmonks.service.js";
+import { syncPlayingXIService, syncPlayerPointsService,syncAllPlayerStatsService} from "./sportmonks.service.js";
+
 
 import { scoreContestService } from "../scoring/scoring.service.js";
 
@@ -502,6 +503,100 @@ const resetMonthlyDepositLimits = async () => {
   }
 };
 
+
+
+/* ══════════════════════════════════════════
+   PLAYER STATS CRON HELPERS
+══════════════════════════════════════════ */
+ 
+const getISTHour = () => {
+  const istMs = Date.now() + (5.5 * 60 * 60 * 1000);
+  return new Date(istMs).getUTCHours();
+};
+ 
+const isLiveWindow = () => {
+  const h = getISTHour();
+  return h >= 14 || h <= 2; // IST 14:00 – 02:00
+};
+ 
+const getMatchesToSync = async () => {
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    .toISOString().slice(0, 19).replace("T", " ");
+ 
+  const [rows] = await db.query(
+    `SELECT id, provider_match_id, status, start_time
+     FROM matches
+     WHERE
+       status IN ('live', 'inplay', '1st-half', '2nd-half', 'ht', 'et', 'pen')
+       OR (
+         status IN ('finished', 'completed', 'ft')
+         AND stats_final_synced = 0
+         AND start_time >= ?
+       )
+     ORDER BY start_time ASC`,
+    [twoHoursAgo]
+  );
+  return rows;
+};
+ 
+const markFinalSynced = async (matchId) => {
+  await db.query(
+    `UPDATE matches SET stats_final_synced = 1 WHERE id = ?`,
+    [matchId]
+  );
+};
+ 
+const syncMatchStats = async (match) => {
+  try {
+    const result = await syncAllPlayerStatsService(match.id);
+ 
+    if (result.reason) {
+      console.log(`  [SKIP] Match ${match.id}: ${result.reason}`);
+      return;
+    }
+ 
+    console.log(`  [OK]   Match ${match.id} — ${result.count} saved, ${result.skipped?.length || 0} skipped`);
+ 
+    const finishedStatuses = ["finished", "completed", "ft"];
+    if (finishedStatuses.includes(match.status?.toLowerCase())) {
+      await markFinalSynced(match.id);
+      console.log(`  [DONE] Match ${match.id} marked final-synced`);
+    }
+  } catch (err) {
+    console.error(`  [ERR]  Match ${match.id}: ${err.message}`);
+  }
+};
+ 
+const syncPlayerStatsJob = async () => {
+  try {
+    if (!isLiveWindow()) {
+      // Outside live window — only unsynced finished matches
+      const [rows] = await db.query(
+        `SELECT id, provider_match_id, status
+         FROM matches
+         WHERE stats_final_synced = 0
+           AND status IN ('finished', 'completed', 'ft')
+         LIMIT 10`
+      );
+      if (!rows.length) return;
+      console.log(`[StatsCron] Outside window — ${rows.length} unsynced`);
+      for (const m of rows) await syncMatchStats(m);
+      return;
+    }
+ 
+    const matches = await getMatchesToSync();
+    if (!matches.length) return;
+ 
+    console.log(`[StatsCron] Syncing ${matches.length} match(es)...`);
+    for (const m of matches) {
+      await syncMatchStats(m);
+      await new Promise(r => setTimeout(r, 400)); // avoid rate limit
+    }
+  } catch (err) {
+    console.error("[StatsCron] Error:", err.message);
+  }
+};
+
 export const startCronJobs = () => {
 
   // Lineup — every 5 mins
@@ -521,6 +616,10 @@ export const startCronJobs = () => {
 
   // Cleanup — daily 2 AM
   cron.schedule("0 2 * * *",    cleanupOldInactiveMatches,      { scheduled: true, timezone: "UTC" });
+
+   //  Player Stats (sportmonks_player_stats) — every 5 mins
+  cron.schedule("*/5 * * * *",  syncPlayerStatsJob,            { scheduled: true, timezone: "UTC" });
+ 
 
   console.log("🚀 [CRON] All jobs registered");
 };

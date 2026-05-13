@@ -314,18 +314,33 @@ export const getContestsService = async (matchId, userId) => {
   if (!matchId) throw new Error("matchId is required");
   if (!userId) throw new Error("userId is required");
 
+ 
   const [rows] = await db.query(
     `SELECT
        c.*,
-       COUNT(ce.id) AS my_team_count
+       COUNT(DISTINCT ce.id) AS my_team_count,
+       COUNT(DISTINCT upa.id) AS accepted_count,
+       mandatory.total_mandatory
      FROM contest c
      LEFT JOIN contest_entries ce
        ON ce.contest_id = c.id
       AND ce.user_id    = ?
+     LEFT JOIN (
+       SELECT id FROM policy_categories
+       WHERE screen = 'contest' AND is_active = 1 AND is_mandatory = 1
+     ) AS pc ON 1=1
+     LEFT JOIN user_policy_acceptances upa
+       ON upa.user_id      = ?
+      AND upa.category_id  = pc.id
+     CROSS JOIN (
+       SELECT COUNT(*) AS total_mandatory
+       FROM policy_categories
+       WHERE screen = 'contest' AND is_active = 1 AND is_mandatory = 1
+     ) AS mandatory
      WHERE c.match_id = ?
-     GROUP BY c.id
+     GROUP BY c.id, mandatory.total_mandatory
      ORDER BY c.entry_fee DESC`,
-    [userId, matchId]
+    [userId, userId, matchId]
   );
 
   if (!rows?.length) return [];
@@ -353,7 +368,10 @@ export const getContestsService = async (matchId, userId) => {
       remainingSpots:      Math.max((c.max_entries || 0) - (c.current_entries || 0), 0),
       myTeamCount,
       teamsRemaining:      Math.max((c.max_teams_per_user || 20) - myTeamCount, 0), 
+    
       isJoined:            myTeamCount > 0,
+      policiesAccepted:    Number(c.accepted_count) >= Number(c.total_mandatory) && Number(c.total_mandatory) > 0,
+
       contestType:         c.contest_type                || null,
       isGuaranteed:        c.is_guaranteed               === 1,
       winnerPercentage:    Number(c.winner_percentage)   || 0,

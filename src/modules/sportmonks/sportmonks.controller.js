@@ -9,7 +9,8 @@ import {
   syncPlayerPointsService,
   getAllFixturesBetween,
   getMatchesByDateRangeService,
-  getPlayerStatsService
+  getPlayerStatsService,
+  syncAllPlayerStatsService
   
 } from "./sportmonks.service.js";
 
@@ -306,12 +307,11 @@ export const getMatchesByDateRange = async (req, res) => {
 
 //===================================================================================
 
-
-
+ 
 /* ─────────────────────────────────────────
-   GET /player-stats/:matchId/:playerId
-   Single player stats for a match
-───────────────────────────────────────── */
+   Single player stats — fetch from Sportmonks + save to sportmonks_player_stats
+─────────────────────────────────────────── */
+
 export const getPlayerStats = async (req, res) => {
   try {
     const { matchId, playerId } = req.params;
@@ -333,7 +333,7 @@ export const getPlayerStats = async (req, res) => {
  
     res.json({
       success: true,
-      message: "Player stats fetched and saved",
+      message: "Player stats fetched and saved to sportmonks_player_stats",
       data: result.data,
     });
   } catch (err) {
@@ -344,11 +344,11 @@ export const getPlayerStats = async (req, res) => {
  
 /* ─────────────────────────────────────────
    GET /sync-player-stats/:match_id
-   Sync ALL players stats for a match
-───────────────────────────────────────── */
+   All players stats for a match — fetch + save
+─────────────────────────────────────────── */
 export const syncAllPlayerStats = async (req, res) => {
   try {
-    const { match_id } = req.params;
+    const match_id = req.params.match_id || req.params.matchId;
  
     if (!match_id)
       return res.status(400).json({
@@ -367,9 +367,10 @@ export const syncAllPlayerStats = async (req, res) => {
  
     res.json({
       success: true,
-      message: `${result.count} player stats synced`,
-      count: result.count,
-      data: result.data,
+      message: `${result.count} player stats saved to sportmonks_player_stats`,
+      count:   result.count,
+      skipped: result.skipped,
+      data:    result.data,
     });
   } catch (err) {
     console.error("syncAllPlayerStats error:", err.message);

@@ -24,6 +24,7 @@ import withdrawRoutes from '../withdraw/withdraw.routes.js'
 import bankRoutes from '../bank/bank.route.js'
 import userActivityRoutes from '../user-activity/user.activity.route.js'
 import supportRouter from '../support/support.route.js'
+import policyRouter from '../policy/policy.routes.js'
 // import testRoutes from '../test/test.routes.js'
 // import notificationRoutes from '../notification/notification.routes.js'
 
@@ -54,7 +55,7 @@ app.use("/user-activity",  userActivityRoutes);
 app.get("/preferences",        authenticate,checkAccountActive, getUserPreferences);
 app.patch("/preferences/update",      authenticate, checkAccountActive, updateUserPreferences);
 app.use("/support",supportRouter)
-
+app.use("/policy",authenticate,checkAccountActive,policyRouter)
 // app.use("/test",testRoutes)
 // app.use("/notification", authenticate, checkAccountActive, notificationRoutes);
 

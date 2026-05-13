@@ -966,7 +966,51 @@ export const signupService = async ({ mobile, otp }) => {
       );
     }
 
-    /* ─── 1️⃣1️⃣ Referral Record Insert ✅ (bonus ledu — only record) ─── */
+    /* ─── 1️⃣1️⃣ Auto Accept Signup Policies ─── */
+const [signupPolicies] = await conn.query(
+  `SELECT
+     pv.id AS policy_version_id,
+     pv.category_id,
+     pv.version_number,
+     pv.content
+   FROM policy_versions pv
+   INNER JOIN policy_categories pc
+     ON pc.id = pv.category_id
+   WHERE pc.screen = 'signup'
+     AND pc.is_active = 1
+     AND pc.is_mandatory = 1
+     AND pv.is_active = 1`
+);
+
+for (const policy of signupPolicies) {
+  await conn.query(
+    `INSERT IGNORE INTO user_policy_acceptances
+     (
+       user_id,
+       policy_version_id,
+       category_id,
+       version_number,
+       accepted_at,
+       ip_address,
+       device_info,
+       user_agent,
+       policy_snapshot
+     )
+     VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
+    [
+      userId,
+      policy.policy_version_id,
+      policy.category_id,
+      policy.version_number,
+      null,   // ipAddress not available here
+      null,   // deviceInfo not available here
+      null,   // userAgent not available here
+      policy.content
+    ]
+  );
+}
+
+    /* ─── 1️2 Referral Record Insert  (bonus ledu — only record) ─── */
     if (referralid) {
       const [[referrer]] = await conn.query(
         `SELECT id FROM users WHERE usercode = ? FOR UPDATE`,

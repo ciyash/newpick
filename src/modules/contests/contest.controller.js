@@ -47,11 +47,11 @@ export const getContestsByMatchId = async (req, res) => {
 
     return res.status(200).json({ success: true, total: contests.length, data: contests });
   } catch (err) {
-    return res.status(err.statusCode || 500).json({
+    return res.status(500).json({
       success: false,
-      message: err.statusCode ? err.message : "Internal server error",
-    });
-  }
+      message: err.message
+  })
+}
 };
 
 
