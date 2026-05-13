@@ -1,6 +1,4 @@
 import db from "../../config/db.js";
-
-
 import { sendMail } from "../../utils/send.mail.js"
 import { logActivity } from "../../utils/activity.logger.js";
 
@@ -17,7 +15,7 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
   const sanitizedAmount = Math.round(Number(amount) * 100) / 100;
   if (isNaN(sanitizedAmount) || sanitizedAmount <= 0) throw new Error("Invalid deposit amount");
   if (sanitizedAmount < 10)   throw new Error("Minimum deposit is £10");
-  if (sanitizedAmount > 2000) throw new Error("Maximum single deposit is £2000");
+  if (sanitizedAmount > 200) throw new Error("Maximum single deposit is £200");
 
   const safePaymentIntentId = typeof paymentIntentId === "string"
     ? paymentIntentId.trim().slice(0, 200)
@@ -80,9 +78,9 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
       );
 
       if (daysSinceDeposit <= 30) {
-        // ── 30 days లోపు → no check, allow directly ✅ ──
+        // ── 30 days  → no check, allow directly  ──
       } else {
-        // ── 30 days దాటింది → contest join check ──
+        // ── 30 days  → contest join check ──
         const [[activityCheck]] = await conn.query(
           `SELECT COUNT(*) AS contest_count
            FROM contest_entries ce
@@ -103,10 +101,19 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
         }
       }
     }
-    // ── New user (no previous deposit) → no check ✅ ──
+    // ── New user (no previous deposit) → no check  ──
 
     // ── Monthly limit check ──
-    const MONTHLY_LIMIT  = Number(wallet.deposit_limit);
+    // const MONTHLY_LIMIT  = Number(wallet.deposit_limit);
+
+    const [[userCategory]] = await conn.query(
+  `SELECT category FROM users WHERE id = ?`,
+  [userId]
+);
+const MONTHLY_LIMIT = userCategory?.category === 'students'
+  ? STUDENT_DEPOSIT_LIMIT
+  : DEFAULT_DEPOSIT_LIMIT;
+  
     const depositBalance = Number(wallet.depositwallet || 0);
     const earnBalance    = Number(wallet.earnwallet    || 0);
     const bonusBalance   = Number(wallet.bonusamount   || 0);
@@ -218,56 +225,88 @@ export const addDepositService = async (userId, amount, paymentIntentId = null) 
 // GET MY WALLET
 
 
-
 export const getMyWalletService = async (userId) => {
   if (!userId) throw new Error("Invalid user");
 
   /* ═══════════════════════ 1. WALLET ═══════════════════════ */
-
+ 
   const [[wallet]] = await db.query(
-    `SELECT
-        depositwallet,
-        earnwallet,
-        bonusamount,
-        deposit_limit,
-        total_deposits,
-        iskyc,
-        issofverify,
-        limit_reduced_once
-     FROM wallets
-     WHERE user_id = ?`,
-    [userId]
-  );
+  `SELECT
+      depositwallet,
+      earnwallet,
+      bonusamount,
+      deposit_limit,
+      total_deposits,
+      limit_reduced_once,
+      iskyc,
+      issofverify
+   FROM wallets
+   WHERE user_id = ?`,
+  [userId]
+);
 
-  if (!wallet) throw new Error("Wallet not found");
 
-  const depositWallet = Number(wallet.depositwallet || 0);
-  const winningsWallet = Number(wallet.earnwallet || 0);
-  const bonusWallet = Number(wallet.bonusamount || 0);
+if (!wallet) throw new Error("Wallet not found");
 
-  const totalBalance = Number(
-    (depositWallet + winningsWallet + bonusWallet).toFixed(2)
-  );
+const [[user]] = await db.query(
+  `SELECT category FROM users WHERE id = ?`,
+  [userId]
+);
+
+
+
+  const depositWallet  = Number(wallet.depositwallet || 0);
+  const winningsWallet = Number(wallet.earnwallet    || 0);
+  const bonusWallet    = Number(wallet.bonusamount   || 0);
+  const totalBalance   = Number((depositWallet + winningsWallet).toFixed(2));
 
   /* ═══════════════════════ 2. FINANCIAL SUMMARY ═══════════════════════ */
-
   const [[financial]] = await db.query(
     `SELECT
-        SUM(CASE WHEN wallettype = 'deposit'
-                  AND transtype = 'credit'
-             THEN amount ELSE 0 END) AS total_deposited,
+        SUM(CASE
+              WHEN wallettype = 'deposit'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_deposited,
 
-        SUM(CASE WHEN wallettype = 'withdrawal'
-                  AND transtype = 'debit'
-             THEN amount ELSE 0 END) AS total_withdrawn,
+        SUM(CASE
+              WHEN wallettype = 'withdrawal'
+               AND transtype = 'debit'
+            THEN amount ELSE 0
+            END) AS total_withdrawn,
 
-        SUM(CASE WHEN wallettype = 'winning'
-                  AND transtype = 'credit'
-             THEN amount ELSE 0 END) AS total_winnings,
+        SUM(CASE
+              WHEN wallettype = 'winning'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_winnings,
 
-        SUM(CASE WHEN wallettype = 'bonus'
-                  AND transtype = 'credit'
-             THEN amount ELSE 0 END) AS total_bonus
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark = 'Joining bonus'
+            THEN amount ELSE 0
+            END) AS joining_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark = 'Referral reward'
+            THEN amount ELSE 0
+            END) AS referral_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+              AND remark LIKE 'Subscription bonus%'
+            THEN amount ELSE 0
+         END) AS subscription_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_bonus
 
      FROM wallet_transactions
      WHERE user_id = ?`,
@@ -275,58 +314,66 @@ export const getMyWalletService = async (userId) => {
   );
 
   /* ═══════════════════════ 3. MONTHLY LIMITS ═══════════════════════ */
+  const monthlyLimit       = Number(wallet.deposit_limit  || 0);
+  const usedThisMonth      = Number(wallet.total_deposits || 0);
+  const remainingThisMonth = Math.max(monthlyLimit - usedThisMonth, 0);
+  const usedPercent        = monthlyLimit > 0
+    ? Number(((usedThisMonth / monthlyLimit) * 100).toFixed(1))
+    : 0;
 
-  const monthlyLimit = Number(wallet.deposit_limit || 0);
-  const usedThisMonth = Number(wallet.total_deposits || 0);
+    /* ═══════════════════════ 4. POLICY STATUS ═══════════════════════ */
+const [policyRows] = await db.query(
+  `SELECT
+     COUNT(*) AS total_mandatory,
+     SUM(CASE WHEN upa.id IS NOT NULL THEN 1 ELSE 0 END) AS total_accepted
+   FROM policy_categories pc
+   INNER JOIN policy_versions pv
+     ON pv.category_id = pc.id
+    AND pv.is_active = 1
+   LEFT JOIN user_policy_acceptances upa
+     ON upa.policy_version_id = pv.id
+    AND upa.user_id = ?
+   WHERE pc.is_active = 1
+     AND pc.is_mandatory = 1
+     AND pc.screen = 'wallet'`,
+  [userId]
+);
 
-  const remainingThisMonth = Math.max(
-    monthlyLimit - usedThisMonth,
-    0
-  );
-
-  const usedPercent =
-    monthlyLimit > 0
-      ? Number(
-          ((usedThisMonth / monthlyLimit) * 100).toFixed(1)
-        )
-      : 0;
+const policiesAccepted = Number(policyRows[0]?.total_accepted) >= Number(policyRows[0]?.total_mandatory) && Number(policyRows[0]?.total_mandatory) > 0;
 
   /* ═══════════════════════ RETURN ═══════════════════════ */
-
   return {
-
     financial_summary: {
-      deposit_balance: depositWallet,
-      winnings_balance: winningsWallet,
-      bonus_balance: bonusWallet,
+      deposit_balance:      depositWallet,
+      winnings_balance:     winningsWallet,
+      bonus_balance:        bonusWallet,
       total_wallet_balance: totalBalance,
-
-      total_deposited: Number(financial?.total_deposited || 0),
-      total_withdrawn: Number(financial?.total_withdrawn || 0),
-      total_winnings: Number(financial?.total_winnings || 0),
-      total_bonus_received: Number(financial?.total_bonus || 0),
+      total_deposited:      Number(financial?.total_deposited || 0),
+      total_withdrawn:      Number(financial?.total_withdrawn || 0),
+      total_winnings:       Number(financial?.total_winnings  || 0),
+      bonus_breakdown: {
+        joining_bonus:      Number(financial?.joining_bonus      || 0),
+        referral_bonus:     Number(financial?.referral_bonus     || 0),
+        subscription_bonus: Number(financial?.subscription_bonus || 0),
+        total_bonus:        Number(financial?.total_bonus        || 0),
+      },
+       policiesAccepted, 
     },
-
     deposit_limits: {
-      monthly_limit: monthlyLimit,
-      used_this_month: usedThisMonth,
-      remaining_limit: remainingThisMonth,
-      used_percent: usedPercent,
-      can_add_cash: remainingThisMonth > 0,
+      monthly_limit:      monthlyLimit,
+      used_this_month:    usedThisMonth,
+      remaining_limit:    remainingThisMonth,
+      used_percent:       usedPercent,
+      limit_reduced_once: Number(wallet.limit_reduced_once || 0),
     },
-
     verification_status: {
-      is_kyc_verified:
-        Number(wallet.iskyc || 0) === 1,
-
-      is_sof_verified:
-        Number(wallet.issofverify || 0) === 1,
-
-      limit_reduced_once:
-        Number(wallet.limit_reduced_once || 0) === 1,
+      is_kyc_verified: Number(wallet.iskyc       || 0),
+      is_sof_verified: Number(wallet.issofverify || 0),
+      category:        user?.category || null, 
     },
   };
 };
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET MY TRANSACTIONS
 // Fix: useropeningbalance / userclosingbalance also returned
@@ -505,14 +552,19 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
   const entryWhere = entryConditions.join(" AND ");
 
   const [entries] = await db.query(
-    `SELECT
-       ce.contest_id, ce.entry_fee, ce.joined_at, ce.status, c.match_id
-     FROM contest_entries ce
-     JOIN contest c ON ce.contest_id = c.id
-     WHERE ${entryWhere}
-     ORDER BY ce.joined_at DESC`,
-    entryParams
-  );
+  `SELECT
+     ce.contest_id, ce.entry_fee, ce.joined_at, ce.status, 
+     c.match_id,
+     c.contest_type,                    -- ✅ add చేయి
+     c.prize_pool,                      -- ✅ add చేయి
+     m.hometeamname, m.awayteamname     -- ✅ add చేయి
+   FROM contest_entries ce
+   JOIN contest c ON ce.contest_id = c.id
+   JOIN matches m ON m.id = c.match_id  -- ✅ add చేయి
+   WHERE ${entryWhere}
+   ORDER BY ce.joined_at DESC`,
+  entryParams
+);
 
   // ── Active days ──
   let walletDateParams  = [userId];
@@ -587,6 +639,18 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
     ? Number(((usedThisMonth / monthlyLimit) * 100).toFixed(1))
     : 0;
 
+
+    // ── Contests list ──
+const contestsList = entries.map(e => ({
+  contest_id:   e.contest_id,
+  contest_type: e.contest_type  || null,
+  prize_pool:   Number(e.prize_pool) || 0,
+  entry_fee:    Number(e.entry_fee)  || 0,
+  match:        `${e.hometeamname} vs ${e.awayteamname}`,
+  joined_at:    e.joined_at     || null,
+  status:       e.status        || null,
+}));
+
   return {
     financial: {
       money_deposited:    deposits,
@@ -604,6 +668,7 @@ export const getMyAnalyticsService = async (userId, month = null, year = null) =
       avg_contests_per_match: avgContests,
       active_days:            activeDays,
       last_contest_played:    lastContestPlayed,
+       contests_list:          contestsList,
     },
     account: {
       member_since: userRow?.member_since || null,
@@ -842,7 +907,7 @@ if (!type || type === "withdrawal") {
   }
 
 
-  // ── 7. Referral Rewards ── లో fix
+  // ── 7. Referral Rewards ──  fix
 const [rows] = await db.query(
   `SELECT
      rr.id,
@@ -934,7 +999,7 @@ const getWithdrawTitle = (status) => {
 };
 
 const getKycTitle = (status) => {
-  if (status === "approved") return "KYC Verified ✅";
+  if (status === "approved") return "KYC Verified ";
   if (status === "rejected") return "KYC Rejected";
   return "KYC Update";
 };

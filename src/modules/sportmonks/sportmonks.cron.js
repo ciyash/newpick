@@ -3,9 +3,13 @@ import cron from "node-cron";
 import db    from "../../config/db.js";
 import redis from "../../config/redis.js";
 
-import { syncPlayingXIService, syncPlayerPointsService} from "./sportmonks.service.js";
+import { syncPlayingXIService, syncPlayerPointsService,syncAllPlayerStatsService} from "./sportmonks.service.js";
+
 
 import { scoreContestService } from "../scoring/scoring.service.js";
+
+import { STUDENT_DEPOSIT_LIMIT, DEFAULT_DEPOSIT_LIMIT } from "../../config/constants.js";
+
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -23,6 +27,98 @@ const CACHE_TTL = 120; // 2 minutes
 // HELPER — one contest leaderboard compute + cache
 // ─────────────────────────────────────────────────────────────────────────────
 
+// export const computeAndCacheLeaderboard = async (contestId, matchId) => {
+//   const [entries] = await db.query(
+//     `SELECT
+//        ce.user_id,
+//        ce.user_team_id,
+//        u.name,
+//        u.nickname,
+//        u.image,
+//        ut.team_name
+//      FROM contest_entries ce
+//      JOIN users u ON u.id = ce.user_id
+//      LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+//      WHERE ce.contest_id = ?`,
+//     [contestId]
+//   );
+
+//   if (!entries.length) return [];
+
+//   const teamIds = [...new Set(entries.map(e => e.user_team_id).filter(Boolean))];
+
+// const [playerRows] = await db.query(
+//   `SELECT
+//      utp.user_team_id,
+//      utp.player_id,
+//      utp.is_captain,
+//      utp.is_vice_captain,
+//      utp.is_substitude,
+//      COALESCE(pms.fantasy_points, 0) AS base_points
+//    FROM user_team_players utp
+//    LEFT JOIN player_match_stats pms
+//      ON pms.player_id = utp.player_id
+//     AND pms.match_id  = ?
+//    WHERE utp.user_team_id IN (?)`,
+//   [matchId, teamIds]
+// );
+
+//   const teamPlayersMap = {};
+//   playerRows.forEach(r => {
+//     if (!teamPlayersMap[r.user_team_id]) teamPlayersMap[r.user_team_id] = [];
+//     teamPlayersMap[r.user_team_id].push(r);
+//   });
+
+//   // ── ✅ LIVE: No captain multiplier, No HS Bonus (document spec) ──
+//   const teamPointsMap = {};
+//   for (const teamId of teamIds) {
+//     const players = teamPlayersMap[teamId] || [];
+//     if (!players.length) { teamPointsMap[teamId] = 0; continue; }
+
+//     // Simple sum — NO captain multiplier, NO HS Bonus
+//     // const total = players.reduce((sum, p) => {
+//     //   return sum + (parseFloat(p.base_points) || 0);
+//     // }, 0);
+
+// // ✅ Captain ×2, VC ×1.5 apply చేయి
+// const total = players.reduce((sum, p) => {
+//   const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
+//   return sum + (parseFloat(p.base_points) || 0) * multiplier;
+// }, 0);
+
+//     teamPointsMap[teamId] = parseFloat(total.toFixed(2));
+//   }
+
+//   // ── DENSE_RANK ──
+//   const ranked = entries
+//     .map(e => ({
+//       user_id:       e.user_id,
+//       user_team_id:  e.user_team_id,
+//       team_name:     e.team_name    || null,
+//       username:      e.nickname     || e.name || `User${e.user_id}`,
+//       profile_image: e.image        || null,
+//       points:        teamPointsMap[e.user_team_id] || 0,
+//     }))
+//     .sort((a, b) => b.points - a.points);
+
+//   let rank = 1, lastPts = null, skip = 0;
+//   ranked.forEach((entry, i) => {
+//     const pts = entry.points;
+//     if (lastPts === null)       { lastPts = pts; skip = 1; }
+//     else if (pts === lastPts)   { skip++; }
+//     else                        { rank += skip; skip = 1; lastPts = pts; }
+//     entry.rank = rank;
+//   });
+
+//   await redis.set(
+//     leaderboardCacheKey(contestId),
+//     ranked,
+//     { ex: CACHE_TTL }
+//   );
+
+//   return ranked;
+// };
+
 export const computeAndCacheLeaderboard = async (contestId, matchId) => {
   const [entries] = await db.query(
     `SELECT
@@ -34,7 +130,7 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
        ut.team_name
      FROM contest_entries ce
      JOIN users u ON u.id = ce.user_id
-     LEFT JOIN user_teams ut ON ut.id = ce.user_team_id
+     JOIN user_teams ut ON ut.id = ce.user_team_id  -- ✅ LEFT JOIN → JOIN
      WHERE ce.contest_id = ?`,
     [contestId]
   );
@@ -43,21 +139,23 @@ export const computeAndCacheLeaderboard = async (contestId, matchId) => {
 
   const teamIds = [...new Set(entries.map(e => e.user_team_id).filter(Boolean))];
 
-const [playerRows] = await db.query(
-  `SELECT
-     utp.user_team_id,
-     utp.player_id,
-     utp.is_captain,
-     utp.is_vice_captain,
-     utp.is_substitude,
-     COALESCE(pms.fantasy_points, 0) AS base_points
-   FROM user_team_players utp
-   LEFT JOIN player_match_stats pms
-     ON pms.player_id = utp.player_id
-    AND pms.match_id  = ?
-   WHERE utp.user_team_id IN (?)`,
-  [matchId, teamIds]
-);
+  if (!teamIds.length) return [];  // ✅ empty check
+
+  const [playerRows] = await db.query(
+    `SELECT
+       utp.user_team_id,
+       utp.player_id,
+       utp.is_captain,
+       utp.is_vice_captain,
+       utp.is_substitude,
+       COALESCE(pms.fantasy_points, 0) AS base_points
+     FROM user_team_players utp
+     LEFT JOIN player_match_stats pms
+       ON pms.player_id = utp.player_id
+      AND pms.match_id  = ?
+     WHERE utp.user_team_id IN (?)`,
+    [matchId, teamIds]
+  );
 
   const teamPlayersMap = {};
   playerRows.forEach(r => {
@@ -65,22 +163,16 @@ const [playerRows] = await db.query(
     teamPlayersMap[r.user_team_id].push(r);
   });
 
-  // ── ✅ LIVE: No captain multiplier, No HS Bonus (document spec) ──
+  // ── Captain ×2, VC ×1.5 apply ──
   const teamPointsMap = {};
   for (const teamId of teamIds) {
     const players = teamPlayersMap[teamId] || [];
     if (!players.length) { teamPointsMap[teamId] = 0; continue; }
 
-    // Simple sum — NO captain multiplier, NO HS Bonus
-    // const total = players.reduce((sum, p) => {
-    //   return sum + (parseFloat(p.base_points) || 0);
-    // }, 0);
-
-// ✅ Captain ×2, VC ×1.5 apply చేయి
-const total = players.reduce((sum, p) => {
-  const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
-  return sum + (parseFloat(p.base_points) || 0) * multiplier;
-}, 0);
+    const total = players.reduce((sum, p) => {
+      const multiplier = p.is_captain ? 2 : p.is_vice_captain ? 1.5 : 1;
+      return sum + (parseFloat(p.base_points) || 0) * multiplier;
+    }, 0);
 
     teamPointsMap[teamId] = parseFloat(total.toFixed(2));
   }
@@ -100,9 +192,9 @@ const total = players.reduce((sum, p) => {
   let rank = 1, lastPts = null, skip = 0;
   ranked.forEach((entry, i) => {
     const pts = entry.points;
-    if (lastPts === null)       { lastPts = pts; skip = 1; }
-    else if (pts === lastPts)   { skip++; }
-    else                        { rank += skip; skip = 1; lastPts = pts; }
+    if (lastPts === null)     { lastPts = pts; skip = 1; }
+    else if (pts === lastPts) { skip++; }
+    else                      { rank += skip; skip = 1; lastPts = pts; }
     entry.rank = rank;
   });
 
@@ -357,6 +449,154 @@ const syncContestStatuses = async () => {
 // REGISTER ALL CRON JOBS
 // ─────────────────────────────────────────────────────────────────────────────
 
+
+const resetMonthlyDepositLimits = async () => {
+
+  console.log(
+    "⏰ [CRON] Monthly deposit limit reset started:",
+    new Date().toISOString()
+  );
+
+  try {
+
+    // ── Reset deposit limits ──
+    const [result] = await db.query(
+      `UPDATE wallets w
+       JOIN users u ON u.id = w.user_id
+       SET 
+         w.deposit_limit     = CASE WHEN u.category = 'students' THEN ? ELSE ? END,
+         w.remaining_limit   = CASE WHEN u.category = 'students' THEN ? ELSE ? END,
+         w.monthly_limit     = CASE WHEN u.category = 'students' THEN ? ELSE ? END,
+         w.depositelimitdate = CURDATE()
+       WHERE u.is_deleted = 0`,
+      [
+        STUDENT_DEPOSIT_LIMIT,
+        DEFAULT_DEPOSIT_LIMIT,
+
+        STUDENT_DEPOSIT_LIMIT,
+        DEFAULT_DEPOSIT_LIMIT,
+
+        STUDENT_DEPOSIT_LIMIT,
+        DEFAULT_DEPOSIT_LIMIT,
+      ]
+    );
+
+    // ── Cleanup old monthly deposits ──
+    const currentYM = new Date().toISOString().slice(0, 7);
+
+    await db.query(
+      `DELETE FROM monthly_deposits WHERE ym <= ?`,
+      [currentYM]
+    );
+
+    console.log(
+      `✅ [CRON] Monthly limit reset — ${result.affectedRows} users updated`
+    );
+
+  } catch (err) {
+
+    console.error(
+      "❌ [CRON] Monthly limit reset failed:",
+      err.message
+    );
+
+  }
+};
+
+
+
+/* ══════════════════════════════════════════
+   PLAYER STATS CRON HELPERS
+══════════════════════════════════════════ */
+ 
+const getISTHour = () => {
+  const istMs = Date.now() + (5.5 * 60 * 60 * 1000);
+  return new Date(istMs).getUTCHours();
+};
+ 
+const isLiveWindow = () => {
+  const h = getISTHour();
+  return h >= 14 || h <= 2; // IST 14:00 – 02:00
+};
+ 
+const getMatchesToSync = async () => {
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000)
+    .toISOString().slice(0, 19).replace("T", " ");
+ 
+  const [rows] = await db.query(
+    `SELECT id, provider_match_id, status, start_time
+     FROM matches
+     WHERE
+       status IN ('live', 'inplay', '1st-half', '2nd-half', 'ht', 'et', 'pen')
+       OR (
+         status IN ('finished', 'completed', 'ft')
+         AND stats_final_synced = 0
+         AND start_time >= ?
+       )
+     ORDER BY start_time ASC`,
+    [twoHoursAgo]
+  );
+  return rows;
+};
+ 
+const markFinalSynced = async (matchId) => {
+  await db.query(
+    `UPDATE matches SET stats_final_synced = 1 WHERE id = ?`,
+    [matchId]
+  );
+};
+ 
+const syncMatchStats = async (match) => {
+  try {
+    const result = await syncAllPlayerStatsService(match.id);
+ 
+    if (result.reason) {
+      console.log(`  [SKIP] Match ${match.id}: ${result.reason}`);
+      return;
+    }
+ 
+    console.log(`  [OK]   Match ${match.id} — ${result.count} saved, ${result.skipped?.length || 0} skipped`);
+ 
+    const finishedStatuses = ["finished", "completed", "ft"];
+    if (finishedStatuses.includes(match.status?.toLowerCase())) {
+      await markFinalSynced(match.id);
+      console.log(`  [DONE] Match ${match.id} marked final-synced`);
+    }
+  } catch (err) {
+    console.error(`  [ERR]  Match ${match.id}: ${err.message}`);
+  }
+};
+ 
+const syncPlayerStatsJob = async () => {
+  try {
+    if (!isLiveWindow()) {
+      // Outside live window — only unsynced finished matches
+      const [rows] = await db.query(
+        `SELECT id, provider_match_id, status
+         FROM matches
+         WHERE stats_final_synced = 0
+           AND status IN ('finished', 'completed', 'ft')
+         LIMIT 10`
+      );
+      if (!rows.length) return;
+      console.log(`[StatsCron] Outside window — ${rows.length} unsynced`);
+      for (const m of rows) await syncMatchStats(m);
+      return;
+    }
+ 
+    const matches = await getMatchesToSync();
+    if (!matches.length) return;
+ 
+    console.log(`[StatsCron] Syncing ${matches.length} match(es)...`);
+    for (const m of matches) {
+      await syncMatchStats(m);
+      await new Promise(r => setTimeout(r, 400)); // avoid rate limit
+    }
+  } catch (err) {
+    console.error("[StatsCron] Error:", err.message);
+  }
+};
+
 export const startCronJobs = () => {
 
   // Lineup — every 5 mins
@@ -376,6 +616,10 @@ export const startCronJobs = () => {
 
   // Cleanup — daily 2 AM
   cron.schedule("0 2 * * *",    cleanupOldInactiveMatches,      { scheduled: true, timezone: "UTC" });
+
+   //  Player Stats (sportmonks_player_stats) — every 5 mins
+  cron.schedule("*/5 * * * *",  syncPlayerStatsJob,            { scheduled: true, timezone: "UTC" });
+ 
 
   console.log("🚀 [CRON] All jobs registered");
 };

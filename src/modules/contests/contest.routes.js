@@ -10,12 +10,12 @@ import {
   getMyRank,
   getScoreBreakdown,
   joinContest,
-  compareTeam,
   getContestHistory,
   getInReviewContests,
   approveContestResults,
   announceWinners,
   cancelContest,
+  getCompletedMatchLeaderboard,
 } from "./contest.controller.js";
 import { adminAuth } from "../../middlewares/adminAuth.middleware.js";
 import { authenticate, checkAccountActive } from "../../middlewares/auth.middleware.js";
@@ -31,13 +31,12 @@ router.get("/dashboard/:match_id", authenticate, checkAccountActive, getFantasyD
 router.get("/my-contests/:match_id", authenticate, checkAccountActive, getMyContests);
 
 // ── Leaderboard + Winnings (two tabs in the UI) ───────────────────────────────
-router.get("/leaderboard/:contest_id", authenticate, checkAccountActive, getLeaderboard);    // Leaderboard tab  
+router.get("/leaderboard/:contest_id", authenticate, checkAccountActive, getLeaderboard);    
 
-
-router.post("/leaderboard/compare/:contest_id", authenticate, checkAccountActive, compareTeam);
+router.get("/leaderboard/completed/match/:matchId", authenticate, checkAccountActive, getCompletedMatchLeaderboard);
 
 // ── Rank / Score breakdown ────────────────────────────────────────────────────
-router.get("/my-rank/:contest_id/:teamId", authenticate, checkAccountActive, getMyRank);
+router.get("/my-rank/:contest_id", authenticate, checkAccountActive, getMyRank);
 
 router.get("/breakdown/:contestId/:userTeamId", authenticate, checkAccountActive, getScoreBreakdown);
 
@@ -53,7 +52,7 @@ router.get("/:match_id", authenticate, checkAccountActive, getContestsByMatchId)
 
 router.get("/contests/in-review", adminAuth(), getInReviewContests);
 
-router.post("/contests/approve/:contestId", adminAuth(), approveContestResults);
+router.post("/contests/approve/", adminAuth(), approveContestResults);
 
 router.get("/contests/announce-winners/:contestId", adminAuth(), announceWinners);
 
@@ -61,6 +60,5 @@ router.post("/contests/:contestId/cancel", adminAuth(), cancelContest);
 
 
 export default router;  
-  
 
-  
+

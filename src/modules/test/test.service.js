@@ -127,3 +127,73 @@ export const manualPlayerPointsService = async (matchId, players) => {
 
   return { success: true, updated: count };
 };
+
+
+export const getMatchSquadsOnlyService = async (id) => {
+
+  // MATCH
+  const [[match]] = await db.execute(
+    `SELECT
+        id,
+        provider_match_id,
+        home_team_id,
+        away_team_id,
+        hometeamname,
+        awayteamname
+     FROM matches
+     WHERE id = ? OR provider_match_id = ?
+     LIMIT 1`,
+    [id, id]
+  );
+
+  if (!match) {
+    throw new Error("Match not found");
+  }
+
+  // PLAYERS
+  const [players] = await db.execute(
+    `SELECT
+        p.team_id,
+        p.provider_player_id
+     FROM players p
+     WHERE p.team_id IN (?, ?)`,
+    [
+      match.home_team_id,
+      match.away_team_id
+    ]
+  );
+
+  // HOME TEAM
+  const homeTeamPlayers = players
+    .filter(
+      (p) =>
+        Number(p.team_id) === Number(match.home_team_id)
+    )
+    .map((p) => ({
+      provider_player_id: String(p.provider_player_id),
+    }));
+
+  // AWAY TEAM
+  const awayTeamPlayers = players
+    .filter(
+      (p) =>
+        Number(p.team_id) === Number(match.away_team_id)
+    )
+    .map((p) => ({
+      provider_player_id: String(p.provider_player_id),
+    }));
+
+  return {
+    match_id: match.provider_match_id,
+
+    home_team: {
+      name: match.hometeamname,
+      squad: homeTeamPlayers,
+    },
+
+    away_team: {
+      name: match.awayteamname,
+      squad: awayTeamPlayers,
+    },
+  };
+};

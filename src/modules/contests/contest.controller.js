@@ -10,14 +10,14 @@ import {
   getLeaderboardService,
   getMyRankService,
   getScoreBreakdownService,
-  compareTeamService,
   getContestHistoryService,
   announceWinnersService,
   cancelContestService,
+  getCompletedMatchLeaderboardService,
+  
 } from "./contest.service.js";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests
+
 // All contests (admin / debug)
 // ─────────────────────────────────────────────────────────────────────────────
 export const getAllContests = async (req, res) => {
@@ -29,8 +29,7 @@ export const getAllContests = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/:match_id
+
 // Contests for a match — includes user's join status
 // ─────────────────────────────────────────────────────────────────────────────
 export const getContestsByMatchId = async (req, res) => {
@@ -48,44 +47,98 @@ export const getContestsByMatchId = async (req, res) => {
 
     return res.status(200).json({ success: true, total: contests.length, data: contests });
   } catch (err) {
-    return res.status(err.statusCode || 500).json({
+    return res.status(500).json({
       success: false,
-      message: err.statusCode ? err.message : "Internal server error",
-    });
-  }
+      message: err.message
+  })
+}
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/contests/join contsj
-// Body: { contestId, userTeamId, entryFee }
+
 // userTeamId can be a single ID or an array of IDs (multi-team join)
 // ─────────────────────────────────────────────────────────────────────────────
 
 
+// export const joinContest = async (req, res) => {
+//   try {
+//     const userId = req.user?.id;
+//     const { contestId, userTeamId } = req.body;  
+
+//     if (!userId)    return res.status(401).json({ success: false, message: "Unauthorized" });
+//     if (!contestId) return res.status(400).json({ success: false, message: "contestId is required" });
+//     if (!userTeamId) return res.status(400).json({ success: false, message: "userTeamId is required" });
+
+//     const result = await joinContestService(userId, { 
+//       contestId,
+//       userTeamId,
+//       ip:     req.ip,
+//       device: req.headers["user-agent"],
+//     });
+
+//     return res.status(200).json(result);
+//   } catch (err) {
+//     return res.status(err.statusCode || 400).json({ success: false, message: err.message });
+//   }
+// };
+
 export const joinContest = async (req, res) => {
   try {
+
     const userId = req.user?.id;
-    const { contestId, userTeamId } = req.body;  
 
-    if (!userId)    return res.status(401).json({ success: false, message: "Unauthorized" });
-    if (!contestId) return res.status(400).json({ success: false, message: "contestId is required" });
-    if (!userTeamId) return res.status(400).json({ success: false, message: "userTeamId is required" });
-
-    const result = await joinContestService(userId, { 
+    const {
       contestId,
       userTeamId,
-      ip:     req.ip,
-      device: req.headers["user-agent"],
-    });
+      confirmJoin
+    } = req.body;
+
+    if (!userId)
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized"
+      });
+
+    if (!contestId)
+      return res.status(400).json({
+        success: false,
+        message: "contestId is required"
+      });
+
+    if (!userTeamId)
+      return res.status(400).json({
+        success: false,
+        message: "userTeamId is required"
+      });
+
+    const result =
+      await joinContestService(
+        userId,
+        {
+          contestId,
+          userTeamId,
+          confirmJoin, 
+
+          ip: req.ip,
+
+          device:
+            req.headers["user-agent"],
+        }
+      );
 
     return res.status(200).json(result);
+
   } catch (err) {
-    return res.status(err.statusCode || 400).json({ success: false, message: err.message });
+
+    return res.status(
+      err.statusCode || 400
+    ).json({
+      success: false,
+      message: err.message
+    });
+
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/my-contests/:match_id
 // Contests this user has joined for a specific match
 // ─────────────────────────────────────────────────────────────────────────────
 export const getMyContests = async (req, res) => {
@@ -113,8 +166,7 @@ export const getMyContests = async (req, res) => {
 }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/dashboard/:match_id
+
 // Aggregated payload for fantasy page (contests + my-contests + my-teams)
 // ─────────────────────────────────────────────────────────────────────────────
 export const getFantasyDashboard = async (req, res) => {
@@ -136,40 +188,9 @@ export const getFantasyDashboard = async (req, res) => {
 };
 
 
-
-// Controller
-export const compareTeam = async (req, res) => {
-  try {
-    const { contest_id }               = req.params;
-    const { my_team_id, opp_team_id }  = req.body;   
-    const userId                       = req.user?.id;
-
-    if (!contest_id || !my_team_id || !opp_team_id)
-      return res.status(400).json({
-        success: false,
-        message: "contest_id, my_team_id and opp_team_id are required",
-      });
-
-    const result = await compareTeamService(
-      contest_id,
-      parseInt(my_team_id),
-      parseInt(opp_team_id),
-      userId
-    );
-
-    if (!result.success)
-      return res.status(404).json(result);
-
-    return res.status(200).json(result);
-  } catch (err) {
-  
-    return res.status(500).json({ success: false, message:err.message });
-  }
-};
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/leaderboard/:contest_id?page=1&limit=50
 // Full leaderboard + my_entry pinned card
 // ─────────────────────────────────────────────────────────────────────────────
+
 export const getLeaderboard = async (req, res) => {
   try {
     const { contest_id }           = req.params;
@@ -196,35 +217,31 @@ export const getLeaderboard = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/my-rank/:contest_id/:teamId
+
 // Current rank + points for a specific user team in a contest
-// ─────────────────────────────────────────────────────────────────────────────
+
+  
 export const getMyRank = async (req, res) => {
   try {
-    const { contest_id, teamId } = req.params;
-    const userId                 = req.user?.id;
+    const { contest_id } = req.params;
+    const userId         = req.user?.id;
 
     if (!userId)     return res.status(401).json({ success: false, message: "Unauthorized" });
     if (!contest_id) return res.status(400).json({ success: false, message: "contest_id is required" });
-    if (!teamId)     return res.status(400).json({ success: false, message: "teamId is required" });
 
-    const result = await getMyRankService(contest_id, userId, teamId);
+    const result = await getMyRankService(contest_id, userId);
 
     if (!result.success)
       return res.status(404).json(result);
 
     return res.status(200).json(result);
   } catch (err) {
-   
     return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/breakdown/:contestId/:userTeamId?matchId=xxx
 // Per-player fantasy points breakdown for a user's team
-// ─────────────────────────────────────────────────────────────────────────────
+
 export const getScoreBreakdown = async (req, res) => {
   try {
     const { contestId, userTeamId } = req.params;
@@ -247,10 +264,8 @@ export const getScoreBreakdown = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/contests/history
 // Query: ?year=2026&month=4&status=COMPLETED&page=1&limit=10
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 
 export const getContestHistory = async (req, res) => {
@@ -312,49 +327,116 @@ const creditWinningsToWallets = async (contestId, conn) => {
 
   if (!winners.length) return 0;
 
-  // ── Company balance for chaining across all credits ──
+  // ── Contest + match details ──
+  const [[contest]] = await conn.query(
+    `SELECT c.id, c.prize_pool, c.net_pool_prize, c.contest_type,
+            m.hometeamname, m.awayteamname
+     FROM contest c
+     JOIN matches m ON m.id = c.match_id
+     WHERE c.id = ?`,
+    [contestId]
+  );
+  if (!contest) return 0;
+
+  const matchInfo   = `${contest.hometeamname} vs ${contest.awayteamname}`;
+  const platformFee = parseFloat(
+    (Number(contest.prize_pool) - Number(contest.net_pool_prize)).toFixed(2)
+  ) || 0;
+
+  // ── Company balance ──
   const [[companyLastRow]] = await conn.query(
     `SELECT closing_balance FROM wallet_transactions
-     WHERE closing_balance IS NOT NULL ORDER BY id DESC LIMIT 1 FOR UPDATE`
+     WHERE closing_balance IS NOT NULL
+     ORDER BY id DESC LIMIT 1 FOR UPDATE`
   );
   let companyBalance = Number(companyLastRow?.closing_balance || 0);
 
   for (const winner of winners) {
-    // ── 1. Total balance fetch for proper ledger ──
+
+    // ── 1. Wallet fetch ──
     const [[wallet]] = await conn.query(
-      `SELECT earnwallet, depositwallet, bonusamount FROM wallets WHERE user_id = ? FOR UPDATE`,
+      `SELECT earnwallet, depositwallet, bonusamount
+       FROM wallets
+       WHERE user_id = ? FOR UPDATE`,
       [winner.user_id]
     );
     if (!wallet) continue;
 
-    const totalBal      = Number(wallet.earnwallet) + Number(wallet.depositwallet) + Number(wallet.bonusamount);
+    const totalBal       = Number(wallet.earnwallet) + Number(wallet.depositwallet) + Number(wallet.bonusamount);
     const openingBalance = parseFloat(totalBal.toFixed(2));
     const closingBalance = parseFloat((totalBal + parseFloat(winner.total_winning)).toFixed(2));
 
-    const coOpen  = companyBalance;
-    const coClose = Number((companyBalance - parseFloat(winner.total_winning)).toFixed(2));
+    const coOpen   = companyBalance;
+    const coClose  = Number((companyBalance - parseFloat(winner.total_winning)).toFixed(2));
     companyBalance = coClose;
 
     // ── 2. earnwallet update ──
     await conn.query(
-      `UPDATE wallets SET earnwallet = earnwallet + ? WHERE user_id = ?`,
+      `UPDATE wallets
+       SET earnwallet = earnwallet + ?
+       WHERE user_id = ?`,
       [winner.total_winning, winner.user_id]
     );
 
     // ── 3. wallet_transactions record ──
     await conn.query(
       `INSERT INTO wallet_transactions
-       (user_id, wallettype, transtype, remark, amount,
-        useropeningbalance, userclosingbalance,
-        opening_balance, closing_balance, reference_id)
+         (user_id, wallettype, transtype, remark, amount,
+          useropeningbalance, userclosingbalance,
+          opening_balance, closing_balance, reference_id)
        VALUES (?, 'winning', 'credit', ?, ?, ?, ?, ?, ?, ?)`,
       [
         winner.user_id,
-        `Contest #${contestId} winning`,
+        `${contest.contest_type} winning — ${matchInfo}`,
         winner.total_winning,
-        openingBalance, closingBalance,
-        coOpen, coClose,
+        openingBalance,
+        closingBalance,
+        coOpen,
+        coClose,
         `CONTEST_${contestId}`,
+      ]
+    );
+
+    // ── 4. financial_transactions — User winning ──
+    await conn.query(
+      `INSERT INTO financial_transactions
+         (user_id, entity_type, wallet_type, transaction_type,
+          amount, opening_balance, closing_balance,
+          reference_table, reference_id, remark, status, created_at)
+       VALUES (?, 'user', 'game_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
+      [
+        winner.user_id,
+        winner.total_winning,
+        openingBalance,
+        closingBalance,
+        contestId,
+        `${contest.contest_type} winning — ${matchInfo}`,
+      ]
+    );
+  }
+
+  // ── 5. financial_transactions — Company platform fee ──
+  if (platformFee > 0) {
+    const [[lastFt]] = await conn.query(
+      `SELECT closing_balance FROM financial_transactions
+       WHERE entity_type = 'system'
+       ORDER BY created_at DESC LIMIT 1`
+    );
+    const companyOpen  = Number(lastFt?.closing_balance || 0);
+    const companyClose = parseFloat((companyOpen + platformFee).toFixed(2));
+
+    await conn.query(
+      `INSERT INTO financial_transactions
+         (entity_type, wallet_type, transaction_type,
+          amount, opening_balance, closing_balance,
+          reference_table, reference_id, remark, status, created_at)
+       VALUES ('system', 'admin_wallet', 'credit', ?, ?, ?, 'contest', ?, ?, 'success', NOW(6))`,
+      [
+        platformFee,
+        companyOpen,
+        companyClose,
+        contestId,
+        "platform fee",
       ]
     );
   }
@@ -362,46 +444,63 @@ const creditWinningsToWallets = async (contestId, conn) => {
   return winners.length;
 };
 
-// ── POST /admin/contests/:contestId/approve ──
+// ── POST /admin/contests/approve ──
 export const approveContestResults = async (req, res) => {
-  const { contestId } = req.params;
+  const { contestIds } = req.body;
   let conn;
 
   try {
+    // ── Validate input ──
+    if (!contestIds || !Array.isArray(contestIds) || contestIds.length === 0)
+      return res.status(400).json({
+        success: false,
+        message: "contestIds array is required",
+      });
+
     conn = await db.getConnection();
     await conn.beginTransaction();
 
-    // ── Validate contest ──
-    const [[contest]] = await conn.query(
-      `SELECT id, status FROM contest WHERE id = ? FOR UPDATE`,
-      [contestId]
-    );
+    const results = [];
 
-    if (!contest)
-      return res.status(404).json({ success: false, message: "Contest not found" });
+    for (const contestId of contestIds) {
+      // ── Validate contest ──
+      const [[contest]] = await conn.query(
+        `SELECT id, status FROM contest WHERE id = ? FOR UPDATE`,
+        [contestId]
+      );
 
-    if (contest.status !== "INREVIEW")
-      return res.status(400).json({
-        success: false,
-        message: `Contest is '${contest.status}', only INREVIEW contests can be approved`,
-      });
+      if (!contest) {
+        results.push({ contestId, success: false, message: "Contest not found" });
+        continue;
+      }
 
-    // ── Credit winnings ──
-    const winnersCount = await creditWinningsToWallets(contestId, conn);
+      if (contest.status !== "INREVIEW") {
+        results.push({
+          contestId,
+          success: false,
+          message: `Contest is '${contest.status}', only INREVIEW contests can be approved`,
+        });
+        continue;
+      }
 
-    // ── COMPLETED గా mark  ──
-    await conn.query(
-      `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
-      [contestId]
-    );
+      // ── Credit winnings ──
+      const winnersCount = await creditWinningsToWallets(contestId, conn);
+
+      // ── COMPLETED గా mark ──
+      await conn.query(
+        `UPDATE contest SET status = 'COMPLETED' WHERE id = ?`,
+        [contestId]
+      );
+
+      results.push({ contestId, success: true, winnersCount });
+    }
 
     await conn.commit();
 
     return res.status(200).json({
-      success:      true,
-      message:      `Contest #${contestId} approved successfully`,
-      contestId:    parseInt(contestId),
-      winnersCount,
+      success: true,
+      message: `${results.filter(r => r.success).length} contest(s) approved successfully`,
+      results,
     });
 
   } catch (err) {
@@ -445,3 +544,47 @@ export const cancelContest = async (req, res) => {
   }
 };
 
+
+
+// export const getCompletedLeaderboard = async (req, res) => {
+//   try {
+//     const { contestId } = req.params;
+//     const userId = req.user?.id;
+//     const page   = parseInt(req.query.page)  || 1;
+//     const limit  = parseInt(req.query.limit) || 50;
+
+//     const result = await getCompletedLeaderboardService(
+//       contestId, userId, page, limit
+//     );
+
+//     if (!result.success)
+//       return res.status(400).json(result);
+
+//     return res.status(200).json(result);
+//   } catch (err) {
+//     return res.status(500).json({ success: false, message: err.message });
+//   }
+// };
+
+
+export const getCompletedMatchLeaderboard = async (req, res) => {
+  try {
+    const { matchId } = req.params;
+    const userId = req.user?.id;
+    const page   = parseInt(req.query.page)  || 1;
+    const limit  = parseInt(req.query.limit) || 50;
+
+    const result = await getCompletedMatchLeaderboardService(
+      matchId, userId, page, limit
+    );
+
+    if (!result.success)
+      return res.status(400).json(result);
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+   

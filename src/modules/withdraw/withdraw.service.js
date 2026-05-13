@@ -2,70 +2,13 @@ import db from "../../config/db.js";
 import crypto from "crypto";
 import { logActivity } from "../../utils/activity.logger.js";
 
+import { getSubscriptionStatusService } from '../users/subscription.service.js';
+import { NON_SUBSCRIBER_WITHDRAW_LIMIT } from "../../config/constants.js";
+
 /* ======================================================
-   🟢 USER REQUEST WITHDRAW
+   USER REQUEST WITHDRAW
 ====================================================== */
-export const requestWithdrawServiceold = async (userId, data) => {
-  const conn = await db.getConnection();
 
-  try {
-    await conn.beginTransaction();
-
-    const { amount, bankDetails, paymentMode } = data;
-    const withdrawAmount = parseFloat(amount);
-
-    if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
-      throw new Error("Invalid withdraw amount");
-    }
-
-    const [[wallet]] = await conn.query(
-      `SELECT earnwallet, iskyc, is_frozen
-       FROM wallets
-       WHERE user_id = ?
-       FOR UPDATE`,
-      [userId]
-    );
-
-    if (!wallet) throw new Error("Wallet not found");
-    if (wallet.is_frozen === 1) throw new Error("Wallet frozen");
-    // if (wallet.iskyc !== 1) throw new Error("KYC not completed");
-    if (wallet.earnwallet < withdrawAmount)
-      throw new Error("Insufficient withdraw balance");
-
-    const [result] = await conn.query(
-      `INSERT INTO withdraws
-       (user_id, amount, bank_details, payment_mode, status)
-       VALUES (?, ?, ?, ?, 'PENDING')`,  
-      [userId, withdrawAmount, bankDetails, paymentMode]
-    );
-
-    await conn.commit();
-
-    return {
-      success: true,
-      message: "Withdraw request submitted",
-      withdrawId: result.insertId
-    };
-
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
-async function getCompanyBalance(conn) {
-  const [[row]] = await conn.query(
-    `SELECT closing_balance
-     FROM wallet_transactions
-     WHERE closing_balance != 0
-     ORDER BY id DESC
-     LIMIT 1
-     FOR UPDATE`
-  );
-  return Number(row?.closing_balance || 0);
-}
 
 export const requestWithdrawService = async (userId, data) => {
   const conn = await db.getConnection();
@@ -85,37 +28,68 @@ export const requestWithdrawService = async (userId, data) => {
        FOR UPDATE`,
       [userId]
     );
-    if (!wallet)              throw new Error("Wallet not found");
-    if (wallet.is_frozen === 1) throw new Error("Wallet is frozen");
-    if (wallet.iskyc !== 1)     throw new Error("KYC verification not completed");
+    if (!wallet)                  throw new Error("Wallet not found");
+    if (wallet.is_frozen === 1)   throw new Error("Wallet is frozen");
+    if (wallet.iskyc !== 1)       throw new Error("KYC verification not completed");
     if (wallet.issofverify !== 1) throw new Error("SOF verification not completed");
-    if (!wallet.bank_details)   throw new Error("Please update and verify your bank details (SOF) first");
+    if (!wallet.bank_details)     throw new Error("Please update and verify your bank details first");
     if (wallet.earnwallet < withdrawAmount)
       throw new Error("Insufficient earn-wallet balance");
 
     // 2. No duplicate pending requests
     const [[pending]] = await conn.query(
-      `SELECT id FROM withdraws WHERE user_id = ? AND status = 'PENDING' LIMIT 1`,
+      `SELECT id FROM withdraws
+       WHERE user_id = ? AND status = 'PENDING'
+       LIMIT 1`,
       [userId]
     );
     if (pending) throw new Error("You already have a pending withdrawal request");
 
-    // 3. Fetch user info
+    // 3. Subscription check — limit logic
+    const { data: subData } = await getSubscriptionStatusService(userId);
+    const isSubscriber = subData.subscription.isActive;
+
+    if (!isSubscriber) {
+      // Non-subscriber — current month total withdrawals check
+      const [[{ monthTotal }]] = await conn.query(
+        `SELECT COALESCE(SUM(amount), 0) AS monthTotal
+         FROM withdraws
+         WHERE user_id = ?
+           AND status IN ('PENDING', 'APPROVED')
+           AND MONTH(created_at)  = MONTH(NOW())
+           AND YEAR(created_at)   = YEAR(NOW())`,
+        [userId]
+      );
+
+      const NON_SUBSCRIBER_LIMIT =  NON_SUBSCRIBER_WITHDRAW_LIMIT;;
+      const alreadyWithdrawn = Number(monthTotal);
+  
+      if (alreadyWithdrawn + withdrawAmount > NON_SUBSCRIBER_LIMIT) {
+        const remaining = NON_SUBSCRIBER_LIMIT - alreadyWithdrawn;
+        throw new Error(
+          remaining <= 0
+            ? `Monthly withdrawal limit of £${NON_SUBSCRIBER_LIMIT} reached. Subscribe to withdraw unlimited.`
+            : `Monthly limit £${NON_SUBSCRIBER_LIMIT} — only £${remaining.toFixed(2)} remaining. Subscribe to withdraw unlimited.`
+        );
+      }
+    }
+    // Subscriber — no limit, continue
+
+    // 4. Fetch user info
     const [[userinfo]] = await conn.query(
       `SELECT name, email, mobile FROM users WHERE id = ?`,
       [userId]
     );
     if (!userinfo) throw new Error("User not found");
 
-    // 4. Snapshot balances BEFORE deduction
-    const depositBalance = Number(wallet.depositwallet || 0);
-    const earnBalance    = Number(wallet.earnwallet    || 0);
-    const bonusBalance   = Number(wallet.bonusamount   || 0);
-
+    // 5. Snapshot balances BEFORE deduction
+    const depositBalance  = Number(wallet.depositwallet || 0);
+    const earnBalance     = Number(wallet.earnwallet    || 0);
+    const bonusBalance    = Number(wallet.bonusamount   || 0);
     const snapshotOpening = Number((depositBalance + earnBalance + bonusBalance).toFixed(2));
     const snapshotClosing = Number((snapshotOpening - withdrawAmount).toFixed(2));
 
-    // 5. Deduct from earnwallet (atomic, guards against race conditions)
+    // 6. Deduct from earnwallet — atomic guard
     const [updateResult] = await conn.query(
       `UPDATE wallets
        SET earnwallet = earnwallet - ?
@@ -125,10 +99,7 @@ export const requestWithdrawService = async (userId, data) => {
     if (updateResult.affectedRows === 0)
       throw new Error("Insufficient wallet balance (concurrent update detected)");
 
-    // 6. Insert withdrawal record — include balance snapshot columns
-    //    Requires: ALTER TABLE withdraws
-    //      ADD COLUMN snapshot_opening DECIMAL(15,2) NOT NULL DEFAULT 0,
-    //      ADD COLUMN snapshot_closing DECIMAL(15,2) NOT NULL DEFAULT 0;
+    // 7. Insert withdrawal record
     const bankDetailsStr = typeof wallet.bank_details === "object"
       ? JSON.stringify(wallet.bank_details)
       : String(wallet.bank_details);
@@ -165,115 +136,12 @@ export const requestWithdrawService = async (userId, data) => {
     return {
       success:    true,
       message:    "Withdrawal request submitted successfully",
-      withdrawId: result.insertId,
-    };
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
-/* ======================================================
-   🟢 ADMIN APPROVE WITHDRAW
-====================================================== */
-export const approveWithdrawService = async (adminId, withdrawId) => {
-  const conn = await db.getConnection();
-
-  try {
-    await conn.beginTransaction();
-
-    const [[withdraw]] = await conn.query(
-      `SELECT * FROM withdraws
-       WHERE id = ?
-       AND status = 'PENDING'
-       FOR UPDATE`,
-      [withdrawId]
-    );
-
-    if (!withdraw)
-      throw new Error("Withdraw not found or already processed");
-
-    const [[wallet]] = await conn.query(
-      `SELECT earnwallet, total_withdrawals
-       FROM wallets
-       WHERE user_id = ?
-       FOR UPDATE`,
-      [withdraw.user_id]
-    );
-
-    if (wallet.earnwallet < withdraw.amount)
-      throw new Error("Insufficient balance at approval time");
-
-    const openingBalance = wallet.earnwallet;
-    const closingBalance = openingBalance - withdraw.amount;
-
-    /* 🔻 Update wallet */
-    await conn.query(
-      `UPDATE wallets
-       SET earnwallet = ?,
-           total_withdrawals = total_withdrawals + ?
-       WHERE user_id = ?`,
-      [closingBalance, withdraw.amount, withdraw.user_id]
-    );
-
-    /* 🔻 Update withdraw status */
-    await conn.query(
-      `UPDATE withdraws
-       SET status = 'APPROVED',
-           processed_at = NOW()
-       WHERE id = ?`,
-      [withdrawId]
-    );
-
-    /* 🔻 Insert approval record */
-    await conn.query(
-      `INSERT INTO withdraw_approvals
-       (withdrawal_id, admin_id, status)
-       VALUES (?, ?, 'APPROVED')`,
-      [withdrawId, adminId]
-    );
-
-    /* 🔻 Insert wallet transaction */
-    const transactionHash = crypto
-      .createHash("sha256")
-      .update(`${withdraw.user_id}-${withdrawId}-${Date.now()}`)
-      .digest("hex");
-
-    await conn.query(
-      `INSERT INTO wallet_transactions
-       (user_id, wallettype, transtype, remark, amount,
-        opening_balance, closing_balance,
-        reference_id, transaction_hash)
-       VALUES (?, 'earn', 'debit', ?, ?, ?, ?, ?, ?)`,
-      [
-        withdraw.user_id,
-        "Withdraw Approved",
-        withdraw.amount,
-        openingBalance,
-        closingBalance,
-        `WD-${withdrawId}`,
-        transactionHash
-      ]
-    );
-
-    await conn.commit();
-
-    logActivity({
-      userId:      withdraw.user_id,
-      type:        "withdrawal",
-      sub_type:    "approved",
-      title:       "Withdrawal Approved",
-      description: `₹${withdraw.amount} withdrawal approved`,
-      amount:      withdraw.amount,
-      icon:        "withdraw",
-      meta:        { withdrawId },
-    });
-
-    return {
-      success: true,
-      message: "Withdraw approved successfully"
+      withdrawId: String(result.insertId),
+      isSubscriber,
+      ...(isSubscriber
+        ? { limit: "unlimited" }
+        : { limit: 2500 }
+      ),
     };
 
   } catch (err) {
@@ -283,73 +151,13 @@ export const approveWithdrawService = async (adminId, withdrawId) => {
     conn.release();
   }
 };
+
+
 
 
 /* ======================================================
-   🔴 ADMIN REJECT WITHDRAW
+   USER — GET WITHDRAW HISTORY
 ====================================================== */
-export const rejectWithdrawService = async (
-  adminId,
-  withdrawId,
-  remarks
-) => {
-  const conn = await db.getConnection();
-
-  try {
-    await conn.beginTransaction();
-
-    const [[withdraw]] = await conn.query(
-      `SELECT id, user_id, amount FROM withdraws
-       WHERE id = ?
-       AND status = 'PENDING'
-       FOR UPDATE`,
-      [withdrawId]
-    );
-
-    if (!withdraw)
-      throw new Error("Withdraw not found or already processed");
-
-    await conn.query(
-      `UPDATE withdraws
-       SET status = 'REJECTED',
-           processed_at = NOW()
-       WHERE id = ?`,
-      [withdrawId]
-    );
-
-    await conn.query(
-      `INSERT INTO withdraw_approvals
-       (withdrawal_id, admin_id, status, remarks)
-       VALUES (?, ?, 'REJECTED', ?)`,
-      [withdrawId, adminId, remarks || "Rejected"]
-    );
-
-    await conn.commit();
-
-    logActivity({
-      userId:      withdraw.user_id,
-      type:        "withdrawal",
-      sub_type:    "rejected",
-      title:       "Withdrawal Rejected",
-      description: `₹${withdraw.amount} withdrawal request rejected`,
-      amount:      withdraw.amount,
-      icon:        "withdraw",
-      meta:        { withdrawId, remarks: remarks || null },
-    });
-
-    return {
-      success: true,
-      message: "Withdraw rejected"
-    };
-
-  } catch (err) {
-    await conn.rollback();
-    throw err;
-  } finally {
-    conn.release();
-  }
-};
-
 export const getMyWithdrawRequestsService = async (userId) => {
 
   const [rows] = await db.query(
@@ -364,20 +172,23 @@ export const getMyWithdrawRequestsService = async (userId) => {
         processed_at
      FROM withdraws
      WHERE user_id = ?
-     AND status IN ('PENDING','REJECTED')
-     ORDER BY created_at DESC`,
+     ORDER BY created_at DESC
+     Limit 3`,
+     
     [userId]
   );
 
   return rows.map(w => ({
-    id: w.id,
-    amount: Number(w.amount),
-    bankDetails: w.bank_details,
-    paymentMode: w.payment_mode,
+    id:            w.id,
+    amount:        Number(w.amount),
+    bankDetails:   w.bank_details,
+    paymentMode:   w.payment_mode,
     transactionId: w.transaction_id,
-    status: w.status,
-    requestedAt: w.created_at,
-    processedAt: w.processed_at
+    status:        w.status,
+    requestedAt:   w.created_at,
+    processedAt:   w.processed_at,
   }));
-
 };
+
+
+

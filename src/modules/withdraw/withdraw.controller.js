@@ -1,8 +1,7 @@
 import {
   requestWithdrawService,
-  approveWithdrawService,
-  rejectWithdrawService,
-  getMyWithdrawRequestsService
+
+  getMyWithdrawRequestsService,
 } from "./withdraw.service.js";
 
 /* User */
@@ -16,36 +15,7 @@ export const requestWithdraw = async (req, res) => {
   }
 };
 
-/* Admin Approve */
-export const approveWithdraw = async (req, res) => {
-  try {
-   const adminId = req.admin.id;
-    const { withdrawId } = req.body;
 
-    const response = await approveWithdrawService(adminId, withdrawId);
-    res.status(200).json(response);
-  } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
-  }
-};
-
-/* Admin Reject */
-export const rejectWithdraw = async (req, res) => {
-  try {
-   const adminId = req.admin.id;
-    const { withdrawId, remarks } = req.body;
-
-    const response = await rejectWithdrawService(
-      adminId,
-      withdrawId,
-      remarks
-    );
-
-    res.status(200).json(response);
-  } catch (error) {
-    res.status(400).json({ success: false, message: error.message });
-  }
-};
 
 export const getMyWithdrawRequests = async (req, res) => {
   try {
@@ -68,3 +38,5 @@ export const getMyWithdrawRequests = async (req, res) => {
 
   }
 };  
+
+

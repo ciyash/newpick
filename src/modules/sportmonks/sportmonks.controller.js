@@ -8,7 +8,9 @@ import {
   syncPlayingXIService,
   syncPlayerPointsService,
   getAllFixturesBetween,
-  getMatchesByDateRangeService
+  getMatchesByDateRangeService,
+  getPlayerStatsService,
+  syncAllPlayerStatsService
   
 } from "./sportmonks.service.js";
 
@@ -263,9 +265,6 @@ export const getFixturesByDateRange = async (req, res) => {
     });
   }
 };
-
-
-
  
 export const getMatchesByDateRange = async (req, res) => {
   try {
@@ -306,4 +305,75 @@ export const getMatchesByDateRange = async (req, res) => {
   }
 };
 
+//===================================================================================
 
+ 
+/* ─────────────────────────────────────────
+   Single player stats — fetch from Sportmonks + save to sportmonks_player_stats
+─────────────────────────────────────────── */
+
+export const getPlayerStats = async (req, res) => {
+  try {
+    const { matchId, playerId } = req.params;
+ 
+    if (!matchId || !playerId)
+      return res.status(400).json({
+        success: false,
+        message: "matchId and playerId are required",
+      });
+ 
+    const result = await getPlayerStatsService(matchId, playerId);
+ 
+    if (result.reason)
+      return res.status(202).json({
+        success: false,
+        message: result.reason,
+        data: null,
+      });
+ 
+    res.json({
+      success: true,
+      message: "Player stats fetched and saved to sportmonks_player_stats",
+      data: result.data,
+    });
+  } catch (err) {
+    console.error("getPlayerStats error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+ 
+/* ─────────────────────────────────────────
+   GET /sync-player-stats/:match_id
+   All players stats for a match — fetch + save
+─────────────────────────────────────────── */
+export const syncAllPlayerStats = async (req, res) => {
+  try {
+    const match_id = req.params.match_id || req.params.matchId;
+ 
+    if (!match_id)
+      return res.status(400).json({
+        success: false,
+        message: "match_id required",
+      });
+ 
+    const result = await syncAllPlayerStatsService(match_id);
+ 
+    if (result.reason)
+      return res.status(202).json({
+        success: false,
+        message: result.reason,
+        count: 0,
+      });
+ 
+    res.json({
+      success: true,
+      message: `${result.count} player stats saved to sportmonks_player_stats`,
+      count:   result.count,
+      skipped: result.skipped,
+      data:    result.data,
+    });
+  } catch (err) {
+    console.error("syncAllPlayerStats error:", err.message);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};

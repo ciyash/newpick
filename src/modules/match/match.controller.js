@@ -257,11 +257,35 @@ export const getMatchFullDetails = async (req, res) => {
       finalLineupStatus = lineupStatus || "announced";
     }
 
+  // 🔟 POLICY STATUS  ← must be BEFORE the return
+    const [policyRows] = await db.execute(
+      `SELECT
+         COUNT(*) AS total_mandatory,
+         SUM(CASE WHEN upa.id IS NOT NULL THEN 1 ELSE 0 END) AS total_accepted
+       FROM policy_categories pc
+       INNER JOIN policy_versions pv
+         ON pv.category_id = pc.id
+        AND pv.is_active = 1
+       LEFT JOIN user_policy_acceptances upa
+         ON upa.policy_version_id = pv.id
+        AND upa.user_id = ?
+       WHERE pc.is_active = 1
+         AND pc.is_mandatory = 1
+         AND pc.screen = 'signup'`,
+      [req.user.id]
+    );
+
+    const policiesAccepted =
+      Number(policyRows[0]?.total_accepted) >= Number(policyRows[0]?.total_mandatory) &&
+      Number(policyRows[0]?.total_mandatory) > 0;
+
+
     return res.status(200).json({
       success: true,
       data: {
         match,
         lineup_status: finalLineupStatus,
+        policiesAccepted,
 
         home_team: {
           ...homeTeam,
@@ -300,3 +324,4 @@ export const getMatchFullDetails = async (req, res) => {
     });
   }
 };
+

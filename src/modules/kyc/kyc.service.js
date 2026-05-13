@@ -6,7 +6,7 @@ export const createApplicantService = async (mobile) => {
 
   const body = JSON.stringify({
     externalUserId: String(mobile),
-    info: { country: "IND" }
+    info: { country: "GBR" }
   });
 
   const headers = createSumsubHeaders("POST", path, body);

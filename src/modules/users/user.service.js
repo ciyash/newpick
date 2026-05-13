@@ -3,7 +3,7 @@ import db from "../../config/db.js";
 import { getSubscriptionStatusService } from "./subscription.service.js";
 import { logActivity } from "../../utils/activity.logger.js";
 
-
+import { STUDENT_DEPOSIT_LIMIT,  DEFAULT_DEPOSIT_LIMIT} from "../../config/constants.js";
 
 export const getUserProfileService = async (userId) => {
 
@@ -123,11 +123,138 @@ export const getUserProfileService = async (userId) => {
 };
 
 
+/* ======================================================
+   GET MY WALLET
+====================================================== */
+export const getMyWalletService = async (userId) => {
+  if (!userId) throw new Error("Invalid user");
+
+  /* ═══════════════════════ 1. WALLET ═══════════════════════ */
+  const [[wallet]] = await db.query(
+    `SELECT
+        depositwallet,
+        earnwallet,
+        bonusamount,
+        deposit_limit,
+        total_deposits,
+        limit_reduced_once,
+        iskyc,
+        issofverify
+     FROM wallets
+     WHERE user_id = ?`,
+    [userId]
+  );
+
+  if (!wallet) throw new Error("Wallet not found");
+
+  const [[user]] = await db.query(
+    `SELECT category FROM users WHERE id = ?`,
+    [userId]
+  );
+
+  const depositWallet  = Number(wallet.depositwallet || 0);
+  const winningsWallet = Number(wallet.earnwallet    || 0);
+  const bonusWallet    = Number(wallet.bonusamount   || 0);
+  const totalBalance   = Number((depositWallet + winningsWallet).toFixed(2));
+
+  /* ═══════════════════════ 2. FINANCIAL SUMMARY ═══════════════════════ */
+  const [[financial]] = await db.query(
+    `SELECT
+        SUM(CASE
+              WHEN wallettype = 'deposit'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_deposited,
+
+        SUM(CASE
+              WHEN wallettype = 'withdrawal'
+               AND transtype = 'debit'
+            THEN amount ELSE 0
+            END) AS total_withdrawn,
+
+        SUM(CASE
+              WHEN wallettype = 'winning'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_winnings,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark = 'Joining bonus'
+            THEN amount ELSE 0
+            END) AS joining_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark = 'Referral reward'
+            THEN amount ELSE 0
+            END) AS referral_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+               AND remark LIKE 'Subscription bonus%'
+            THEN amount ELSE 0
+            END) AS subscription_bonus,
+
+        SUM(CASE
+              WHEN wallettype = 'bonus'
+               AND transtype = 'credit'
+            THEN amount ELSE 0
+            END) AS total_bonus
+
+     FROM wallet_transactions
+     WHERE user_id = ?`,
+    [userId]
+  );
+
+  /* ═══════════════════════ 3. MONTHLY LIMITS ═══════════════════════ */
+  const monthlyLimit       = Number(wallet.deposit_limit  || 0);
+  const usedThisMonth      = Number(wallet.total_deposits || 0);
+  const remainingThisMonth = Math.max(monthlyLimit - usedThisMonth, 0);
+  const usedPercent        = monthlyLimit > 0
+    ? Number(((usedThisMonth / monthlyLimit) * 100).toFixed(1))
+    : 0;
+
+  /* ═══════════════════════ RETURN ═══════════════════════ */
+  return {
+    financial_summary: {
+      deposit_balance:      depositWallet,
+      winnings_balance:     winningsWallet,
+      bonus_balance:        bonusWallet,
+      total_wallet_balance: totalBalance,
+      total_deposited:      Number(financial?.total_deposited || 0),
+      total_withdrawn:      Number(financial?.total_withdrawn || 0),
+      total_winnings:       Number(financial?.total_winnings  || 0),
+      bonus_breakdown: {
+        joining_bonus:      Number(financial?.joining_bonus      || 0),
+        referral_bonus:     Number(financial?.referral_bonus     || 0),
+        subscription_bonus: Number(financial?.subscription_bonus || 0),
+        total_bonus:        Number(financial?.total_bonus        || 0),
+      },
+    },
+    deposit_limits: {
+      monthly_limit:      monthlyLimit,
+      used_this_month:    usedThisMonth,
+      remaining_limit:    remainingThisMonth,
+      used_percent:       usedPercent,
+      limit_reduced_once: Number(wallet.limit_reduced_once || 0),
+    },
+    verification_status: {
+      is_kyc_verified: Number(wallet.iskyc       || 0),
+      is_sof_verified: Number(wallet.issofverify || 0),
+      category:        user?.category || null,
+    },
+  };
+};
+
+/* ======================================================
+   REDUCE MONTHLY LIMIT
+====================================================== */
 export const reduceMonthlyLimitService = async (userId, newLimit) => {
 
-  /* --------------------------------
-     1️⃣ FETCH USER + CURRENT LIMIT + FLAG
-  -------------------------------- */
   const [[data]] = await db.query(
     `SELECT u.category,
             w.deposit_limit,
@@ -141,56 +268,31 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
   if (!data) throw new Error("User not found");
 
   const currentLimit = Number(data.deposit_limit);
+  const newLimitNum  = Number(newLimit);
 
-  /* --------------------------------
-     ⭐ PERMANENT BLOCK (LIFETIME)
-  -------------------------------- */
   if (data.limit_reduced_once) {
-    throw new Error(
-      "Monthly limit can be reduced only once in your account lifetime"
-    );
+    throw new Error("Monthly limit can be reduced only once in your account lifetime");
   }
 
-  /* --------------------------------
-     2️⃣ CATEGORY DEFAULT LIMIT
-  -------------------------------- */
-  const normalizedCategory =
-    String(data.category || "").toLowerCase();
+  const normalizedCategory = String(data.category || "").toLowerCase();
 
-  const DEFAULT_LIMIT =
-    normalizedCategory === "student" ? 500 : 1500;
+  // const DEFAULT_LIMIT      = normalizedCategory === "student" ? 500 : 1500;
 
-  /* --------------------------------
-     3️⃣ VALIDATIONS
-  -------------------------------- */
+  const DEFAULT_LIMIT  = normalizedCategory  === "students" 
+  ? STUDENT_DEPOSIT_LIMIT    
+  : DEFAULT_DEPOSIT_LIMIT;   
 
-  if (newLimit < 100) {
-    throw new Error("Minimum allowed limit is £100");
-  }
+  if (newLimitNum < 200)            throw new Error("Minimum allowed limit is £200");
+  if (newLimitNum > DEFAULT_LIMIT)  throw new Error(`Maximum allowed limit is £${DEFAULT_LIMIT}`);
+  if (newLimitNum > currentLimit)   throw new Error("Limit increase is not allowed");
+  if (newLimitNum === currentLimit) throw new Error("New limit must be lower than current limit");
 
-  if (newLimit > DEFAULT_LIMIT) {
-    throw new Error(
-      `Maximum allowed limit for your account is £${DEFAULT_LIMIT}`
-    );
-  }
-
-  if (newLimit > currentLimit) {
-    throw new Error("Limit increase is not allowed");
-  }
-
-  if (newLimit === currentLimit) {
-    throw new Error("New limit must be lower than current limit");
-  }
-
-  /* --------------------------------
-     4️⃣ UPDATE LIMIT + PERMANENT FLAG
-  -------------------------------- */
   await db.query(
     `UPDATE wallets
-     SET deposit_limit = ?,
+     SET deposit_limit      = ?,
          limit_reduced_once = TRUE
      WHERE user_id = ?`,
-    [newLimit, userId]
+    [newLimitNum, newLimitNum, userId]
   );
 
   logActivity({
@@ -198,11 +300,18 @@ export const reduceMonthlyLimitService = async (userId, newLimit) => {
     type:        "profile",
     sub_type:    "limit_reduced",
     title:       "Deposit Limit Reduced",
-    description: `Monthly deposit limit reduced to £${newLimit}`,
+    description: `Monthly deposit limit reduced to £${newLimitNum}`,
     icon:        "profile",
-    meta:        { newLimit },
+    meta:        { newLimit: newLimitNum },
   });
-};
+
+  return {
+    message:          `Deposit limit reduced to £${newLimitNum}`,
+    previous_limit:   currentLimit,
+    new_limit:        newLimitNum,
+    can_reduce_again: false,
+  };
+};;
 
    
 
@@ -257,3 +366,63 @@ export const getMyFeedbacksService = async (userId) => {
 
   return rows;
 };
+
+
+export const getUserPreferencesService = async (userId) => {
+  const [[prefs]] = await db.query(
+    `SELECT 
+        sms_notifications,
+        email_notifications,
+        marketing_messages
+     FROM users
+     WHERE id = ?`,
+    [userId]
+  );
+
+  if (!prefs) {
+    throw new Error("User not found");
+  }
+
+  return {
+    success: true,
+    data: {
+      sms_notifications: prefs.sms_notifications,
+      email_notifications: prefs.email_notifications,
+      marketing_messages: prefs.marketing_messages,
+    },
+  };
+};
+
+
+export const updateUserPreferencesService = async (
+  userId,
+  data
+) => {
+  const {
+    sms_notifications,
+    email_notifications,
+    marketing_messages,
+  } = data;
+
+  await db.query(
+    `UPDATE users
+     SET 
+       sms_notifications = ?,
+       email_notifications = ?,
+       marketing_messages = ?
+     WHERE id = ?`,
+    [
+      sms_notifications ?? 0,
+      email_notifications ?? 0,
+      marketing_messages ?? 0,
+      userId,
+    ]
+  );
+
+  return {
+    success: true,
+    message: "Preferences updated successfully",
+  };
+};
+
+

@@ -1,6 +1,8 @@
 import {
   getUserProfileService, reduceMonthlyLimitService, createFeedbackService,
-  getMyFeedbacksService
+  getMyFeedbacksService,
+  getUserPreferencesService,
+  updateUserPreferencesService
 } from "./user.service.js";
 import { feedbackSchema } from "./user.validation.js";
 import db from "../../config/db.js";
@@ -26,29 +28,19 @@ export const getUserProfile = async (req, res) => {
 };
 
 
+
 export const reduceMonthlyLimit = async (req, res) => {
   try {
     const userId = req.user.id;
     const { newLimit } = req.body;
-
-    if (!newLimit || isNaN(newLimit)) {
-      throw new Error("Valid limit is required");
-    }
-
-    await reduceMonthlyLimitService(
-      userId,
-      Number(newLimit)
-    );
-
-    res.status(200).json({
-      success: true,
-      message: "Monthly deposit limit reduced successfully"
-    });
-  } catch (err) {
-    res.status(400).json({
-      success: false,
-      message: err.message
-    });
+    
+    console.log("userId:", userId, "newLimit:", newLimit, typeof newLimit); 
+    
+    const response = await reduceMonthlyLimitService(userId, newLimit);
+    res.json({ success: true, ...response });
+  } catch (error) {
+    console.error("reduceMonthlyLimit error:", error.message); 
+    res.status(400).json({ success: false, message: error.message });
   }
 };
 
@@ -186,3 +178,40 @@ export const deleteAccount = async (req, res) => {
 
 
 
+export const getUserPreferences = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const result = await getUserPreferencesService(userId);
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+
+export const updateUserPreferences = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const result = await updateUserPreferencesService(
+      userId,
+      req.body
+    );
+
+    return res.status(200).json(result);
+  } catch (err) {
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};

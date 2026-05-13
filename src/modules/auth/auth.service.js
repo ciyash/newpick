@@ -11,12 +11,20 @@ import geoip from 'geoip-lite';
 import { UAParser } from 'ua-parser-js';
 
 
+import {
+  MAX_FAILED_ATTEMPTS,
+  JOINING_BONUS,
+  PAUSE_PLANS,
+  MAX_USERCODE_RETRIES,
+  ALLOWED_COUNTRIES,
+  STUDENT_DEPOSIT_LIMIT,
+  DEFAULT_DEPOSIT_LIMIT
+} from "../../config/constants.js";
+
 //* =================== ADMIN SERVICES =================== */
 
 
-/* ================= ADMIN LOGIN ========================= */
-
-const MAX_FAILED_ATTEMPTS = 5;
+// const MAX_FAILED_ATTEMPTS = 5;
 
 export const adminLoginService = async ({ email, password }, ipAddress) => {
 
@@ -91,11 +99,11 @@ export const adminLoginService = async ({ email, password }, ipAddress) => {
 
 /* ================= PAUSE PLANS ================= */
 
-const PAUSE_PLANS = {
-  "1d": 1,
-  "7d": 7,
-  "30d": 30,
-};
+// const PAUSE_PLANS = {
+//   "1d": 1,
+//   "7d": 7,
+//   "30d": 30,
+// };
 
 
 /* ================= REQUEST SIGNUP OTP ================= */
@@ -174,8 +182,8 @@ export const requestSignupOtpService = async (data) => {
 
 /* ================= VERIFY SIGNUP OTP ================= */
 
-const JOINING_BONUS = 5;
-const MAX_USERCODE_RETRIES = 10;
+// const JOINING_BONUS = 5;
+// const MAX_USERCODE_RETRIES = 10;
 
 
 /* ================= SEND LOGIN OTP ================= */
@@ -241,7 +249,7 @@ export const sendLoginOtpService = async ({ email, mobile }) => {
 /* ================= LOGIN ====================================== */
 
 
-const ALLOWED_COUNTRIES = ['GB', 'IN'];
+// const ALLOWED_COUNTRIES = ['GB', 'IN'];
 
 export const loginService = async ({ email, mobile, otp }, ipAddress, deviceInfo = {}) => {
 
@@ -875,10 +883,10 @@ export const signupService = async ({ mobile, otp }) => {
     );
 
     const nextNumber = lastUser?.userid
-      ? parseInt(lastUser.userid.replace("PTW", ""), 10) + 1
+      ? parseInt(lastUser.userid.replace("P2W", ""), 10) + 1
       : 1;
 
-    const userid = "PTW" + String(nextNumber).padStart(6, "0");
+    const userid = "P2W" + String(nextNumber).padStart(6, "0");
 
     /* ─── 7️⃣ Insert User ─── */
     const [result] = await conn.query(
@@ -899,15 +907,29 @@ export const signupService = async ({ mobile, otp }) => {
     const userId = result.insertId;
 
     /* ─── 8️⃣ Create Wallet ─── */
-    const depositLimit = categoryNormalized === "students" ? 300 : 1500;
+    // const depositLimit = categoryNormalized === "students" ? 500 : 1500;
+  const depositLimit = categoryNormalized === "students"
+  ? STUDENT_DEPOSIT_LIMIT
+  : DEFAULT_DEPOSIT_LIMIT;
 
+    // await conn.query(
+    //   `INSERT INTO wallets
+    //    (user_id, depositwallet, earnwallet, bonusamount,
+    //     total_deposits, total_withdrawals, deposit_limit, monthly_limit, depositelimitdate)
+    //    VALUES (?, 0, 0, 0, 0, 0, ?, ?, CURDATE())`,
+    //   [userId, depositLimit, depositLimit]
+    // );
+
+    
     await conn.query(
-      `INSERT INTO wallets
-       (user_id, depositwallet, earnwallet, bonusamount,
-        total_deposits, total_withdrawals, deposit_limit, monthly_limit, depositelimitdate)
-       VALUES (?, 0, 0, 0, 0, 0, ?, ?, CURDATE())`,
-      [userId, depositLimit, depositLimit]
-    );
+  `INSERT INTO wallets
+   (user_id, depositwallet, earnwallet, bonusamount,
+    total_deposits, total_withdrawals,
+    deposit_limit, remaining_limit,
+    monthly_limit, depositelimitdate)
+   VALUES (?, 0, 0, 0, 0, 0, ?, ?, ?, CURDATE())`,
+  [userId, depositLimit, depositLimit, depositLimit]
+);
 
     /* ─── 9️⃣ Company Last Balance ─── */
     const [[companyLast]] = await conn.query(
@@ -944,7 +966,51 @@ export const signupService = async ({ mobile, otp }) => {
       );
     }
 
-    /* ─── 1️⃣1️⃣ Referral Record Insert ✅ (bonus ledu — only record) ─── */
+    /* ─── 1️⃣1️⃣ Auto Accept Signup Policies ─── */
+const [signupPolicies] = await conn.query(
+  `SELECT
+     pv.id AS policy_version_id,
+     pv.category_id,
+     pv.version_number,
+     pv.content
+   FROM policy_versions pv
+   INNER JOIN policy_categories pc
+     ON pc.id = pv.category_id
+   WHERE pc.screen = 'signup'
+     AND pc.is_active = 1
+     AND pc.is_mandatory = 1
+     AND pv.is_active = 1`
+);
+
+for (const policy of signupPolicies) {
+  await conn.query(
+    `INSERT IGNORE INTO user_policy_acceptances
+     (
+       user_id,
+       policy_version_id,
+       category_id,
+       version_number,
+       accepted_at,
+       ip_address,
+       device_info,
+       user_agent,
+       policy_snapshot
+     )
+     VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, ?)`,
+    [
+      userId,
+      policy.policy_version_id,
+      policy.category_id,
+      policy.version_number,
+      null,   // ipAddress not available here
+      null,   // deviceInfo not available here
+      null,   // userAgent not available here
+      policy.content
+    ]
+  );
+}
+
+    /* ─── 1️2 Referral Record Insert  (bonus ledu — only record) ─── */
     if (referralid) {
       const [[referrer]] = await conn.query(
         `SELECT id FROM users WHERE usercode = ? FOR UPDATE`,
