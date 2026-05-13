@@ -58,6 +58,12 @@ export const createAdmin = async (data, admin, ip) => {
       [data.name, data.email.toLowerCase(), hash, data.role]
     );
     if (result.affectedRows === 0) throw new Error("Failed to create admin");
+    // ── Auto-create default permissions row (all FALSE) ──
+await conn.query(
+  `INSERT INTO admin_permissions (admin_id, created_at, updated_at)
+   VALUES (?, NOW(), NOW())`,
+  [result.insertId]
+);
     if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
 
     await logAdmin(conn, admin, "CREATE_ADMIN", "admin", result.insertId, ip);
@@ -168,6 +174,98 @@ export const updateAdmin = async (id, data, admin, ip) => {
     conn.release();
   }
 };
+
+
+// ── Admin Permissions ─────────────────────────────────────────────────────
+
+export const getAdminPermissions = async (adminId) => {
+  if (!adminId || isNaN(Number(adminId)))
+    throw new Error("Valid admin ID is required");
+
+  const [[row]] = await db.query(
+    `SELECT
+       ap.*,
+       a.name  AS admin_name,
+       a.email AS admin_email,
+       a.role  AS admin_role
+     FROM admin_permissions ap
+     JOIN admin a ON a.id = ap.admin_id
+     WHERE ap.admin_id = ?`,
+    [Number(adminId)]
+  );
+
+  if (!row) throw new Error("Permissions not found for this admin");
+  return row;
+};
+
+export const updateAdminPermissions = async (adminId, data, admin, ip) => {
+  if (!admin?.id || !admin?.email) throw new Error("Invalid admin context");
+
+  // ── Only super_admin can update permissions ──
+  if (admin.role !== "super_admin")
+    throw new Error("Access denied: only super_admin can update permissions");
+
+  if (!adminId || isNaN(Number(adminId)))
+    throw new Error("Valid admin ID is required");
+
+  // ── Prevent super_admin from editing their own permissions ──
+  if (Number(adminId) === Number(admin.id))
+    throw new Error("super_admin cannot modify their own permissions");
+
+  const ALLOWED_FIELDS = [
+    "contest_view",  "contest_create",  "contest_edit",  "contest_delete",  "contest_approve",
+    "match_view",    "match_create",    "match_edit",    "match_delete",    "match_approve",
+    "series_view",   "series_create",   "series_edit",   "series_delete",   "series_approve",
+    "finance_view",  "finance_create",  "finance_edit",  "finance_delete",  "finance_approve",
+    "user_view",     "user_create",     "user_edit",     "user_delete",     "user_approve",
+    "report_view",   "report_create",   "report_edit",   "report_delete",   "report_approve",
+  ];
+
+  const sanitized = {};
+  for (const key of ALLOWED_FIELDS) {
+    if (data[key] !== undefined) sanitized[key] = data[key] ? 1 : 0;
+  }
+
+  if (!Object.keys(sanitized).length) throw new Error("No valid permission fields to update");
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[existing]] = await conn.query(
+      `SELECT id FROM admin_permissions WHERE admin_id = ?`,
+      [Number(adminId)]
+    );
+    if (!existing) throw new Error("Permissions not found for this admin");
+
+    const setClauses = Object.keys(sanitized).map((k) => `${k} = ?`).join(", ");
+    const setValues  = Object.values(sanitized);
+
+    await conn.query(
+      `UPDATE admin_permissions
+       SET ${setClauses}, updated_at = NOW()
+       WHERE admin_id = ?`,
+      [...setValues, Number(adminId)]
+    );
+
+    await logAdmin(conn, admin, "UPDATE_PERMISSIONS", "admin_permissions", Number(adminId), ip);
+    await conn.commit();
+
+    return {
+      success: true,
+      admin_id: Number(adminId),
+      message: "Permissions updated successfully"
+    };
+
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+};
+
+
 
 //series
 
@@ -2094,147 +2192,250 @@ export const updateContestCategory = async (id, data, admin, ip) => {
 
 
 // ── Dashboard ─────────────────────────────────────────────────
+
+/** Days back to look for non-login activity when computing activeUsers. */
+const ACTIVE_USERS_INTERVAL_DAYS = 2;
+
+/** Users with monthly_limit below this value are counted as "at limit". */
+const AT_LIMIT_THRESHOLD = 10;
+
+/**
+ * Fetches all admin dashboard metrics in a single concurrent round-trip.
+ *
+ * Uses the module-level `db` pool (mysql2/promise). All queries run via
+ * Promise.all — no sequential blocking.
+ *
+ * @returns {Promise<{
+ *   success: true,
+ *   data: {
+ *     activeUsers: number,
+ *     segments: {
+ *       students: number,
+ *       normalUsers: number,
+ *       studentSubscribers: number,
+ *       normalSubscribers: number,
+ *       selfExcluded: number,
+ *       deletedUsers: number,
+ *     },
+ *     riskMetrics: {
+ *       highRiskUsers: number,
+ *       monthlyLossUsers: number,
+ *       atLimitUsers: number,
+ *       healthyUsers: number,
+ *     },
+ *     funds: {
+ *       totalUserFund: number,
+ *       operatorFunds: number,
+ *       lockedFunds: number,
+ *       withdrawableFunds: number,
+ *       dormantFunds: number,
+ *     },
+ *     liveMatches: Array<{
+ *       id: number,
+ *       seriesName: string,
+ *       homeTeamName: string,
+ *       awayTeamName: string,
+ *       startTime: Date,
+ *       contestCount: number,
+ *       totalPrizePool: number,
+ *       totalSpots: number,
+ *     }>,
+ *   },
+ * } | { success: false, error: string }>}
+ */
 export const getHomeservice = async () => {
+  try {
+    const [
+      [[activeUsersRow]],
+      [[segmentsRow]],
+      [[highRiskRow]],
+      [[monthlyLossRow]],
+      [[atLimitRow]],
+      [[totalUserFundRow]],
+      [[operatorFundsRow]],
+      [[lockedFundsRow]],
+      [[withdrawableRow]],
+      [[dormantFundsRow]],
+      [liveMatchRows],
+    ] = await Promise.all([
 
-  const [
-    [[userStats]],
-    [[userwalletstat]],
-    [[walletStats]],
-    [[matchStats]],
-    [[withdrawStats]],
-    [[teamStats]],
-    [contests],
-  ] = await Promise.all([
-    db.query(`
-      SELECT
-        COUNT(*)                                          AS totalRegistered,
-        SUM(mobile_verify = 1 AND email_verify = 1)      AS activeUsers,
-        SUM(mobile_verify = 0)                           AS phoneverify,
-        SUM(email_verify = 0)                            AS mailverify,
-        SUM(subscribe = 1)                               AS subscribe,
-        SUM(kyc_status = 'approved')                     AS kycVerified,
-        SUM(kyc_status = 'pending')                      AS kycPending,
-        SUM(kyc_status = 'not_started')                  AS notKycVerified,
-        SUM(kyc_status = 'rejected')                     AS KycRejected,
-        SUM(issofverify = 1)                             AS SOFVerified,
-        SUM(issofverify = 0)                             AS nonSOFVerified,
-        SUM(bank_verified = 1)                           AS BankVerified,
-        SUM(bank_verified = 0)                           AS notBankVerified,
-        SUM(is_blocked = 1)                              AS blockeduser,
-        SUM(account_status = 'paused')                   AS gamepaused,
-        SUM(account_status = 'deleted')                  AS deleteusers
-      FROM users
-    `),
-    db.query(`
-      SELECT
-        SUM(earnwallet)   AS Earnwallet,
-        SUM(depositwallet) AS Depositewallet,
-        SUM(bonusamount)  AS Bonuswallet
-      FROM wallets
-    `),
-    db.query(`
-      SELECT
-        COALESCE(SUM(CASE WHEN wallettype IN ('deposit','subscribe','entry_fee') THEN amount END), 0) AS totalAmountReceived,
-        COALESCE(SUM(CASE WHEN wallettype = 'withdraw' THEN amount END), 0)                           AS totalWithdrawAmount
-      FROM wallet_transactions
-    `),
-    db.query(`
-      SELECT
-        SUM(status = 'LIVE')      AS liveMatches,
-        SUM(status = 'UPCOMING')  AS launchedMatches,
-        SUM(status = 'COMPLETED') AS completedMatches,
-        SUM(status = 'INREVIEW')  AS reviewMatches,
-        SUM(status = 'ABANDONED') AS cancelledMatches
-      FROM matches
-    `),
-    db.query(`
-      SELECT
-        SUM(status = 'pending')  AS pendingWithdrawRequests,
-        SUM(status = 'approved') AS approvedWithdrawRequests,
-        SUM(status = 'rejected') AS rejectedWithdrawRequests
-      FROM withdraws
-    `),
-    db.query(`
-      SELECT
-        (SELECT COUNT(*) FROM teams)             AS totalTeams,
-        (SELECT COUNT(*) FROM players)           AS totalPlayers,
-        (SELECT COUNT(*) FROM user_teams)        AS totalUserTeams,
-        (SELECT COUNT(*) FROM user_team_players) AS totalUserTeamPlayers
-    `),
-    db.query(`
-      SELECT
-        c.id,
-        c.created_at,
-        c.contest_type,
-        c.max_entries,
-        c.current_entries,
-        c.status,
-        ht.name AS home_team_name,
-        at.name AS away_team_name
-      FROM contest c
-      LEFT JOIN matches m  ON m.id  = c.match_id
-      LEFT JOIN teams   ht ON ht.id = m.home_team_id
-      LEFT JOIN teams   at ON at.id = m.away_team_id
-      ORDER BY c.created_at DESC
-      LIMIT 10
-    `),
-  ]);
+      // §1 — Active Users: had non-login activity in the last N days
+      db.query(
+        `SELECT COUNT(DISTINCT u.id) AS activeUsers
+         FROM users u
+         WHERE EXISTS (
+           SELECT 1 FROM user_activity_log ual
+           WHERE ual.user_id   = u.id
+             AND ual.type     != 'login'
+             AND ual.created_at >= NOW() - INTERVAL ? DAY
+         )`,
+        [ACTIVE_USERS_INTERVAL_DAYS]
+      ),
 
-  const { liveMatches, launchedMatches, completedMatches, reviewMatches, cancelledMatches } = matchStats;
-  const { pendingWithdrawRequests, approvedWithdrawRequests, rejectedWithdrawRequests }     = withdrawStats;
+      // §2 — User Segments: all six counts in one pass
+      db.query(
+        `SELECT
+           SUM(CASE WHEN category = 'students' AND (subscribe IS NULL OR subscribe != '1') THEN 1 ELSE 0 END) AS students,
+           SUM(CASE WHEN category = 'others'  AND (subscribe IS NULL OR subscribe != '1') THEN 1 ELSE 0 END) AS normalUsers,
+           SUM(CASE WHEN category = 'students' AND subscribe = '1'                         THEN 1 ELSE 0 END) AS studentSubscribers,
+           SUM(CASE WHEN category = 'others'  AND subscribe = '1'                         THEN 1 ELSE 0 END) AS normalSubscribers,
+           SUM(CASE WHEN account_status = 'paused'  THEN 1 ELSE 0 END)                                       AS selfExcluded,
+           SUM(CASE WHEN account_status = 'deleted' THEN 1 ELSE 0 END)                                       AS deletedUsers
+         FROM users`
+      ),
 
-  return {
-    users: {
-      totalRegistered: Number(userStats.totalRegistered),
-      activeUsers:     Number(userStats.activeUsers),
-      kycVerified:     Number(userStats.kycVerified),
-      kycPending:  Number(userStats.kycPending),
-       notKycVerified:     Number(userStats.notKycVerified),
-      KycRejected:  Number(userStats.KycRejected),
-       Mobilerynotverify: Number(userStats.phoneverify),
-      Emailnotverify:     Number(userStats.mailverify),
-      Subscribe:     Number(userStats.subscribe),
-      SOFVerified:  Number(userStats.SOFVerified),
-       nonSOFVerified: Number(userStats.nonSOFVerified),
-      BankVerified:     Number(userStats.BankVerified),
-      notBankVerified:     Number(userStats.notBankVerified),
-      blockeduser:  Number(userStats.blockeduser),
-       gamepaused:  Number(userStats.gamepaused),
-        deleteusers:  Number(userStats.deleteusers),
-    },
-    wallet: {
-      totalAmountReceived: Number(walletStats.totalAmountReceived),
-      totalWithdrawAmount: Number(walletStats.totalWithdrawAmount),
-    },
-     currentwallet: {
-      totalDeposite: Number(userwalletstat.Earnwallet),
-      totalWinnig: Number(userwalletstat.Depositewallet),
-       totalBonus: Number(userwalletstat.Bonuswallet),
-    },
-    matches: {
-      live:      Number(liveMatches),
-      launched:  Number(launchedMatches),
-      completed: Number(completedMatches),
-      inReview:  Number(reviewMatches),
-      cancelled: Number(cancelledMatches),
-      total:     Number(liveMatches) + Number(launchedMatches) + Number(completedMatches) + Number(reviewMatches) + Number(cancelledMatches),
-    },
-    withdrawRequests: {
-      pending:  Number(pendingWithdrawRequests),
-      approved: Number(approvedWithdrawRequests),
-      rejected: Number(rejectedWithdrawRequests),
-      total:    Number(pendingWithdrawRequests) + Number(approvedWithdrawRequests) + Number(rejectedWithdrawRequests),
-    },
-    teams: {
-      totalTeams:   Number(teamStats.totalTeams),
-      totalPlayers: Number(teamStats.totalPlayers),
-    },
-    userTeams: {
-      totalUserTeams:       Number(teamStats.totalUserTeams),
-      totalUserTeamPlayers: Number(teamStats.totalUserTeamPlayers),
-    },
-    recentContests: contests,
-  };
+      // §3 — High Risk: earnwallet exceeds depositwallet
+      db.query(
+        `SELECT COUNT(*) AS highRiskUsers
+         FROM wallets w
+         INNER JOIN users u ON u.id = w.user_id
+         WHERE w.earnwallet > w.depositwallet`
+      ),
+
+      // §4 — Monthly Loss: spent more than won
+      // TODO: verify column name — schema may spell it 'total_deposit' not 'total_deposite'
+      db.query(
+        `SELECT COUNT(*) AS monthlyLossUsers
+         FROM wallets
+         WHERE total_deposits > total_withdrawals`
+      ),
+
+      // §5 — At Limit: monthly_limit below threshold
+      db.query(
+        `SELECT COUNT(*) AS atLimitUsers
+         FROM wallets
+         WHERE monthly_limit < ?`,
+        [AT_LIMIT_THRESHOLD]
+      ),
+
+      // §7 — Total User Fund: combined wallets of all non-deleted users
+      db.query(
+        `SELECT COALESCE(SUM(w.earnwallet + w.depositwallet + w.bonusamount), 0) AS totalUserFund
+         FROM wallets w
+         INNER JOIN users u ON u.id = w.user_id
+         WHERE u.account_status != 'deleted'`
+      ),
+
+      // §8 — Operator Funds: net credit minus debit in financial_transactions
+      db.query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN transaction_type = 'credit' THEN amount ELSE 0 END), 0) -
+           COALESCE(SUM(CASE WHEN transaction_type = 'debit'  THEN amount ELSE 0 END), 0) AS operatorFunds
+         FROM financial_transactions`
+      ),
+
+      // §9 — Locked Funds: entry fees committed to LIVE contests
+      // TODO: verify column name — may be 'current_entries' not 'currententry'
+      db.query(
+        `SELECT COALESCE(SUM(c.entry_fee * c.current_entries), 0) AS lockedFunds
+         FROM contest c
+         INNER JOIN matches m ON m.id = c.match_id
+         WHERE m.status = 'LIVE'`
+      ),
+
+      // §10 — Withdrawable Funds: earnwallet of all non-deleted users
+      db.query(
+        `SELECT COALESCE(SUM(w.earnwallet), 0) AS withdrawableFunds
+         FROM wallets w
+         INNER JOIN users u ON u.id = w.user_id
+         WHERE u.account_status != 'deleted'`
+      ),
+
+      // §11 — Dormant Funds: wallets belonging to deleted accounts
+      db.query(
+        `SELECT COALESCE(SUM(w.earnwallet + w.depositwallet + w.bonusamount), 0) AS dormantFunds
+         FROM wallets w
+         INNER JOIN users u ON u.id = w.user_id
+         WHERE u.account_status = 'deleted'`
+      ),
+
+      // §12 — Live Match Data with aggregated contest metrics
+      // TODO: verify 'prize_pool' and 'current_entries' column names on contest table
+      db.query(
+        `SELECT
+           m.id,
+           m.seriesname        AS seriesName,
+           m.hometeamname     AS homeTeamName,
+           m.awayteamname     AS awayTeamName,
+           m.start_time         AS startTime,
+           COUNT(c.id)                              AS contestCount,
+           COALESCE(SUM(c.prize_pool), 0)           AS totalPrizePool,
+           COALESCE(SUM(c.current_entries), 0)      AS totalSpots
+         FROM matches m
+         LEFT JOIN contest c ON c.match_id = m.id
+         WHERE m.status = 'LIVE'
+         GROUP BY m.id, m.seriesname, m.hometeamname, m.awayteamname, m.start_time`
+      ),
+    ]);
+
+    // ── Parse counts (integers) ──────────────────────────────────
+    const activeUsers        = parseInt(activeUsersRow?.activeUsers        ?? 0, 10);
+    const students           = parseInt(segmentsRow?.students              ?? 0, 10);
+    const normalUsers        = parseInt(segmentsRow?.normalUsers           ?? 0, 10);
+    const studentSubscribers = parseInt(segmentsRow?.studentSubscribers    ?? 0, 10);
+    const normalSubscribers  = parseInt(segmentsRow?.normalSubscribers     ?? 0, 10);
+    const selfExcluded       = parseInt(segmentsRow?.selfExcluded          ?? 0, 10);
+    const deletedUsers       = parseInt(segmentsRow?.deletedUsers          ?? 0, 10);
+    const highRiskUsers      = parseInt(highRiskRow?.highRiskUsers         ?? 0, 10);
+    const monthlyLossUsers   = parseInt(monthlyLossRow?.monthlyLossUsers   ?? 0, 10);
+    const atLimitUsers       = parseInt(atLimitRow?.atLimitUsers           ?? 0, 10);
+
+    // §6 — Healthy Users (derived in JS)
+    // TODO: confirm "healthy" definition with product team.
+    // Approximation: active (non-deleted, non-excluded) users who are not
+    // high-risk, not at-limit, and not monthly-loss.
+    const subscribedTotal  = students + normalUsers + studentSubscribers + normalSubscribers;
+    const unhealthyOverlap = selfExcluded + highRiskUsers + monthlyLossUsers + atLimitUsers;
+    const healthyUsers     = Math.max(0, subscribedTotal - unhealthyOverlap);
+
+    // ── Parse monetary values (floats) ──────────────────────────
+    const totalUserFund     = parseFloat(totalUserFundRow?.totalUserFund    ?? 0);
+    const operatorFunds     = parseFloat(operatorFundsRow?.operatorFunds    ?? 0);
+    const lockedFunds       = parseFloat(lockedFundsRow?.lockedFunds        ?? 0);
+    const withdrawableFunds = parseFloat(withdrawableRow?.withdrawableFunds ?? 0);
+    const dormantFunds      = parseFloat(dormantFundsRow?.dormantFunds      ?? 0);
+
+    return {
+      success: true,
+      data: {
+        activeUsers,
+        segments: {
+          students,
+          normalUsers,
+          studentSubscribers,
+          normalSubscribers,
+          selfExcluded,
+          deletedUsers,
+        },
+        riskMetrics: {
+          highRiskUsers,
+          monthlyLossUsers,
+          atLimitUsers,
+          healthyUsers,
+        },
+        funds: {
+          totalUserFund,
+          operatorFunds,
+          lockedFunds,
+          withdrawableFunds,
+          dormantFunds,
+        },
+        liveMatches: liveMatchRows.map((row) => ({
+          id:             row.id,
+          seriesName:     row.seriesName,
+          homeTeamName:   row.homeTeamName,
+          awayTeamName:   row.awayTeamName,
+          startTime:      row.startTime,
+          contestCount:   parseInt(row.contestCount   ?? 0, 10),
+          totalPrizePool: parseFloat(row.totalPrizePool ?? 0),
+          totalSpots:     parseInt(row.totalSpots     ?? 0, 10),
+        })),
+      },
+    };
+  } catch (err) {
+    console.error('[getHomeservice] Dashboard query failed:', err);
+    return { success: false, error: err.message };
+  }
 };
 
 
@@ -2973,6 +3174,32 @@ export const approveWithdrawService = async (adminId, withdrawId, body) => {
       [withdrawId, adminId, remarks]
     );
 
+
+    // 5b. Update total_withdrawals tracker
+    const [walletUpdateResult] = await conn.query(
+      `UPDATE wallets
+       SET total_withdrawals = COALESCE(total_withdrawals, 0) + ?
+       WHERE user_id = ?`,
+      [amount, withdraw.user_id]
+    );
+    console.log('[approveWithdraw] wallet update affectedRows:',
+                walletUpdateResult.affectedRows,
+                'user_id:', withdraw.user_id,
+                'amount:', amount);
+
+    if (walletUpdateResult.affectedRows === 0) {
+      console.warn('[approveWithdraw] No wallet row found for user_id:', withdraw.user_id,
+                   '— inserting new row');
+      await conn.query(
+        `INSERT INTO wallets
+           (user_id, total_withdrawals, earnwallet, depositwallet, bonusamount)
+         VALUES (?, ?, 0, 0, 0)
+         ON DUPLICATE KEY UPDATE
+           total_withdrawals = COALESCE(total_withdrawals, 0) + VALUES(total_withdrawals)`,
+        [withdraw.user_id, amount]
+      );
+    }
+
     // 6. Wallet transaction — debit (money physically leaves company)
     await conn.query(
       `INSERT INTO wallet_transactions
@@ -2996,6 +3223,13 @@ export const approveWithdrawService = async (adminId, withdrawId, body) => {
     );
 
     await conn.commit();
+
+    // Post-commit verification — reads committed value via pool (not transaction conn)
+    const [[updatedWallet]] = await db.query(
+      `SELECT user_id, total_withdrawals FROM wallets WHERE user_id = ?`,
+      [withdraw.user_id]
+    );
+    console.log('[approveWithdraw] POST-COMMIT wallet state:', updatedWallet);
 
     return {
       success: true,
@@ -3925,11 +4159,472 @@ export const newCreateContestService = async (data, admin, ip) => {
       prize_distribution_preview: distribution.prize_distribution.slice(0, 20),
       total_slabs: distribution.prize_distribution.length,
     };
- 
+
   } catch (err) {
     await conn.rollback();
     throw err;
   } finally {
     conn.release();
+  }
+};
+
+export const getUserDetails = async ({ page = 1, limit = 20, search = '', status = '' } = {}) => {
+  try {
+    // Input sanitization — never trust caller to pass clean values
+    const safePage   = Number.isInteger(Number(page))  && Number(page)  > 0 ? Number(page)  : 1;
+    const safeLimit  = Number.isInteger(Number(limit)) && Number(limit) > 0 ? Math.min(Number(limit), 100) : 20;
+    const safeSearch = typeof search === 'string' ? search.trim() : '';
+    const safeStatus = typeof status === 'string' ? status.trim() : '';
+    const safeOffset = (safePage - 1) * safeLimit;
+
+    // Build WHERE clause — skip LIKE entirely when search is empty to avoid full-table scan
+    const conditions = [];
+    const listParams = [];
+
+    if (safeSearch) {
+      conditions.push(`(u.name LIKE ? OR u.email LIKE ?)`);
+      const like = `%${safeSearch}%`;
+      listParams.push(like, like);
+    }
+    if (safeStatus) {
+      conditions.push(`u.account_status = ?`);
+      listParams.push(safeStatus);
+    }
+
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    console.log('[getUserDetails] Running stats queries, page:', safePage, 'limit:', safeLimit);
+
+    // Phase 1 — 3 parallel connections (down from 6).
+    // totalUsers/todayRegistered/deletedUsers merged into one single-pass query
+    // to avoid opening extra pool connections. NOT IN replaced with NOT EXISTS —
+    // NOT IN forces MySQL to materialise the full subquery result; NOT EXISTS
+    // short-circuits as soon as one matching row is found.
+    let combinedStatsRes, activeRes, inactiveRes;
+    try {
+      [combinedStatsRes, activeRes, inactiveRes] = await Promise.all([
+        db.query(
+          `SELECT
+             COUNT(*)                                                              AS totalUsers,
+             SUM(CASE WHEN DATE(created_at) = CURRENT_DATE THEN 1 ELSE 0 END)    AS todayRegistered,
+             SUM(CASE WHEN account_status = 'deleted'      THEN 1 ELSE 0 END)    AS deletedUsers
+           FROM users`
+        ),
+
+        db.query(
+          `SELECT COUNT(DISTINCT u.id) AS activeUsers
+           FROM users u
+           WHERE EXISTS (
+             SELECT 1 FROM user_activity_log ual
+             WHERE ual.user_id = u.id
+               AND ual.type    != 'login'
+               AND ual.created_at >= NOW() - INTERVAL 2 DAY
+           )`
+        ),
+
+        db.query(
+          `SELECT COUNT(*) AS inactiveUsers
+           FROM users u
+           WHERE NOT EXISTS (
+             SELECT 1 FROM user_activity_log ual
+             WHERE ual.user_id = u.id
+               AND ual.type    != 'login'
+               AND ual.created_at >= NOW() - INTERVAL 30 DAY
+           )`
+        ),
+      ]);
+    } catch (err) {
+      throw new Error(`getUserDetails > stats queries failed: ${err.message}`);
+    }
+
+    const combinedStats = combinedStatsRes?.[0]?.[0];
+
+    console.log('[getUserDetails] Running users query with search:', safeSearch, 'status:', safeStatus);
+
+    // Phase 2 — 2 parallel connections: filtered count + paginated user rows.
+    let countRes, usersResult;
+    try {
+      [countRes, usersResult] = await Promise.all([
+        db.query(
+          `SELECT COUNT(*) AS total FROM users u ${whereClause}`,
+          listParams
+        ),
+
+        db.query(
+          `SELECT
+             u.id, u.name, u.email, u.created_at,
+             u.subscribe, u.subscribepack,
+             u.kyc_status, u.last_login, u.account_status, u.referralid,
+             COALESCE(SUM(w.earnwallet + w.depositwallet + w.bonusamount), 0) AS totalFund,
+             COALESCE(SUM(w.earnwallet), 0)                                   AS earnWallet,
+             COUNT(ce.id)                                                      AS contestsJoined
+           FROM users u
+           LEFT JOIN wallets w         ON w.user_id  = u.id
+           LEFT JOIN contest_entries ce ON ce.user_id = u.id
+           ${whereClause}
+           GROUP BY u.id
+           ORDER BY u.id DESC
+           LIMIT ? OFFSET ?`,
+          [...listParams, safeLimit, safeOffset]
+        ),
+      ]);
+    } catch (err) {
+      throw new Error(`getUserDetails > users query failed: ${err.message}`);
+    }
+
+    if (!usersResult?.[0]) {
+      throw new Error('getUserDetails > usersQuery returned null or undefined result');
+    }
+
+    const users      = usersResult[0];
+    const totalCount = Number(countRes?.[0]?.[0]?.total) || 0;
+
+    return {
+      stats: {
+        totalUsers:      Number(combinedStats?.totalUsers)      || 0,
+        activeUsers:     Number(activeRes?.[0]?.[0]?.activeUsers)   || 0,
+        inactiveUsers:   Number(inactiveRes?.[0]?.[0]?.inactiveUsers) || 0,
+        todayRegistered: Number(combinedStats?.todayRegistered) || 0,
+        deletedUsers:    Number(combinedStats?.deletedUsers)    || 0,
+      },
+      data: users,
+      pagination: {
+        page:       safePage,
+        limit:      safeLimit,
+        totalUsers: totalCount,
+        totalPages: Math.ceil(totalCount / safeLimit),
+      },
+    };
+  } catch (err) {
+    throw new Error(`getUserDetails service error: ${err.message}`);
+  }
+};
+
+// ── Get User By ID ────────────────────────────────────────────────────────────
+const USER_WALLET_QUERY = `
+  SELECT
+    u.id, u.name, u.email, u.mobile, u.dob, u.gender, u.address,
+    u.referralid, u.kyc_status, u.age_verified, u.bank_verified,
+    u.issofverify, u.gamepass, u.mobile_verify, u.email_verify,
+    u.subscribe, u.subscribepack, u.subscribestartdate, u.subscribeenddate,
+    u.pause_start, u.pause_end,
+    u.last_login_ip, u.current_login_ip,
+    u.last_login, u.account_status, u.created_at,
+
+    COALESCE(w.earnwallet, 0)         AS earnwallet,
+    COALESCE(w.depositwallet, 0)      AS depositwallet,
+    COALESCE(w.bonusamount, 0)        AS bonusamount,
+    COALESCE(w.total_deposits, 0)     AS total_deposits,
+    COALESCE(w.total_withdrawals, 0)  AS total_withdrawals,
+    COALESCE(w.monthly_limit, 0)      AS monthly_limit,
+    COALESCE(w.deposit_limit, 0)      AS deposit_limit,
+    COALESCE(w.limit_reduced_once, 0) AS limit_reduced_once,
+
+    COUNT(DISTINCT ce.id) AS contests_joined
+
+  FROM users u
+  LEFT JOIN wallets w        ON w.user_id  = u.id
+  LEFT JOIN contest_entries ce ON ce.user_id = u.id
+  WHERE u.id = ?
+  GROUP BY u.id, w.user_id
+`;
+
+const TICKETS_QUERY = `
+  SELECT
+    category,
+    SUM(CASE WHEN status = 0 THEN 1 ELSE 0 END) AS pending,
+    SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) AS opened,
+    SUM(CASE WHEN status = 2 THEN 1 ELSE 0 END) AS reacted,
+    SUM(CASE WHEN status = 3 THEN 1 ELSE 0 END) AS resolved,
+    COUNT(*) AS total
+  FROM support_tickets
+  WHERE user_id = ?
+    AND category IN (
+      'wallet','withdrawal','kyc','contest',
+      'technical','bonus','rg','subscription','game'
+    )
+  GROUP BY category
+`;
+
+const ACTIVITY_QUERY = `
+  SELECT id, type, sub_type, title, description, amount, meta, icon, created_at
+  FROM user_activity_log
+  WHERE user_id = ?
+  ORDER BY created_at DESC
+  LIMIT 20
+`;
+
+const TICKET_CATEGORIES = [
+  'wallet','withdrawal','kyc','contest',
+  'technical','bonus','rg','subscription','game',
+];
+
+export const getUserById = async (userId) => {
+  const safeId = parseInt(userId, 10);
+  if (!safeId || safeId < 1) throw new Error('getUserById: invalid userId provided');
+
+  try {
+    const [[userRows], [ticketRows], [activityRows]] = await Promise.all([
+      db.query(USER_WALLET_QUERY, [safeId]),
+      db.query(TICKETS_QUERY,    [safeId]),
+      db.query(ACTIVITY_QUERY,   [safeId]),
+    ]);
+
+    const user = userRows[0];
+    if (!user) throw new Error(`User not found with id: ${safeId}`);
+
+    const ticketMap = {};
+    for (const cat of TICKET_CATEGORIES) {
+      ticketMap[cat] = { pending: 0, opened: 0, reacted: 0, resolved: 0, total: 0 };
+    }
+    for (const row of ticketRows) {
+      ticketMap[row.category] = {
+        pending:  Number(row.pending)  || 0,
+        opened:   Number(row.opened)   || 0,
+        reacted:  Number(row.reacted)  || 0,
+        resolved: Number(row.resolved) || 0,
+        total:    Number(row.total)    || 0,
+      };
+    }
+
+    return {
+      id:                 user.id,
+      name:               user.name,
+      email:              user.email,
+      mobile:             user.mobile,
+      dob:                user.dob,
+      gender:             user.gender,
+      address:            user.address,
+      referralid:         user.referralid,
+      account_status:     user.account_status,
+      created_at:         user.created_at,
+      last_login:         user.last_login,
+
+      kyc_status:         user.kyc_status,
+      age_verified:       user.age_verified,
+      bank_verified:      user.bank_verified,
+      issofverify:        user.issofverify,
+      mobile_verify:      user.mobile_verify,
+      email_verify:       user.email_verify,
+      gamepass:           user.gamepass,
+
+      subscribe:          user.subscribe,
+      subscribepack:      user.subscribepack,
+      subscribestartdate: user.subscribestartdate,
+      subscribeenddate:   user.subscribeenddate,
+      pause_start:        user.pause_start,
+      pause_end:          user.pause_end,
+
+      last_login_ip:      user.last_login_ip,
+      current_login_ip:   user.current_login_ip,
+
+      wallet: {
+        earnwallet:        Number(user.earnwallet),
+        depositwallet:     Number(user.depositwallet),
+        bonusamount:       Number(user.bonusamount),
+        total_deposits:    Number(user.total_deposits),
+        total_withdrawals: Number(user.total_withdrawals),
+        monthly_limit:     Number(user.monthly_limit),
+        deposit_limit:     Number(user.deposit_limit),
+        limit_reduced_once:Number(user.limit_reduced_once),
+      },
+
+      contests_joined: Number(user.contests_joined) || 0,
+
+      support_tickets: ticketMap,
+
+      recent_activity: activityRows.map(row => ({
+        id:          row.id,
+        type:        row.type,
+        sub_type:    row.sub_type,
+        title:       row.title,
+        description: row.description,
+        amount:      row.amount !== null ? Number(row.amount) : null,
+        meta:        row.meta,
+        icon:        row.icon,
+        created_at:  row.created_at,
+      })),
+    };
+  } catch (err) {
+    throw new Error(`getUserById service error: ${err.message}`);
+  }
+};
+
+
+
+//User and Game  Policies 
+// ── Policy: create category ───────────────────────────────────────────────
+export const createPolicyCategoryService = async (adminId, body) => {
+  const { slug, display_name,category_group, description = null, screen, is_mandatory = 1, sort_order = 0 } = body;
+  if (!slug || !display_name || !screen) {
+    throw new Error('slug, display_name, and screen are required');
+  }
+  try {
+    const [result] = await db.query(
+      `INSERT INTO policy_categories
+         (slug, display_name,category_group, description, screen, is_mandatory, is_active, sort_order, created_at)
+       VALUES (?, ?, ?,?, ?, ?, 1, ?, NOW())`,
+      [slug.trim(), display_name.trim(),category_group, description, screen.trim(), is_mandatory ? 1 : 0, sort_order]
+    );
+    return { category_id: result.insertId };
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') throw new Error(`Slug '${slug}' already exists`);
+    throw new Error(`createPolicyCategoryService error: ${err.message}`);
+  }
+};
+
+// ── Policy: update category ───────────────────────────────────────────────
+export const updatePolicyCategoryService = async (adminId, categoryId, body) => {
+  const safeId = parseInt(categoryId, 10);
+  if (!safeId) throw new Error('Invalid categoryId');
+
+  const allowed  = ['display_name', 'description', 'screen', 'is_mandatory', 'is_active', 'sort_order'];
+  const fields   = [];
+  const values   = [];
+
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(body[key]);
+    }
+  }
+  if (fields.length === 0) throw new Error('No valid fields provided to update');
+  values.push(safeId);
+
+  try {
+    const [result] = await db.query(
+      `UPDATE policy_categories SET ${fields.join(', ')} WHERE id = ?`,
+      values
+    );
+    if (result.affectedRows === 0) throw new Error('Category not found');
+    return { updated: true };
+  } catch (err) {
+    throw new Error(`updatePolicyCategoryService error: ${err.message}`);
+  }
+};
+
+// ── Policy: get all categories ────────────────────────────────────────────
+export const getPolcyCategoriesService = async () => {
+  try {
+    const [rows] = await db.query(
+      `SELECT
+         pc.*,
+         COUNT(pv.id)                                    AS total_versions,
+         SUM(CASE WHEN pv.is_active = 1 THEN 1 ELSE 0 END) AS has_active_version
+       FROM policy_categories pc
+       LEFT JOIN policy_versions pv ON pv.category_id = pc.id
+       GROUP BY pc.id
+       ORDER BY pc.sort_order ASC`
+    );
+    return rows;
+  } catch (err) {
+    throw new Error(`getPolcyCategoriesService error: ${err.message}`);
+  }
+};
+
+// ── Policy: publish new version (auto-deactivates previous) ──────────────
+export const publishPolicyVersionService = async (adminId, categoryId, body) => {
+  const safeId = parseInt(categoryId, 10);
+  if (!safeId) throw new Error('Invalid categoryId');
+
+  const { version_number, title, content, summary = null, effective_date } = body;
+  if (!version_number || !title || !content || !effective_date) {
+    throw new Error('version_number, title, content, effective_date are required');
+  }
+
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    const [[cat]] = await conn.query(
+      `SELECT id FROM policy_categories WHERE id = ? AND is_active = 1`,
+      [safeId]
+    );
+    if (!cat) throw new Error('Policy category not found or inactive');
+
+    await conn.query(
+      `UPDATE policy_versions SET is_active = 0 WHERE category_id = ?`,
+      [safeId]
+    );
+
+    const [result] = await conn.query(
+      `INSERT INTO policy_versions
+         (category_id, version_number, title, content, summary,
+          is_active, effective_date, created_by, created_at)
+       VALUES (?, ?, ?, ?, ?, 1, ?, ?, NOW())`,
+      [safeId, version_number.trim(), title.trim(), content, summary, effective_date, adminId]
+    );
+
+    await conn.commit();
+    return { policy_version_id: result.insertId, version_number };
+  } catch (err) {
+    await conn.rollback();
+    if (err.code === 'ER_DUP_ENTRY') {
+      throw new Error(`Version '${version_number}' already exists for this category`);
+    }
+    throw new Error(`publishPolicyVersionService error: ${err.message}`);
+  } finally {
+    conn.release();
+  }
+};
+
+// ── Policy: update version metadata (not content — never edit accepted content) ──
+export const updatePolicyVersionService = async (adminId, versionId, body) => {
+  const safeId = parseInt(versionId, 10);
+  if (!safeId) throw new Error('Invalid versionId');
+
+  const allowed = ['title', 'summary', 'effective_date'];
+  const fields  = [];
+  const values  = [];
+
+  for (const key of allowed) {
+    if (body[key] !== undefined) {
+      fields.push(`${key} = ?`);
+      values.push(body[key]);
+    }
+  }
+  if (fields.length === 0) throw new Error('No valid fields to update');
+  values.push(safeId);
+
+  try {
+    const [result] = await db.query(
+      `UPDATE policy_versions SET ${fields.join(', ')} WHERE id = ?`,
+      values
+    );
+    if (result.affectedRows === 0) throw new Error('Version not found');
+    return { updated: true };
+  } catch (err) {
+    throw new Error(`updatePolicyVersionService error: ${err.message}`);
+  }
+};
+
+// ── Policy: acceptance report for a version ──────────────────────────────
+export const getPolicyAcceptanceReportService = async (versionId) => {
+  const safeId = parseInt(versionId, 10);
+  if (!safeId) throw new Error('Invalid versionId');
+
+  try {
+    const [[version]] = await db.query(
+      `SELECT pv.*, pc.display_name AS category_name
+       FROM policy_versions pv
+       JOIN policy_categories pc ON pc.id = pv.category_id
+       WHERE pv.id = ?`,
+      [safeId]
+    );
+    if (!version) throw new Error('Policy version not found');
+
+    const [[stats]] = await db.query(
+      `SELECT
+         COUNT(*)  AS total_accepted,
+         COUNT(CASE WHEN u.account_status = 'active' THEN 1 END) AS active_users_accepted
+       FROM user_policy_acceptances upa
+       JOIN users u ON u.id = upa.user_id
+       WHERE upa.policy_version_id = ?`,
+      [safeId]
+    );
+
+    return { version, stats };
+  } catch (err) {
+    throw new Error(`getPolicyAcceptanceReportService error: ${err.message}`);
   }
 };

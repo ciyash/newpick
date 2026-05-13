@@ -2,6 +2,8 @@ import { Router } from "express";
 import * as c from "./admin.controller.js";
 import * as v from "./admin.validation.js";
 import { adminAuth, adminLimiter } from "../../middlewares/adminAuth.middleware.js";
+import { buildPrizeDistribution } from "./lib/prize_distributionv2.js";
+import { newCreateContestService } from "./admin.service.js";
 import sportmonksRoutes from '../sportmonks/sportmonks.router.js'
 import testRoutes from '../test/test.routes.js'
 
@@ -12,7 +14,10 @@ router.use(adminLimiter);
 router.post("/createemployee",        adminAuth(["super_admin"]), v.createAdmin,  c.createAdmin);
 router.get("/getemployee",            adminAuth(["super_admin"]),                 c.getAdmins);
 router.get("/getemployeebyid/:id",    adminAuth(["super_admin"]),                 c.getAdminById);
-router.put("/updateemployee/:id",     adminAuth(["super_admin"]), v.updateAdmin,  c.updateAdmin);  
+router.put("/updateemployee/:id",     adminAuth(["super_admin"]), v.updateAdmin,  c.updateAdmin);
+// permissions
+router.get("/getpermissions/:id",    adminAuth(["super_admin"]), c.getAdminPermissions);
+router.put("/updatepermissions/:id", adminAuth(["super_admin"]), c.updateAdminPermissions);  
 //series
 router.post("/createseries",          adminAuth(), v.createSeries,  c.createSeries);
 router.get("/getseries",              adminAuth(),                   c.getSeries);
@@ -50,8 +55,62 @@ router.get("/getcontestbyteam/:teamId",     adminAuth(),             c.getContes
 router.get("/getContestsbyusers",            adminAuth(),                   c.getContestsbyusers);
 
 
-router.post("/contest/new", adminAuth, c.newCreateContestController);
-router.post("/contest/preview-prizes", adminAuth, c.previewPrizeDistributionController);
+// Preview prizes — no DB write, pure calculation
+router.post("/contest/preview-prizes", adminAuth(), async (req, res) => {
+  try {
+    const entry_fee        = Number(req.body.entry_fee);
+    const platform_fee_pct = Number(req.body.platform_fee_pct);
+    const max_entries      = parseInt(req.body.max_entries, 10);
+    const winner_percent   = Number(req.body.winner_percent);
+
+    if (!entry_fee || isNaN(entry_fee))
+      return res.status(400).json({ success: false, message: "entry_fee is required" });
+    if (!max_entries || isNaN(max_entries))
+      return res.status(400).json({ success: false, message: "max_entries is required" });
+    if (!winner_percent || isNaN(winner_percent))
+      return res.status(400).json({ success: false, message: "winner_percent is required" });
+    if (isNaN(platform_fee_pct))
+      return res.status(400).json({ success: false, message: "platform_fee_pct is required" });
+
+    const distribution = buildPrizeDistribution({
+      maxEntries:         max_entries,
+      entryFee:           entry_fee,
+      platformFeePercent: platform_fee_pct,
+      winnerPercent:      winner_percent,
+    });
+
+    return res.status(200).json({
+      success:            true,
+      summary:            distribution.summary,
+      zones:              distribution.zones,
+      prize_distribution: distribution.prize_distribution,
+    });
+  } catch (err) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// New create contest — saves to DB using new prize model
+router.post("/contest/new", adminAuth(), async (req, res) => {
+  try {
+    const result = await newCreateContestService(
+      {
+        match_id:       req.body.match_id,
+        contest_type:   req.body.contest_type,
+        max_entries:    parseInt(req.body.max_entries, 10),
+        winner_percent: Number(req.body.winner_percent),
+        status:         req.body.status,
+      },
+      req.admin,
+      req.ip
+    );
+    return res.status(201).json(result);
+  } catch (err) {
+    const known = ["not found","must be","already exists","Invalid","UPCOMING","entry fee","validation"];
+    const isKnown = known.some(e => err.message?.includes(e));
+    return res.status(isKnown ? 400 : 500).json({ success: false, message: err.message });
+  }
+});
 
 //contest category
 router.post("/createcontestcategory", adminAuth(), v.createContestCategory, c.createContestCategory);
@@ -81,6 +140,8 @@ router.post("/fetchusers",            adminAuth(), c.fetchUsers);
 router.post("/fetchusersbykyc",       adminAuth(), c.fetchUsersByKycStatus);
 router.post("/fetchusersbyaccount",   adminAuth(), c.fetchUsersByAccountStatus);
 router.get("/getUsersByType",            adminAuth(), c.getUsersByType);
+router.get("/getUserDetails",            adminAuth(), c.getUserDetails);
+router.get("/getuserbyid/:id",           adminAuth(), c.getUserById);
 
 
 //Expenditure
@@ -104,4 +165,15 @@ router.get("/match-live/:match_id",   c.setMatchLive);
 // Match RESULT process చేయి (ranks + winnings + wallet credit)
 router.get("/match-result/:match_id", c.processMatchResult);
 
-export default router;     
+
+// ── Policy category routes ────────────────────────────────────────────────
+router.get('/policies/categories',             adminAuth(), c.getPolicyCategories);
+router.post('/policies/categories',            adminAuth(), c.createPolicyCategory);
+router.put('/policies/categories/:id',         adminAuth(), c.updatePolicyCategory);
+
+// ── Policy version routes ─────────────────────────────────────────────────
+router.post('/policies/:categoryId/versions',            adminAuth(), c.publishPolicyVersion);
+router.put('/policies/versions/:versionId',             adminAuth(), c.updatePolicyVersion);
+router.get('/policies/versions/:versionId/report',       adminAuth(), c.getPolicyAcceptanceReport);
+
+export default router;
